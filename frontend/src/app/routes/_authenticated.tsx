@@ -1,5 +1,6 @@
 import { createRoute, redirect } from '@tanstack/react-router'
 import { Route as rootRoute } from './__root'
+import { AppShell } from '@/shared/ui/AppShell'
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -14,4 +15,5 @@ export const Route = createRoute({
       })
     }
   },
+  component: AppShell,
 })
