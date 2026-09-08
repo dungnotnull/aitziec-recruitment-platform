@@ -2,6 +2,9 @@ import * as React from "react"
 import { useForm, useFieldArray } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { updateMyProfile } from "../api"
+import type { CandidateProfile } from "@/api/types"
 import { Button } from "@/shared/ui/button"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
@@ -21,21 +24,56 @@ const experienceSchema = z.object({
 
 type ExperienceValues = z.infer<typeof experienceSchema>
 
-export function WorkExperienceEditor() {
-  const { register, control, handleSubmit, watch, formState: { errors } } = useForm<ExperienceValues>({
+export function WorkExperienceEditor({ profile }: { profile?: CandidateProfile }) {
+  const queryClient = useQueryClient()
+  const { register, control, handleSubmit, watch, formState: { errors }, reset } = useForm<ExperienceValues>({
     resolver: zodResolver(experienceSchema),
     defaultValues: {
       roles: []
     }
   })
 
+  React.useEffect(() => {
+    if (profile?.experiences) {
+      reset({
+        roles: profile.experiences.map(exp => ({
+          id: exp.id,
+          company: exp.companyName,
+          title: exp.title,
+          startDate: exp.startDate.substring(0, 7), // map ISO to YYYY-MM
+          endDate: exp.endDate ? exp.endDate.substring(0, 7) : undefined,
+          isCurrent: !exp.endDate
+        }))
+      })
+    }
+  }, [profile, reset])
+
   const { fields, append, remove } = useFieldArray({
     control,
     name: "roles"
   })
 
+  const mutation = useMutation({
+    mutationFn: (data: ExperienceValues) => {
+      if (!profile) throw new Error("Profile not loaded")
+      return updateMyProfile({
+        expectedVersion: profile.version,
+        experiences: data.roles.map(r => ({
+          id: r.id,
+          companyName: r.company,
+          title: r.title,
+          startDate: r.startDate ? new Date(`${r.startDate}-01`).toISOString() : new Date().toISOString(),
+          endDate: r.isCurrent || !r.endDate ? null : new Date(`${r.endDate}-01`).toISOString(),
+        }))
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['candidate-profile'] })
+    }
+  })
+
   const onSubmit = (data: ExperienceValues) => {
-    console.log("Saving work experience:", data)
+    mutation.mutate(data)
   }
 
   return (
@@ -69,14 +107,14 @@ export function WorkExperienceEditor() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Company</Label>
-                      <Input {...register(`roles.${index}.company`)} placeholder="e.g. Acme Corp" />
+                      <Input {...register(`roles.${index}.company`)} placeholder="e.g. Acme Corp" disabled={mutation.isPending} />
                       {errors.roles?.[index]?.company && (
                         <p className="text-sm text-danger">{errors.roles[index].company.message}</p>
                       )}
                     </div>
                     <div className="space-y-2">
                       <Label>Title</Label>
-                      <Input {...register(`roles.${index}.title`)} placeholder="e.g. Software Engineer" />
+                      <Input {...register(`roles.${index}.title`)} placeholder="e.g. Software Engineer" disabled={mutation.isPending} />
                       {errors.roles?.[index]?.title && (
                         <p className="text-sm text-danger">{errors.roles[index].title.message}</p>
                       )}
@@ -86,24 +124,29 @@ export function WorkExperienceEditor() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Start Date</Label>
-                      <Input type="month" {...register(`roles.${index}.startDate`)} />
+                      <Input type="month" {...register(`roles.${index}.startDate`)} disabled={mutation.isPending} />
                     </div>
                     <div className="space-y-2">
                       <Label>End Date</Label>
-                      <Input type="month" {...register(`roles.${index}.endDate`)} disabled={isCurrent} />
+                      <Input type="month" {...register(`roles.${index}.endDate`)} disabled={isCurrent || mutation.isPending} />
                     </div>
                   </div>
 
                   <div className="flex items-center space-x-2">
-                    <input type="checkbox" id={`current-${index}`} {...register(`roles.${index}.isCurrent`)} className="rounded border-border text-action focus:ring-action" />
+                    <input type="checkbox" id={`current-${index}`} {...register(`roles.${index}.isCurrent`)} className="rounded border-border text-action focus:ring-action" disabled={mutation.isPending} />
                     <Label htmlFor={`current-${index}`}>I currently work here</Label>
                   </div>
                 </div>
               )
             })
           )}
+          {mutation.isError && (
+            <p className="text-sm text-danger">Failed to save experiences.</p>
+          )}
           {fields.length > 0 && (
-            <Button type="submit">Save Experience</Button>
+            <Button type="submit" disabled={mutation.isPending}>
+              {mutation.isPending ? "Saving..." : "Save Experience"}
+            </Button>
           )}
         </form>
       </CardContent>

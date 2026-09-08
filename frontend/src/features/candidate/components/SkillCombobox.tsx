@@ -1,27 +1,56 @@
 import * as React from "react"
 import { Check, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/shared/ui/button"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { updateMyProfile } from "../api"
+import type { CandidateProfile } from "@/api/types"
 
 const skillsDB = [
   "React", "TypeScript", "Node.js", "Python", "Go", "Java", "Docker", "Kubernetes", "AWS"
 ]
 
-export function SkillCombobox() {
+export function SkillCombobox({ profile }: { profile?: CandidateProfile }) {
   const [open, setOpen] = React.useState(false)
-  const [selected, setSelected] = React.useState<string[]>([])
   const [search, setSearch] = React.useState("")
+  const queryClient = useQueryClient()
+
+  const selected = profile?.skills.map(s => s.name) || []
+
+  const mutation = useMutation({
+    mutationFn: (newSkills: string[]) => {
+      if (!profile) throw new Error("Profile not loaded")
+      return updateMyProfile({
+        expectedVersion: profile.version,
+        skills: newSkills.map(s => ({
+          skillId: `skill-${s.toLowerCase().replace(/[^a-z0-9]/g, '-')}`, // Mock generation for now
+          name: s,
+          yearsOfExperience: null
+        }))
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['candidate-profile'] })
+    }
+  })
 
   const filtered = skillsDB.filter(s => s.toLowerCase().includes(search.toLowerCase()))
 
   const toggleSkill = (skill: string) => {
-    setSelected(prev => prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill])
+    if (mutation.isPending) return;
+    const newSelected = selected.includes(skill) 
+      ? selected.filter(s => s !== skill) 
+      : [...selected, skill]
+    mutation.mutate(newSelected)
   }
 
   return (
     <div className="relative">
       <div 
-        className="flex min-h-10 w-full items-center justify-between rounded-md border border-border bg-surface px-3 py-2 text-sm ring-offset-canvas cursor-pointer"
-        onClick={() => setOpen(!open)}
+        className={cn(
+          "flex min-h-10 w-full items-center justify-between rounded-md border border-border bg-surface px-3 py-2 text-sm ring-offset-canvas cursor-pointer",
+          mutation.isPending && "opacity-50 cursor-not-allowed"
+        )}
+        onClick={() => !mutation.isPending && setOpen(!open)}
       >
         <div className="flex flex-wrap gap-1">
           {selected.length === 0 ? <span className="text-slate">Select skills...</span> : 

@@ -2,11 +2,13 @@ import * as React from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { updateMyProfile } from "../api"
+import type { CandidateProfile } from "@/api/types"
 import { Button } from "@/shared/ui/button"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/shared/ui/dialog"
-import { useAuth } from "@/features/auth/context"
 
 const profileSchema = z.object({
   fullName: z.string().min(1, "Full name is required"),
@@ -16,23 +18,47 @@ const profileSchema = z.object({
 
 type ProfileValues = z.infer<typeof profileSchema>
 
-export function ProfileEditor() {
-  const { session } = useAuth()
+export function ProfileEditor({ profile }: { profile?: CandidateProfile }) {
   const [open, setOpen] = React.useState(false)
+  const queryClient = useQueryClient()
 
-  const { register, handleSubmit, formState: { errors } } = useForm<ProfileValues>({
+  const { register, handleSubmit, formState: { errors }, reset } = useForm<ProfileValues>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
-      fullName: "",
-      phone: "",
-      headline: "",
+      fullName: profile?.fullName || "",
+      phone: profile?.phone || "",
+      headline: profile?.headline || "",
+    }
+  })
+
+  React.useEffect(() => {
+    if (profile) {
+      reset({
+        fullName: profile.fullName || "",
+        phone: profile.phone || "",
+        headline: profile.headline || "",
+      })
+    }
+  }, [profile, reset])
+
+  const mutation = useMutation({
+    mutationFn: (data: ProfileValues) => {
+      if (!profile) throw new Error("Profile not loaded")
+      return updateMyProfile({
+        expectedVersion: profile.version,
+        fullName: data.fullName,
+        phone: data.phone || null,
+        headline: data.headline || null,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['candidate-profile'] })
+      setOpen(false)
     }
   })
 
   const onSubmit = (data: ProfileValues) => {
-    // Mock save
-    console.log("Saving profile:", data)
-    setOpen(false)
+    mutation.mutate(data)
   }
 
   return (
@@ -47,19 +73,24 @@ export function ProfileEditor() {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-4">
           <div className="space-y-2">
             <Label htmlFor="fullName">Full Name</Label>
-            <Input id="fullName" {...register("fullName")} />
+            <Input id="fullName" {...register("fullName")} disabled={mutation.isPending} />
             {errors.fullName && <p className="text-sm text-danger">{errors.fullName.message}</p>}
           </div>
           <div className="space-y-2">
             <Label htmlFor="phone">Phone Number</Label>
-            <Input id="phone" {...register("phone")} />
+            <Input id="phone" {...register("phone")} disabled={mutation.isPending} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="headline">Professional Headline</Label>
-            <Input id="headline" placeholder="e.g. Senior Frontend Engineer" {...register("headline")} />
+            <Input id="headline" placeholder="e.g. Senior Frontend Engineer" {...register("headline")} disabled={mutation.isPending} />
           </div>
+          {mutation.isError && (
+            <p className="text-sm text-danger">Failed to save profile. Please try again.</p>
+          )}
           <div className="flex justify-end pt-4">
-            <Button type="submit">Save Changes</Button>
+            <Button type="submit" disabled={mutation.isPending}>
+              {mutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
           </div>
         </form>
       </DialogContent>
