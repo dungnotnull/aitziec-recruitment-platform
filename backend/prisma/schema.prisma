@@ -1,0 +1,193 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  CANDIDATE
+  HR
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum CompanyMemberRole {
+  OWNER
+  RECRUITER
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  role         UserRole
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  refreshSessions     RefreshSession[]
+  candidateProfile    CandidateProfile?
+  companyMemberships  CompanyMembership[]
+  auditLogs           AuditLog[]
+
+  @@map("users")
+}
+
+model RefreshSession {
+  id         String   @id @default(uuid())
+  userId     String
+  familyId   String
+  tokenHash  String
+  isRevoked  Boolean  @default(false)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([tokenHash])
+  @@map("refresh_sessions")
+}
+
+model CandidateProfile {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  fullName            String
+  headline            String?
+  phone               String?
+  location            String?
+  bio                 String?
+  isSearchable        Boolean  @default(true)
+  profileCompleteness Int      @default(0)
+  defaultCvId         String?
+  version             Int      @default(1)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skills      CandidateSkill[]
+  experiences WorkExperience[]
+
+  @@map("candidate_profiles")
+}
+
+model Skill {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  candidates CandidateSkill[]
+
+  @@map("skills")
+}
+
+model CandidateSkill {
+  id                 String   @id @default(uuid())
+  candidateProfileId String
+  skillId            String
+  yearsOfExperience  Int?
+  createdAt          DateTime @default(now())
+
+  candidateProfile CandidateProfile @relation(fields: [candidateProfileId], references: [id], onDelete: Cascade)
+  skill            Skill            @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateProfileId, skillId])
+  @@map("candidate_skills")
+}
+
+model WorkExperience {
+  id                 String    @id @default(uuid())
+  candidateProfileId String
+  companyName        String
+  title              String
+  startDate          DateTime
+  endDate            DateTime?
+  description        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  candidateProfile CandidateProfile @relation(fields: [candidateProfileId], references: [id], onDelete: Cascade)
+
+  @@map("work_experiences")
+}
+
+model Company {
+  id          String        @id @default(uuid())
+  slug        String        @unique
+  name        String
+  description String?
+  websiteUrl  String?
+  logoUrl     String?
+  location    String?
+  status      CompanyStatus @default(ACTIVE)
+  version     Int           @default(1)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  members CompanyMembership[]
+
+  @@map("companies")
+}
+
+model CompanyMembership {
+  id        String            @id @default(uuid())
+  companyId String
+  userId    String
+  role      CompanyMemberRole
+  createdAt DateTime          @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId])
+  @@map("company_memberships")
+}
+
+model OutboxEvent {
+  id            String    @id @default(uuid())
+  eventId       String    @unique
+  eventName     String
+  eventVersion  Int       @default(1)
+  aggregateType String
+  aggregateId   String
+  payload       Json
+  occurredAt    DateTime  @default(now())
+  requestId     String?
+  actorId       String?
+  dispatchedAt  DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([dispatchedAt])
+  @@map("outbox_events")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  action     String
+  targetType String
+  targetId   String
+  requestId  String?
+  metadata   Json?
+  occurredAt DateTime @default(now())
+
+  user User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([targetType, targetId])
+  @@map("audit_logs")
+}

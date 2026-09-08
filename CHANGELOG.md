@@ -14,7 +14,35 @@ available.
 
 ### Added
 
-- No unreleased runtime capability has been verified.
+- **Phase 1 (Platform Foundation)**:
+  - NestJS 10 application scaffold with strict TypeScript (`tsconfig.json`, `tsconfig.build.json`) and zero-warning linting setup (`.eslintrc.js`, `.prettierrc`).
+  - Runtime environment configuration with `class-validator` validation and sensitive error redaction (`src/config/`).
+  - Docker Compose infrastructure for local development: PostgreSQL 16, Redis 7, MinIO S3-compatible storage, and Mailpit (`backend/docker-compose.yml`).
+  - Initial Prisma schema and relational migration (`prisma/schema.prisma`, `prisma/migrations/20260908000000_init/migration.sql`) defining User, RefreshSession, CandidateProfile, Skill, CandidateSkill, WorkExperience, Company, CompanyMembership, OutboxEvent, and AuditLog.
+  - Redis connection lifecycle management and BullMQ queue infrastructure with exponential backoff retries (`src/redis/`, `src/queues/`).
+  - Transactional Outbox pattern service for atomic event persistence and delivery (`src/outbox/`).
+  - Append-only structured audit logging and JSON application logger with automatic credential/CV redaction (`src/audit/`, `src/logging/`).
+  - Request ID tracking middleware validating UUID format (`X-Request-Id`) and propagating across logs, responses, and errors (`src/common/middleware/`).
+  - Central exception filter (`AllExceptionsFilter`) and response transform interceptor (`ResponseTransformInterceptor`) mapping errors and responses strictly to contract envelopes without stack trace leakage.
+  - Global `ContractValidationPipe` returning standard `VALIDATION_ERROR` responses with field-level details.
+  - OpenAPI Swagger documentation at `/api/docs` and platform health endpoints `/api/v1/health/live` and `/api/v1/health/ready`.
+- **Phase 2 (Identity, Access, and Profiles)**:
+  - User and RefreshSession domain modeling in Prisma with normalized lowercase email handling and unique constraints (`src/users/`).
+  - Secure password hashing using Argon2id with memory-hard parameters (`19 MiB`, `2 iterations`) via `PasswordService` (`src/auth/password.service.ts`).
+  - Full authentication lifecycle: user registration for `CANDIDATE` and `HR`, login with minimal JWT access tokens (15m expiry), and rotating `HttpOnly` refresh session cookies (`itziec_refresh`, 7d expiry).
+  - Token-family refresh rotation with immediate reuse-attack detection and family revocation returning `401 REFRESH_TOKEN_REUSED` (`src/auth/auth.service.ts`).
+  - Single-session logout and global `logout-all` revoking all active sessions for the user.
+  - Role-based access control (`JwtAuthGuard`, `RolesGuard`) with account suspension enforcement (`403 ACCOUNT_SUSPENDED`).
+  - Auth rate limiting guard (`AuthRateLimitGuard`) with `X-RateLimit-*` headers and `429 RATE_LIMITED` response.
+  - Candidate profile management (`GET /candidates/me`, `PATCH /candidates/me`) with optimistic concurrency (`expectedVersion`, `409 VERSION_CONFLICT`) and deterministic completeness calculation (`src/candidates/`).
+  - Company lifecycle and recruiter management: company creation with automatic owner membership (`POST /companies`), public/scoped profile read (`GET /companies/:companyIdOrSlug`), owner/admin update with optimistic concurrency (`PATCH /companies/:companyId`), and direct member management (`/companies/:companyId/members`) protecting against the removal of the final active owner (`400 LAST_COMPANY_OWNER`).
+  - Reusable company-scope authorization service (`CompanyScopeService`) and company suspension enforcement (`403 COMPANY_SUSPENDED`).
+  - Comprehensive test suite: 11 unit test suites (32 tests) and 4 E2E test suites (30 tests) covering registration, login, token rotation, reuse attacks, optimistic concurrency, RBAC, and security matrices.
+
+### Fixed
+
+- Resolved issue **BEI-005**: Verified refresh-cookie attributes (`HttpOnly`, `SameSite=Lax`, path-scoped `/api/v1/auth`), credentialed CORS origin allowlisting, and CSRF protection model with automated E2E tests.
+- Resolved issue **BEI-007**: Benchmarked and selected Argon2id algorithm with versioned memory-hard parameters for password hashing.
 
 ### Changed
 

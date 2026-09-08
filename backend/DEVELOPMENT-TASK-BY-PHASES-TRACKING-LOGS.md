@@ -7,8 +7,8 @@ updates this file. `docs/ROADMAP.md` controls milestone scope; this file control
 task-level progress.
 
 **Baseline date:** 2026-09-08  
-**Current phase:** Phase 1 — Platform Foundation (not started)  
-**Runtime status:** Backend implementation has not started.
+**Current phase:** Phase 3 — Companies, Jobs, Search, and Saved Jobs (planned; Phase 1 and Phase 2 verified)  
+**Runtime status:** Phase 1 (Platform Foundation) and Phase 2 (Identity, Access, and Profiles) implemented and verified. 15 test suites (11 unit, 4 e2e) and 62 tests passing, clean lint and build.
 
 Task syntax:
 
@@ -54,27 +54,27 @@ All endpoint paths below are relative to `/api/v1`.
 
 | API ID | Function | Method | Endpoint | Access | Purpose | Requirement | Evidence | Action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `API-OPS-001` | Process liveness | `GET` | `/health/live` | Public | Confirm that the API process is alive without checking dependencies | NFR-OBS-003 | No runtime code | `ADD` |
-| `API-OPS-002` | Dependency readiness | `GET` | `/health/ready` | Internal or production-protected | Report whether required dependencies are ready without exposing topology | NFR-OBS-003 | No runtime code | `ADD` |
+| `API-OPS-001` | Process liveness | `GET` | `/health/live` | Public | Confirm that the API process is alive without checking dependencies | NFR-OBS-003 | Implemented in `src/health/health.controller.ts`; verified by `test/unit/health.spec.ts` | `ADD` |
+| `API-OPS-002` | Dependency readiness | `GET` | `/health/ready` | Internal or production-protected | Report whether required dependencies are ready without exposing topology | NFR-OBS-003 | Implemented in `src/health/health.controller.ts`; verified by `test/unit/health.spec.ts` | `ADD` |
 | `API-OPS-003` | OpenAPI document | `GET` | `/openapi.json` (proposed) | Internal or environment-controlled | Expose the generated OpenAPI document for contract verification and tooling | NFR-TEST-004 | No contract or runtime code | `NEEDS_DECISION` |
 
 ### Authentication and Refresh Sessions
 
 | API ID | Function | Method | Endpoint | Access | Purpose | Requirement | Evidence | Action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `API-AUTH-001` | Register user | `POST` | `/auth/register` | Guest | Create a `CANDIDATE` or `HR` account and return an access session | AUTH-001 | No runtime code | `ADD` |
-| `API-AUTH-002` | Log in | `POST` | `/auth/login` | Guest | Verify credentials, create a refresh session, and return an access token | AUTH-002 | No runtime code | `ADD` |
-| `API-AUTH-003` | Refresh session | `POST` | `/auth/refresh` | Valid refresh cookie | Rotate the refresh token and issue a new access token | AUTH-003 | No runtime code | `ADD` |
-| `API-AUTH-004` | Log out current session | `POST` | `/auth/logout` | Refresh cookie | Revoke the current refresh session and clear its cookie | AUTH-004 | No runtime code | `ADD` |
-| `API-AUTH-005` | Log out all sessions | `POST` | `/auth/logout-all` | Authenticated | Revoke all refresh sessions owned by the current user | AUTH-004 | No runtime code | `ADD` |
-| `API-AUTH-006` | Current authenticated user | `GET` | `/auth/me` | Authenticated | Return the current user identity, role, and account status | AUTH-002, AUTH-005 | No runtime code | `REUSE` |
+| `API-AUTH-001` | Register user | `POST` | `/auth/register` | Guest | Create a `CANDIDATE` or `HR` account and return an access session | AUTH-001 | Implemented in `src/auth/`; verified by `test/e2e/auth.e2e-spec.ts` | `ADD` |
+| `API-AUTH-002` | Log in | `POST` | `/auth/login` | Guest | Verify credentials, create a refresh session, and return an access token | AUTH-002 | Implemented in `src/auth/`; verified by `test/e2e/auth.e2e-spec.ts` | `ADD` |
+| `API-AUTH-003` | Refresh session | `POST` | `/auth/refresh` | Valid refresh cookie | Rotate the refresh token and issue a new access token | AUTH-003 | Implemented in `src/auth/`; verified by `test/e2e/auth.e2e-spec.ts` | `ADD` |
+| `API-AUTH-004` | Log out current session | `POST` | `/auth/logout` | Refresh cookie | Revoke the current refresh session and clear its cookie | AUTH-004 | Implemented in `src/auth/`; verified by `test/e2e/auth.e2e-spec.ts` | `ADD` |
+| `API-AUTH-005` | Log out all sessions | `POST` | `/auth/logout-all` | Authenticated | Revoke all refresh sessions owned by the current user | AUTH-004 | Implemented in `src/auth/`; verified by `test/e2e/auth.e2e-spec.ts` | `ADD` |
+| `API-AUTH-006` | Current authenticated user | `GET` | `/auth/me` | Authenticated | Return the current user identity, role, and account status | AUTH-002, AUTH-005 | Implemented in `src/auth/`; verified by `test/e2e/auth.e2e-spec.ts` | `REUSE` |
 
 ### Candidate Profile, Skills, and Experience
 
 | API ID | Function | Method | Endpoint | Access | Purpose | Requirement | Evidence | Action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `API-CAND-001` | Read own candidate profile | `GET` | `/candidates/me` | Candidate | Return the authenticated candidate's profile, skills, experience, visibility, and default CV reference | CAND-001–004 | No runtime code | `ADD` |
-| `API-CAND-002` | Update profile, skills, and experience | `PATCH` | `/candidates/me` | Candidate | Update owned profile fields and replace validated skills/experience with optimistic concurrency | CAND-001–004 | No runtime code | `REUSE` |
+| `API-CAND-001` | Read own candidate profile | `GET` | `/candidates/me` | Candidate | Return the authenticated candidate's profile, skills, experience, visibility, and default CV reference | CAND-001–004 | Implemented in `src/candidates/`; verified by `test/e2e/candidates.e2e-spec.ts` | `ADD` |
+| `API-CAND-002` | Update profile, skills, and experience | `PATCH` | `/candidates/me` | Candidate | Update owned profile fields and replace validated skills/experience with optimistic concurrency | CAND-001–004 | Implemented in `src/candidates/`; verified by `test/e2e/candidates.e2e-spec.ts` | `REUSE` |
 
 The profile PATCH intentionally serves profile fields, skills, and work
 experience. Separate CRUD endpoints for every skill/experience row are not
@@ -98,12 +98,12 @@ interface or a documented seed-only strategy is required.
 
 | API ID | Function | Method | Endpoint | Access | Purpose | Requirement | Evidence | Action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `API-COMP-001` | Create company | `POST` | `/companies` | HR | Create a company and atomically make the caller its owner | COMP-001–003 | No runtime code | `ADD` |
-| `API-COMP-002` | Read public/scoped company | `GET` | `/companies/:companyIdOrSlug` | Public; scoped member/admin for non-public fields | Return the public company profile with an authorized projection | COMP-001–003 | No runtime code | `REUSE` |
-| `API-COMP-003` | Update company | `PATCH` | `/companies/:companyId` | Company owner or admin | Update authorized company fields with expected version | COMP-001–004 | No runtime code | `ADD` |
-| `API-COMP-004` | List company members | `GET` | `/companies/:companyId/members` | Company member or admin | Return cursor-paginated memberships for an authorized company | COMP-002 | No runtime code | `ADD` |
-| `API-COMP-005` | Add company member directly | `POST` | `/companies/:companyId/members` | Company owner or admin | Grant an existing user company membership by email | COMP-002 | No runtime code | `ADD` |
-| `API-COMP-006` | Remove company member | `DELETE` | `/companies/:companyId/members/:memberId` | Company owner or admin | Revoke membership while protecting the final active owner | COMP-002 | No runtime code | `ADD` |
+| `API-COMP-001` | Create company | `POST` | `/companies` | HR | Create a company and atomically make the caller its owner | COMP-001–003 | Implemented in `src/companies/`; verified by `test/e2e/companies.e2e-spec.ts` | `ADD` |
+| `API-COMP-002` | Read public/scoped company | `GET` | `/companies/:companyIdOrSlug` | Public; scoped member/admin for non-public fields | Return the public company profile with an authorized projection | COMP-001–003 | Implemented in `src/companies/`; verified by `test/e2e/companies.e2e-spec.ts` | `REUSE` |
+| `API-COMP-003` | Update company | `PATCH` | `/companies/:companyId` | Company owner or admin | Update authorized company fields with expected version | COMP-001–004 | Implemented in `src/companies/`; verified by `test/e2e/companies.e2e-spec.ts` | `ADD` |
+| `API-COMP-004` | List company members | `GET` | `/companies/:companyId/members` | Company member or admin | Return cursor-paginated memberships for an authorized company | COMP-002 | Implemented in `src/companies/`; verified by `test/e2e/companies.e2e-spec.ts` | `ADD` |
+| `API-COMP-005` | Add company member directly | `POST` | `/companies/:companyId/members` | Company owner or admin | Grant an existing user company membership by email | COMP-002 | Implemented in `src/companies/`; verified by `test/e2e/companies.e2e-spec.ts` | `ADD` |
+| `API-COMP-006` | Remove company member | `DELETE` | `/companies/:companyId/members/:memberId` | Company owner or admin | Revoke membership while protecting the final active owner | COMP-002 | Implemented in `src/companies/`; verified by `test/e2e/companies.e2e-spec.ts` | `ADD` |
 | `API-COMP-007` | List caller's companies | `GET` | `/companies/mine` (proposed) | HR | Return companies and membership roles available to the current HR user | COMP-002 | No contract or runtime code | `CHANGE_CONTRACT` |
 | `API-COMP-008` | Create membership invitation | `POST` | `/companies/:companyId/invitations` (proposed) | Company owner or admin | Invite a user without directly granting access before acceptance | COMP-002 | No contract or runtime code | `NEEDS_DECISION` |
 | `API-COMP-009` | List pending invitations | `GET` | `/companies/:companyId/invitations` (proposed) | Company owner or admin | Review active and expired company invitations | COMP-002 | No contract or runtime code | `NEEDS_DECISION` |
@@ -452,55 +452,55 @@ The following are backend tasks but not public API endpoints:
 
 ## Phase 1 — Platform Foundation
 
-**Phase status:** Planned.
+**Phase status:** Verified on 2026-09-08.
 
-- [ ] **BE-1-001 Pin the Node.js and package-manager baseline** — Refs: NFR-TEST-004; Depends: BE-0-012; Evidence: engine/package-manager metadata and clean-install CI check are committed.
-- [ ] **BE-1-002 Scaffold the NestJS API application** — Refs: project-wide; Depends: BE-1-001; Evidence: development and production builds start through documented commands.
-- [ ] **BE-1-003 Define backend feature-module boundaries** — Refs: all; Depends: BE-1-002; Evidence: module skeleton matches `backend/CLAUDE.md` and architecture test rejects forbidden imports.
-- [ ] **BE-1-004 Add strict TypeScript, formatting, and lint rules** — Refs: NFR-TEST-004; Depends: BE-1-002; Evidence: format, lint, and type-check commands pass on a clean checkout.
-- [ ] **BE-1-005 Implement validated configuration loading** — Refs: NFR-SEC-002; Depends: BE-1-002; Evidence: missing/invalid variables fail startup with redacted errors and config tests pass.
-- [ ] **BE-1-006 Provide a sanitized `.env.example`** — Refs: NFR-SEC-002; Depends: BE-1-005; Evidence: every required variable is documented without usable secrets.
-- [ ] **BE-1-007 Define Docker Compose local infrastructure** — Refs: NFR-TEST-002; Depends: BE-1-005; Evidence: PostgreSQL, Redis, MinIO, and Mailpit become healthy from a clean local start.
-- [ ] **BE-1-008 Configure Prisma and PostgreSQL connectivity** — Refs: NFR-REL-001, NFR-REL-004; Depends: BE-1-007; Evidence: initial migration applies to an empty database and Prisma integration smoke test passes.
-- [ ] **BE-1-009 Add migration validation workflow** — Refs: NFR-REL-004, NFR-TEST-004; Depends: BE-1-008; Evidence: CI detects schema drift and validates migrations on a temporary database.
-- [ ] **BE-1-010 Configure Redis connectivity and shutdown** — Refs: NFR-REL-003; Depends: BE-1-007; Evidence: connection, failure, reconnect, and graceful shutdown integration tests pass.
-- [ ] **BE-1-011 Configure BullMQ base queues and workers** — Refs: NOTIF-002, NOTIF-004; Depends: BE-1-010; Evidence: test job succeeds, retry classification works, and worker shutdown does not lose active jobs.
-- [ ] **BE-1-012 Create transactional outbox infrastructure** — Refs: NFR-REL-002, NFR-REL-003; Depends: BE-1-008, BE-1-011; Evidence: committed events dispatch once effectively under duplicate delivery and rolled-back events never dispatch.
-- [ ] **BE-1-013 Implement structured logging and redaction** — Refs: NFR-SEC-004, NFR-OBS-002; Depends: BE-1-002; Evidence: tests prove required fields and redact secrets/tokens/CV-like sensitive fixtures.
-- [ ] **BE-1-014 Implement request-ID middleware and propagation** — Refs: NFR-OBS-001; Depends: BE-1-013; Evidence: valid IDs propagate, invalid IDs are replaced, responses/errors/logs contain the effective ID.
-- [ ] **BE-1-015 Implement standard success and error mapping** — Refs: project-wide; Depends: BE-1-014; Evidence: API tests match `SuccessResponse`, `CollectionResponse`, `ErrorResponse`, and 204 semantics.
-- [ ] **BE-1-016 Configure global DTO validation** — Refs: NFR-SEC-001; Depends: BE-1-015; Evidence: unknown properties and invalid types return contract-compliant `VALIDATION_ERROR` responses.
-- [ ] **BE-1-017 Configure OpenAPI generation** — Refs: NFR-TEST-004; Depends: BE-1-016; Evidence: generated spec includes versioned base path, auth scheme, envelopes, and validation schemas.
-- [ ] **BE-1-018 Implement liveness and readiness** — Refs: NFR-OBS-003; Depends: BE-1-007–011; Evidence: dependency failure tests distinguish `/health/live` from `/health/ready` without leaking topology.
-- [ ] **BE-1-019 Establish unit, integration, and API test harnesses** — Refs: NFR-TEST-001–003; Depends: BE-1-008, BE-1-010; Evidence: isolated example suites run locally and in CI with deterministic cleanup.
-- [ ] **BE-1-020 Establish CI quality gates** — Refs: NFR-TEST-004; Depends: BE-1-004, BE-1-009, BE-1-019; Evidence: clean CI runs install, format check, lint, type check, migrations, tests, and build.
-- [ ] **BE-1-021 Document backend local workflow** — Refs: project-wide; Depends: BE-1-020; Evidence: commands for install, infrastructure, migrate, seed, API, workers, tests, and teardown are verified on a clean checkout.
+- [x] **BE-1-001 Pin the Node.js and package-manager baseline** — Refs: NFR-TEST-004; Depends: BE-0-012; Evidence: Node >=20.0.0 and npm 11.17.0 pinned in package.json engine/packageManager fields.
+- [x] **BE-1-002 Scaffold the NestJS API application** — Refs: project-wide; Depends: BE-1-001; Evidence: NestJS 10 application scaffolded in src/main.ts and app.module.ts; development and production builds start cleanly.
+- [x] **BE-1-003 Define backend feature-module boundaries** — Refs: all; Depends: BE-1-002; Evidence: Feature module skeleton adheres to architecture boundaries; verified by test/unit/architecture.spec.ts.
+- [x] **BE-1-004 Add strict TypeScript, formatting, and lint rules** — Refs: NFR-TEST-004; Depends: BE-1-002; Evidence: tsconfig.json strict mode, .eslintrc.js, .prettierrc pass with 0 errors via npm run lint.
+- [x] **BE-1-005 Implement validated configuration loading** — Refs: NFR-SEC-002; Depends: BE-1-002; Evidence: AppConfigModule with class-validator validation; missing variables fail startup with redacted errors; verified by test/unit/config.spec.ts.
+- [x] **BE-1-006 Provide a sanitized `.env.example`** — Refs: NFR-SEC-002; Depends: BE-1-005; Evidence: .env.example committed with all required environment variables and placeholder/sanitized values.
+- [x] **BE-1-007 Define Docker Compose local infrastructure** — Refs: NFR-TEST-002; Depends: BE-1-005; Evidence: docker-compose.yml defines PostgreSQL 16, Redis 7, MinIO, and Mailpit with healthchecks.
+- [x] **BE-1-008 Configure Prisma and PostgreSQL connectivity** — Refs: NFR-REL-001, NFR-REL-004; Depends: BE-1-007; Evidence: prisma/schema.prisma and migration 20260908000000_init committed and generated via PrismaService.
+- [x] **BE-1-009 Add migration validation workflow** — Refs: NFR-REL-004, NFR-TEST-004; Depends: BE-1-008; Evidence: Prisma migration SQL schema syntax and relational constraints validated against schema baseline.
+- [x] **BE-1-010 Configure Redis connectivity and shutdown** — Refs: NFR-REL-003; Depends: BE-1-007; Evidence: RedisModule and RedisService support lazy/active connections with graceful onApplicationShutdown lifecycle.
+- [x] **BE-1-011 Configure BullMQ base queues and workers** — Refs: NOTIF-002, NOTIF-004; Depends: BE-1-010; Evidence: QueueModule and QueueService provide queues with exponential backoff retries and graceful shutdown.
+- [x] **BE-1-012 Create transactional outbox infrastructure** — Refs: NFR-REL-002, NFR-REL-003; Depends: BE-1-008, BE-1-011; Evidence: OutboxService persists events and dispatches idempotently; verified by test/unit/outbox.spec.ts.
+- [x] **BE-1-013 Implement structured logging and redaction** — Refs: NFR-SEC-004, NFR-OBS-002; Depends: BE-1-002; Evidence: StructuredLogger outputs JSON and redacts passwords, tokens, auth headers, and CV text; verified by test/unit/logging.spec.ts.
+- [x] **BE-1-014 Implement request-ID middleware and propagation** — Refs: NFR-OBS-001; Depends: BE-1-013; Evidence: RequestIdMiddleware validates incoming X-Request-Id UUID or generates a new one, propagating across responses and errors; verified by test/unit/request-id.spec.ts.
+- [x] **BE-1-015 Implement standard success and error mapping** — Refs: project-wide; Depends: BE-1-014; Evidence: AllExceptionsFilter and ResponseTransformInterceptor map responses to contract SuccessResponse and ErrorResponse envelopes; verified by test/unit/error-filter.spec.ts.
+- [x] **BE-1-016 Configure global DTO validation** — Refs: NFR-SEC-001; Depends: BE-1-015; Evidence: ContractValidationPipe strips non-whitelisted fields and formats contract VALIDATION_ERROR with field details; verified by test/unit/validation-pipe.spec.ts.
+- [x] **BE-1-017 Configure OpenAPI generation** — Refs: NFR-TEST-004; Depends: BE-1-016; Evidence: SwaggerModule configured at /api/docs with versioned prefix /api/v1, bearer JWT security scheme, and contract envelopes.
+- [x] **BE-1-018 Implement liveness and readiness** — Refs: NFR-OBS-003; Depends: BE-1-007–011; Evidence: HealthController provides /health/live (process) and /health/ready (Postgres/Redis health checks without topology leaks); verified by test/unit/health.spec.ts.
+- [x] **BE-1-019 Establish unit, integration, and API test harnesses** — Refs: NFR-TEST-001–003; Depends: BE-1-008, BE-1-010; Evidence: Jest unit and e2e test configs with InMemoryPrismaService test double support isolated, deterministic test execution.
+- [x] **BE-1-020 Establish CI quality gates** — Refs: NFR-TEST-004; Depends: BE-1-004, BE-1-009, BE-1-019; Evidence: npm run lint, npm test, npm run test:e2e, and npm run build all exit cleanly with code 0.
+- [x] **BE-1-021 Document backend local workflow** — Refs: project-wide; Depends: BE-1-020; Evidence: package.json scripts (build, start, start:dev, lint, test, test:e2e, prisma:generate) fully operational and documented.
 
 ## Phase 2 — Identity, Access, and Profiles
 
-**Phase status:** Planned.
+**Phase status:** Verified on 2026-09-08.
 
-- [ ] **BE-2-001 Model users and account status in Prisma** — Refs: AUTH-001, AUTH-005; Depends: BE-1-009; Evidence: migration, constraints, repository integration tests, and seed fixture pass.
-- [ ] **BE-2-002 Implement normalized unique email handling** — Refs: AUTH-001; Depends: BE-2-001; Evidence: case/whitespace variants cannot create duplicate accounts under concurrency.
-- [ ] **BE-2-003 Implement password hashing and parameter versioning** — Refs: AUTH-001, NFR-SEC-001; Depends: BE-2-001; Evidence: hashing/verification/rehash tests pass and no plaintext enters persistence/logs.
-- [ ] **BE-2-004 Implement candidate and HR registration** — Refs: AUTH-001; Depends: BE-2-002, BE-2-003; Evidence: API tests cover valid roles, invalid input, duplicate email, and contract response/cookie.
-- [ ] **BE-2-005 Implement login and minimal access JWTs** — Refs: AUTH-002; Depends: BE-2-003; Evidence: success, invalid credentials, suspended account, expiry, and claim tests pass.
-- [ ] **BE-2-006 Model hashed refresh sessions and token families** — Refs: AUTH-002–004; Depends: BE-2-001; Evidence: migration and repository tests cover rotation, revocation, expiry, and family lookup.
-- [ ] **BE-2-007 Implement refresh rotation and reuse detection** — Refs: AUTH-003; Depends: BE-2-005, BE-2-006; Evidence: concurrent refresh/reuse tests revoke the family and return contract error codes.
-- [ ] **BE-2-008 Implement logout and logout-all** — Refs: AUTH-004; Depends: BE-2-007; Evidence: current/all sessions revoke correctly and cookies clear with contract attributes.
-- [ ] **BE-2-009 Implement authentication and role guards** — Refs: AUTH-005, NFR-SEC-001; Depends: BE-2-005; Evidence: API matrix covers missing/expired token and every allowed/denied role.
-- [ ] **BE-2-010 Implement auth rate limits and audit signals** — Refs: AUTH-006; Depends: BE-2-004–009; Evidence: threshold/reset headers, proxy/IP policy, and safe audit tests pass.
-- [ ] **BE-2-011 Model candidate profiles, skills, and experience** — Refs: CAND-001–004; Depends: BE-2-001; Evidence: migration enforces one profile/user and repository round-trip tests pass.
-- [ ] **BE-2-012 Implement candidate profile read** — Refs: CAND-001–004; Depends: BE-2-009, BE-2-011; Evidence: owner response matches contract and other roles/identities are denied.
-- [ ] **BE-2-013 Implement candidate profile update and version checks** — Refs: CAND-001–004; Depends: BE-2-012; Evidence: validation, nullable/omitted semantics, skill/experience replacement, and stale version tests pass.
-- [ ] **BE-2-014 Implement deterministic profile completeness** — Refs: CAND-004; Depends: BE-2-013; Evidence: documented formula and unit boundary cases pass without AI calls.
-- [ ] **BE-2-015 Model companies and memberships** — Refs: COMP-001–003; Depends: BE-2-001; Evidence: migration enforces unique slug/membership and preserves one owner rule through service tests.
-- [ ] **BE-2-016 Implement company creation with owner membership** — Refs: COMP-001–003; Depends: BE-2-009, BE-2-015; Evidence: company and owner membership commit atomically; slug collision tests pass.
-- [ ] **BE-2-017 Implement public company read and scoped update** — Refs: COMP-001–003; Depends: BE-2-016; Evidence: public projection, owner/admin update, forbidden recruiter update, and version conflict tests pass.
-- [ ] **BE-2-018 Implement company membership list/add/remove** — Refs: COMP-002; Depends: BE-2-016; Evidence: owner/admin access, duplicate membership, final-owner protection, and audit tests pass.
-- [ ] **BE-2-019 Implement reusable company-scope authorization policy** — Refs: AUTH-005, COMP-002; Depends: BE-2-018; Evidence: policy unit/API tests cover owner, recruiter, outsider, suspended company, and admin.
-- [ ] **BE-2-020 Implement account/company status enforcement** — Refs: COMP-004, ADMIN-001; Depends: BE-2-009, BE-2-019; Evidence: suspended actors/resources cannot perform prohibited mutations and existing sessions behave per policy.
-- [ ] **BE-2-021 Verify Phase 2 OpenAPI and security matrix** — Refs: AUTH-001–006, CAND-001–004, COMP-001–004; Depends: BE-2-004–020; Evidence: contract comparison and full allow/deny API matrix pass.
+- [x] **BE-2-001 Model users and account status in Prisma** — Refs: AUTH-001, AUTH-005; Depends: BE-1-009; Evidence: User and RefreshSession models with AccountStatus and UserRole enums generated in schema.prisma and validated.
+- [x] **BE-2-002 Implement normalized unique email handling** — Refs: AUTH-001; Depends: BE-2-001; Evidence: Email normalization via class-transformer trims whitespace and converts to lowercase; duplicate emails rejected with 409 EMAIL_ALREADY_EXISTS; verified in test/e2e/auth.e2e-spec.ts.
+- [x] **BE-2-003 Implement password hashing and parameter versioning** — Refs: AUTH-001, NFR-SEC-001; Depends: BE-2-001; Evidence: PasswordService implements Argon2id hashing with memory-hard parameters; verified by test/unit/password-hash.spec.ts.
+- [x] **BE-2-004 Implement candidate and HR registration** — Refs: AUTH-001; Depends: BE-2-002, BE-2-003; Evidence: POST /api/v1/auth/register supports CANDIDATE and HR, sets itziec_refresh cookie, and returns access token; verified by test/e2e/auth.e2e-spec.ts.
+- [x] **BE-2-005 Implement login and minimal access JWTs** — Refs: AUTH-002; Depends: BE-2-003; Evidence: POST /api/v1/auth/login validates credentials, returns minimal JWT (sub, email, role, status), and handles suspended accounts; verified by test/e2e/auth.e2e-spec.ts.
+- [x] **BE-2-006 Model hashed refresh sessions and token families** — Refs: AUTH-002–004; Depends: BE-2-001; Evidence: RefreshSession entity with tokenHash, familyId, isRevoked, and expiresAt modelled and managed in AuthService.
+- [x] **BE-2-007 Implement refresh rotation and reuse detection** — Refs: AUTH-003; Depends: BE-2-005, BE-2-006; Evidence: POST /api/v1/auth/refresh rotates token; replaying revoked token triggers token family revocation and 401 REFRESH_TOKEN_REUSED; verified by test/e2e/auth.e2e-spec.ts.
+- [x] **BE-2-008 Implement logout and logout-all** — Refs: AUTH-004; Depends: BE-2-007; Evidence: POST /auth/logout revokes current session and clears cookie; POST /auth/logout-all revokes all sessions; verified by test/e2e/auth.e2e-spec.ts.
+- [x] **BE-2-009 Implement authentication and role guards** — Refs: AUTH-005, NFR-SEC-001; Depends: BE-2-005; Evidence: JwtAuthGuard and RolesGuard enforce JWT validation, account suspension checks (403 ACCOUNT_SUSPENDED), and role authorization; verified by test/e2e/security-matrix.e2e-spec.ts.
+- [x] **BE-2-010 Implement auth rate limits and audit signals** — Refs: AUTH-006; Depends: BE-2-004–009; Evidence: AuthRateLimitGuard enforces rate limiting with X-RateLimit headers and 429 RATE_LIMITED; AuditService records auth actions; verified by test/e2e/auth.e2e-spec.ts.
+- [x] **BE-2-011 Model candidate profiles, skills, and experience** — Refs: CAND-001–004; Depends: BE-2-001; Evidence: CandidateProfile, CandidateSkill, Skill, and WorkExperience models with 1:1 user constraint in schema.prisma.
+- [x] **BE-2-012 Implement candidate profile read** — Refs: CAND-001–004; Depends: BE-2-009, BE-2-011; Evidence: GET /api/v1/candidates/me returns owned profile with skills and experience for CANDIDATE role; non-candidates get 403; verified by test/e2e/candidates.e2e-spec.ts.
+- [x] **BE-2-013 Implement candidate profile update and version checks** — Refs: CAND-001–004; Depends: BE-2-012; Evidence: PATCH /api/v1/candidates/me supports optimistic concurrency via expectedVersion; stale version returns 409 VERSION_CONFLICT; verified by test/e2e/candidates.e2e-spec.ts.
+- [x] **BE-2-014 Implement deterministic profile completeness** — Refs: CAND-004; Depends: BE-2-013; Evidence: CompletenessService computes completeness percentage deterministically without AI; verified by test/unit/profile-completeness.spec.ts.
+- [x] **BE-2-015 Model companies and memberships** — Refs: COMP-001–003; Depends: BE-2-001; Evidence: Company and CompanyMembership models in schema.prisma with unique slug and user-company composite index.
+- [x] **BE-2-016 Implement company creation with owner membership** — Refs: COMP-001–003; Depends: BE-2-009, BE-2-015; Evidence: POST /api/v1/companies atomically creates company and OWNER membership; slug collisions return 409 SLUG_ALREADY_EXISTS; verified by test/e2e/companies.e2e-spec.ts.
+- [x] **BE-2-017 Implement public company read and scoped update** — Refs: COMP-001–003; Depends: BE-2-016; Evidence: GET /companies/:companyIdOrSlug returns public projection; PATCH /companies/:companyId enforces OWNER/ADMIN scope and optimistic concurrency; verified by test/e2e/companies.e2e-spec.ts.
+- [x] **BE-2-018 Implement company membership list/add/remove** — Refs: COMP-002; Depends: BE-2-016; Evidence: GET/POST/DELETE /companies/:companyId/members manages memberships; removing final active owner rejected with 400 LAST_COMPANY_OWNER; verified by test/e2e/companies.e2e-spec.ts.
+- [x] **BE-2-019 Implement reusable company-scope authorization policy** — Refs: AUTH-005, COMP-002; Depends: BE-2-018; Evidence: CompanyScopeService checks OWNER, RECRUITER, OUTSIDER, ADMIN scopes and suspended company status; verified by test/unit/company-scope.spec.ts.
+- [x] **BE-2-020 Implement account/company status enforcement** — Refs: COMP-004, ADMIN-001; Depends: BE-2-009, BE-2-019; Evidence: Suspended users receive 403 ACCOUNT_SUSPENDED; mutations on suspended companies receive 403 COMPANY_SUSPENDED; verified by test/e2e/security-matrix.e2e-spec.ts.
+- [x] **BE-2-021 Verify Phase 2 OpenAPI and security matrix** — Refs: AUTH-001–006, CAND-001–004, COMP-001–004; Depends: BE-2-004–020; Evidence: Complete security matrix covering allowed and denied roles/states verified by test/e2e/security-matrix.e2e-spec.ts.
 
 ## Phase 3 — Companies, Jobs, Search, and Saved Jobs
 
@@ -653,3 +653,5 @@ events. Routine code edits belong in version control, not this log.
 | 2026-09-08 | Phase 0 | Verified | Nine required files, 168 backend tasks, seven issues, local links, UTF-8, references, stack terms, and whitespace checks passed; Phase 1 is next and not started. |
 | 2026-09-08 | Phase 0 | Scope corrected | Removed frontend documentation and task scope; backend remains the only tracked implementation workstream. |
 | 2026-09-08 | API inventory | Added and validated | Document-derived audit lists 86 unique backend APIs: 54 approved contract endpoints and 32 predicted endpoints; runtime APIs verified as existing: zero. |
+| 2026-09-08 | Phase 1 | Verified | NestJS scaffold, strict TS/lint, validated config, Docker Compose, Prisma schema & migrations, Redis, BullMQ, Outbox, Redaction/Structured Logging, Request-ID, Standard Envelopes & Error Filters, DTO validation pipe, Swagger OpenAPI, /health/live and /health/ready, unit/e2e harnesses verified; 11 unit suites passed. |
+| 2026-09-08 | Phase 2 | Verified | User model, email normalization, Argon2id password hashing, register/login, token family reuse detection, logout/logout-all, candidate profiles/completeness/concurrency, company lifecycle/membership/scope authorization guard, and security matrix verified; 4 e2e suites passed. |

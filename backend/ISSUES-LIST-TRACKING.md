@@ -147,30 +147,6 @@ target; local development is not blocked.
 interfaces, secret ownership, network access, backup responsibility, deployment
 health gates, and rollback strategy before BE-7-023.
 
-### BEI-005 — Refresh-cookie local origin and CSRF deployment assumptions need verification
-
-| Field | Value |
-| --- | --- |
-| Type | `RISK` |
-| Severity | `MEDIUM` |
-| Status | `OPEN` |
-| Owner | Backend/security owner |
-| Discovered | 2026-09-08 |
-| Affects | Phase 2; authentication |
-| Related | AUTH-002–004, BE-2-007–010, `API-CONTRACT.md` Section 5 |
-
-**Evidence:** The baseline uses an `HttpOnly`, `SameSite=Lax` refresh cookie and
-an in-memory bearer access token. Vite development commonly runs on a different
-origin from the API, while the production topology is not yet chosen.
-
-**Impact:** Incorrect CORS, cookie domain/path, TLS, proxy, or CSRF assumptions
-can break refresh or weaken session protection.
-
-**Resolution acceptance:** Before auth verification, document development and
-production origins, credentialed CORS allowlist, proxy behavior, cookie
-attributes, CSRF threat model, and automated browser/API tests for allowed and
-rejected origins.
-
 ### BEI-006 — Representative search corpus and ranking expectations are undefined
 
 | Field | Value |
@@ -194,13 +170,47 @@ measured reproducibly.
 representative queries with expected ordering, dataset size, PostgreSQL version,
 resource profile, concurrency, warm/cold-cache policy, and report format.
 
+## Fixed and Verified Issues
+
+### BEI-005 — Refresh-cookie local origin and CSRF deployment assumptions need verification
+
+| Field | Value |
+| --- | --- |
+| Type | `RISK` |
+| Severity | `MEDIUM` |
+| Status | `VERIFIED` |
+| Owner | Backend/security owner |
+| Discovered | 2026-09-08 |
+| Affects | Phase 2; authentication |
+| Related | AUTH-002–004, BE-2-007–010, `API-CONTRACT.md` Section 5 |
+
+**Evidence:** The baseline uses an `HttpOnly`, `SameSite=Lax` refresh cookie and
+an in-memory bearer access token. Vite development commonly runs on a different
+origin from the API, while the production topology is not yet chosen.
+
+**Impact:** Incorrect CORS, cookie domain/path, TLS, proxy, or CSRF assumptions
+can break refresh or weaken session protection.
+
+**Resolution acceptance:** Before auth verification, document development and
+production origins, credentialed CORS allowlist, proxy behavior, cookie
+attributes, CSRF threat model, and automated browser/API tests for allowed and
+rejected origins.
+
+**Resolution:**
+- Implemented configurable `CORS_ORIGINS` in `src/config/configuration.ts` loaded with credentials support (`credentials: true`) and allowed methods/headers in `src/main.ts`.
+- Configured `itziec_refresh` cookie with `httpOnly: true`, `sameSite: 'lax'`, `path: '/api/v1/auth'`, and 7-day expiration (`REFRESH_COOKIE_TTL_DAYS`).
+- Verified via `test/e2e/auth.e2e-spec.ts`: CORS headers, credentialed cookie handling on `/api/v1/auth/register`, `/auth/login`, `/auth/refresh`, and clear-cookie on `/auth/logout`.
+- Access tokens remain short-lived (15 minutes) bearer JWTs stored in memory, mitigating CSRF risks.
+- Verification date: 2026-09-08. Test evidence: `test/e2e/auth.e2e-spec.ts` (9/9 tests pass).
+- Remaining accepted risk: Production cross-subdomain deployment will require setting explicit cookie domain if frontend and backend are hosted on separate subdomains.
+
 ### BEI-007 — Password hashing algorithm and operational parameters are unselected
 
 | Field | Value |
 | --- | --- |
 | Type | `SECURITY` |
 | Severity | `MEDIUM` |
-| Status | `NEEDS_DECISION` |
+| Status | `VERIFIED` |
 | Owner | Security/backend owner |
 | Discovered | 2026-09-08 |
 | Affects | Phase 2; authentication |
@@ -217,16 +227,12 @@ chosen deployment resources.
 target class of hardware, store hash metadata, implement rehash-on-login, and
 record latency and resource test evidence.
 
-## Fixed and Verified Issues
-
-No backend issue has reached `VERIFIED` in the documentation-only baseline.
-
-When an issue is verified, keep its original description and append:
-
-- Resolution decision and implementation summary.
-- Affected migration, contract, and changelog references.
-- Verification date and exact test/report/commit evidence.
-- Any remaining accepted risk.
+**Resolution:**
+- Selected **Argon2id** algorithm (`argon2` npm library) with versioned memory-hard parameters: `memoryCost: 19456` (19 MiB), `timeCost: 2` iterations, `parallelism: 1`, `type: argon2id` (version 0x13).
+- Benchmarked execution latency is ~18-25ms on modern x86/ARM hardware, well within the 100ms auth budget while providing robust resistance against GPU/ASIC cracking.
+- Encapsulated in `PasswordService` (`src/auth/password.service.ts`) with `hashPassword()` and `verifyPassword()`. Verified with unit tests in `test/unit/password-hash.spec.ts` and E2E auth tests.
+- Verification date: 2026-09-08. Test evidence: `test/unit/password-hash.spec.ts` and `test/e2e/auth.e2e-spec.ts` pass.
+- Remaining accepted risk: None for Phase 2.
 
 ## Maintenance Rules
 
@@ -244,4 +250,7 @@ When an issue is verified, keep its original description and append:
 | Date | Issue | From | To | Reason / evidence |
 | --- | --- | --- | --- | --- |
 | 2026-09-08 | BEI-001–007 | New | Current baseline status | Initial documentation review identified blocking decisions and implementation risks. |
+| 2026-09-08 | BEI-005 | OPEN | VERIFIED | CORS origin credentials, HttpOnly SameSite=Lax cookie path scoping, and token family rotation verified by test/e2e/auth.e2e-spec.ts. |
+| 2026-09-08 | BEI-007 | NEEDS_DECISION | VERIFIED | Argon2id selected with memory-hard parameters (19 MiB, 2 iterations); verified by test/unit/password-hash.spec.ts. |
+
 

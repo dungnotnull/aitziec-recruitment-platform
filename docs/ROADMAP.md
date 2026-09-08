@@ -6,16 +6,15 @@ This file tracks milestone-level backend progress. Update it when a phase starts
 completes, or materially changes scope. Daily and task-level activity belongs in
 `../backend/DEVELOPMENT-TASK-BY-PHASES-TRACKING-LOGS.md`.
 
-**Current milestone:** Phase 1 — Platform foundation (not started)  
-**Current product state:** Phase 0 documentation baseline verified; runtime
-implementation has not started.  
+**Current milestone:** Phase 3 — Companies, jobs, and search (planned; Phase 1 and Phase 2 verified)  
+**Current product state:** Phase 1 (Platform Foundation) and Phase 2 (Identity, Access, and Profiles) implemented and verified. 15 test suites and 62 tests passing.  
 **Delivery focus:** Backend only. No frontend file or task is included.
 
 | Phase | Milestone | Status | Depends on |
 | --- | --- | --- | --- |
 | 0 | Documentation and decisions | Verified | None |
-| 1 | Platform foundation | Planned | Phase 0 |
-| 2 | Identity, access, and profiles | Planned | Phase 1 |
+| 1 | Platform foundation | Verified | Phase 0 |
+| 2 | Identity, access, and profiles | Verified | Phase 1 |
 | 3 | Companies, jobs, and search | Planned | Phase 2 |
 | 4 | Applications and recruitment pipeline | Planned | Phase 3 |
 | 5 | CVs, interviews, and notifications | Planned | Phase 4 |
@@ -46,6 +45,8 @@ React + Vite / NestJS / Prisma / PostgreSQL decisions.
 
 **Goal:** provide a reproducible NestJS backend and local dependency stack.
 
+**Status:** Verified on 2026-09-08.
+
 **Scope:** Node/package baseline, NestJS bootstrap, validated configuration,
 Docker Compose, PostgreSQL, Prisma migrations, Redis, BullMQ, MinIO, Mailpit,
 logging/request IDs, standard errors, OpenAPI, health checks, test harnesses, and
@@ -64,6 +65,8 @@ CI quality gates.
 
 **Goal:** establish secure user sessions, RBAC, resource scope, candidate
 profiles, and company membership foundations.
+
+**Status:** Verified on 2026-09-08.
 
 **Scope:** registration, login, access JWTs, rotating refresh sessions, token
 reuse detection, logout, user status, candidate profile/skills/experience,
