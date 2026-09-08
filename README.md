@@ -1,4 +1,4 @@
-# 💼 AITZiec — AI-Powered Recruitment Platform
+# 💼 AITZiec AI-Powered Recruitment Platform
 
 > A modern recruitment & job board platform inspired by [ITViec](https://itviec.com/) and [VietnamWorks](https://www.vietnamworks.com/), built to explore **AI Engineering, Backend Architecture, Search, Event-Driven Systems, and scalable software design**.
 
