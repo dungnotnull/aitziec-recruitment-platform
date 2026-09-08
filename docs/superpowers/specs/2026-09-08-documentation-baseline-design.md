@@ -4,15 +4,14 @@
 
 The repository currently contains an original requirements brief and a broad
 README, but it does not contain application source code or package manifests.
-The README describes a planned platform and still contains an ambiguous
-`Vue / React` frontend choice. Without an explicit documentation hierarchy,
-future agents could treat planned functionality as implemented or create
-incompatible frontend and backend assumptions.
+The README describes a planned platform and originally contained an ambiguous
+frontend framework choice. Without an explicit documentation hierarchy, future
+agents could treat planned functionality as implemented or create incompatible
+HTTP interface assumptions.
 
 This design establishes the project documentation baseline before backend
 implementation begins. The user is responsible only for backend development;
-therefore, frontend documentation is limited to contract-consumer guidance and
-does not include a frontend task backlog.
+therefore, the documentation set does not create frontend files or tasks.
 
 ## Confirmed Decisions
 
@@ -65,15 +64,14 @@ When documents disagree, agents use this order:
 2. `PROJECT-DETAIL.md` for product scope, actors, business rules, and
    non-functional requirements.
 3. `backend/CLAUDE.md` for backend implementation conventions.
-4. `frontend/CLAUDE.md` for React/Vite contract-consumer conventions.
-5. `docs/ROADMAP.md` for milestone order and exit criteria.
-6. `backend/DEVELOPMENT-TASK-BY-PHASES-TRACKING-LOGS.md` for detailed backend
+4. `docs/ROADMAP.md` for milestone order and exit criteria.
+5. `backend/DEVELOPMENT-TASK-BY-PHASES-TRACKING-LOGS.md` for detailed backend
    execution progress.
-7. `backend/ISSUES-LIST-TRACKING.md` for known backend defects and risks.
-8. `CHANGELOG.md` for historical changes and the current released documentation
+6. `backend/ISSUES-LIST-TRACKING.md` for known backend defects and risks.
+7. `CHANGELOG.md` for historical changes and the current released documentation
    baseline.
-9. `README.md` for onboarding and navigation.
-10. `itziec_recruitment_platform_details.md` as the preserved original brief.
+8. `README.md` for onboarding and navigation.
+9. `itziec_recruitment_platform_details.md` as the preserved original brief.
 
 Higher-ranked documents control their stated domain only. A lower-ranked
 document can contain more operational detail as long as it does not contradict
@@ -131,13 +129,6 @@ that runtime functionality exists.
 Contain Phase 0 through Phase 7 with milestone goals, scope, dependencies, and
 exit criteria. Update only when milestone scope or completion changes. Detailed
 task activity belongs in the backend tracking log.
-
-### Frontend context: `frontend/CLAUDE.md`
-
-Record only the confirmed React + Vite stack, contract-consumer rules, API client
-boundaries, error/pagination/auth handling, and the obligation to update
-`API-CONTRACT.md` before changing shared interfaces. It must not contain a
-frontend implementation backlog.
 
 ### Backend context: `backend/CLAUDE.md`
 
@@ -206,7 +197,7 @@ The completed documentation set must pass these checks:
 - All Markdown files decode as UTF-8 and headings render without mojibake.
 - No unresolved placeholder markers or deferred-detail phrases remain.
 - React + Vite, NestJS, Prisma, and PostgreSQL are consistent across documents.
-- No frontend task backlog is created.
+- No frontend file or task is created.
 - Every backend phase has detailed checkbox tasks and measurable exit evidence.
 - Root and directory-specific conventions agree with the API contract.
 - Application states and transitions are identical in every document.
