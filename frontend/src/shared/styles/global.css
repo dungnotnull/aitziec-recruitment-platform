@@ -1,23 +1,86 @@
 @import "tailwindcss";
 
 @theme {
-  --color-ink: #0F172A;
-  --color-slate: #334155;
-  --color-action: #0369A1;
-  --color-canvas: #F8FAFC;
-  --color-surface: #FFFFFF;
-  --color-border: #E2E8F0;
-  --color-danger: #DC2626;
+  /* Core ink / text */
+  --color-ink: #E2E8F0;
+  --color-ink-muted: #94A3B8;
+  --color-slate: #64748B;
 
+  /* Action / brand */
+  --color-action: #38BDF8;
+  --color-action-hover: #7DD3FC;
+  --color-action-dim: rgba(56, 189, 248, 0.10);
+  --color-action-border: rgba(56, 189, 248, 0.25);
+
+  /* Surface layers (dark, depth-based) */
+  --color-canvas: #0A0F1E;      /* Page background – deepest */
+  --color-surface: #0F1729;     /* Cards, sidebars */
+  --color-surface-raised: #162032; /* Elevated cards */
+  --color-surface-overlay: #1E2D45; /* Modal overlays, popups */
+
+  /* Border */
+  --color-border: #1E3A5F;
+  --color-border-subtle: rgba(30, 58, 95, 0.5);
+
+  /* Status colors */
+  --color-danger: #F87171;
+  --color-danger-bg: rgba(248, 113, 113, 0.10);
+  --color-success: #34D399;
+  --color-success-bg: rgba(52, 211, 153, 0.10);
+  --color-warning: #FBBF24;
+
+  /* Typography */
   --font-display: "Plus Jakarta Sans", sans-serif;
   --font-body: "Inter", sans-serif;
   --font-mono: "IBM Plex Mono", monospace;
 }
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     background-color: var(--color-canvas);
     color: var(--color-ink);
     font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Enterprise dot-grid background pattern on the root background */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 20% 10%, rgba(56, 189, 248, 0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 80%, rgba(99, 102, 241, 0.05) 0%, transparent 60%),
+      radial-gradient(circle at 1px 1px, rgba(30, 58, 95, 0.6) 1px, transparent 0);
+    background-size: 100% 100%, 100% 100%, 28px 28px;
+    pointer-events: none;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-canvas);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-slate);
+  }
+
+  /* Selection */
+  ::selection {
+    background: rgba(56, 189, 248, 0.20);
+    color: var(--color-action-hover);
   }
 }
