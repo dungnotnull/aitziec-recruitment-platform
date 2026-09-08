@@ -1,4 +1,4 @@
-# ITZiec AI-Powered Recruitment Platform
+# 💼 ITZiec AI-Powered Recruitment Platform
 
 ITZiec is a planned recruitment and technology-job platform inspired by ITviec
 and VietnamWorks. It is designed as a production-oriented backend learning
