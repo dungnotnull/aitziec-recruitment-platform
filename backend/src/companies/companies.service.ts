@@ -288,7 +288,7 @@ export class CompaniesService {
     });
   }
 
-  private mapToDto(company: any): CompanyDto {
+  public mapToDto(company: any): CompanyDto {
     return {
       id: company.id,
       slug: company.slug,

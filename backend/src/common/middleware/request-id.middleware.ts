@@ -14,8 +14,16 @@ export class RequestIdMiddleware implements NestMiddleware {
       effectiveId = uuidv4();
     }
 
+    const rawTraceHeader = req.headers['x-trace-id'];
+    const effectiveTraceId =
+      typeof rawTraceHeader === 'string' && rawTraceHeader.trim()
+        ? rawTraceHeader.trim()
+        : effectiveId;
+
     req.requestId = effectiveId;
+    (req as any).traceId = effectiveTraceId;
     res.setHeader('X-Request-Id', effectiveId);
+    res.setHeader('X-Trace-Id', effectiveTraceId);
     next();
   }
 }

@@ -40,6 +40,25 @@ export class OutboxService {
     return event;
   }
 
+  async emitEvent(params: {
+    aggregateType: string;
+    aggregateId: string;
+    eventType: string;
+    payload: Record<string, any>;
+    requestId?: string;
+    actorId?: string;
+    idempotencyKey?: string;
+  }) {
+    return this.recordEvent(this.prisma, {
+      eventName: params.eventType,
+      aggregateType: params.aggregateType,
+      aggregateId: params.aggregateId,
+      payload: params.payload,
+      requestId: params.requestId || params.idempotencyKey,
+      actorId: params.actorId,
+    });
+  }
+
   async dispatchPendingEvents(limit = 50): Promise<number> {
     const pending = await this.prisma.outboxEvent.findMany({
       where: { dispatchedAt: null },

@@ -38,4 +38,32 @@ export class AuditService {
       return null;
     }
   }
+
+  async recordAudit(
+    params: {
+      actorId?: string;
+      actorRole?: string;
+      action: string;
+      targetType: string;
+      targetId: string;
+      metadata?: Record<string, any>;
+      requestId?: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    return this.record(
+      {
+        actorId: params.actorId,
+        action: params.action,
+        targetType: params.targetType,
+        targetId: params.targetId,
+        requestId: params.requestId,
+        metadata: {
+          ...(params.actorRole ? { actorRole: params.actorRole } : {}),
+          ...(params.metadata || {}),
+        },
+      },
+      tx,
+    );
+  }
 }
