@@ -1,9 +1,14 @@
-import { createRoute } from '@tanstack/react-router'
+import { createRoute, redirect } from '@tanstack/react-router'
 import { Route as authRoute } from '../_authenticated'
-import { AppShell } from '@/shared/ui/AppShell'
 
 export const Route = createRoute({
   getParentRoute: () => authRoute,
   path: '/',
-  component: AppShell,
+  beforeLoad: ({ context }) => {
+    if (context.auth.session?.user.role === 'HR') {
+      throw redirect({ to: '/company' })
+    } else {
+      throw redirect({ to: '/profile' })
+    }
+  }
 })

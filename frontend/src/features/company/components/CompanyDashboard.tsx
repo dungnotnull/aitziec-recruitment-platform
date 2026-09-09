@@ -14,7 +14,7 @@ export function CompanyDashboard() {
   // Hardcoded for now as backend doesn't have an endpoint to list current user's companies
   const companySlug = 'techcorp-vietnam'
 
-  const { data: company, isLoading, isError, refetch } = useQuery({
+  const { data: company, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['company', companySlug],
     queryFn: () => getCompany(companySlug),
     enabled: !!session && session.user.role === 'HR',
@@ -30,6 +30,10 @@ export function CompanyDashboard() {
     )
   }
 
+  // If it's a 404, we don't treat it as a general unexpected error for the StateBoundary
+  const isNotFound = (error as any)?.response?.status === 404;
+  const shouldShowError = isError && !isNotFound;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -40,7 +44,7 @@ export function CompanyDashboard() {
         <Button>Post New Job</Button>
       </div>
 
-      <StateBoundary isLoading={isLoading} isError={isError} onRetry={() => refetch()}>
+      <StateBoundary isLoading={isLoading} isError={shouldShowError} error={error} onRetry={() => refetch()}>
         {company ? (
           <>
             <div className="grid gap-6 md:grid-cols-3">
@@ -84,7 +88,9 @@ export function CompanyDashboard() {
           </>
         ) : (
            <div className="text-center p-8 border border-dashed border-border rounded-md">
-            <p className="text-slate mb-4">Company profile not found.</p>
+            <h3 className="text-lg font-medium text-ink mb-2">No Company Profile Found</h3>
+            <p className="text-slate mb-6">You haven't set up a company profile yet.</p>
+            <Button>Create Company Profile</Button>
           </div>
         )}
       </StateBoundary>
