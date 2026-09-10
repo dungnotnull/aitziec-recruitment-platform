@@ -29,6 +29,28 @@ export class JwtAuthGuard implements CanActivate {
     ]);
 
     if (isPublic) {
+      const request = context.switchToHttp().getRequest<Request>();
+      const token = this.extractTokenFromHeader(request);
+      if (token) {
+        try {
+          const secret = this.configService.get<string>('JWT_ACCESS_SECRET');
+          const payload = await this.jwtService.verifyAsync(token, { secret });
+          const user = await this.prisma.user.findUnique({
+            where: { id: payload.sub },
+          });
+          if (user && user.status === 'ACTIVE') {
+            request.user = {
+              id: user.id,
+              email: user.email,
+              role: user.role,
+              status: user.status,
+              sessionId: payload.sessionId,
+            };
+          }
+        } catch {
+          // On public route, gracefully ignore token errors
+        }
+      }
       return true;
     }
 

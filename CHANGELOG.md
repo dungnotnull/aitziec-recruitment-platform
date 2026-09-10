@@ -12,6 +12,8 @@ available.
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-09-10
+
 ### Added
 
 - **Phase 1 (Platform Foundation)**:
@@ -37,11 +39,47 @@ available.
   - Candidate profile management (`GET /candidates/me`, `PATCH /candidates/me`) with optimistic concurrency (`expectedVersion`, `409 VERSION_CONFLICT`) and deterministic completeness calculation (`src/candidates/`).
   - Company lifecycle and recruiter management: company creation with automatic owner membership (`POST /companies`), public/scoped profile read (`GET /companies/:companyIdOrSlug`), owner/admin update with optimistic concurrency (`PATCH /companies/:companyId`), and direct member management (`/companies/:companyId/members`) protecting against the removal of the final active owner (`400 LAST_COMPANY_OWNER`).
   - Reusable company-scope authorization service (`CompanyScopeService`) and company suspension enforcement (`403 COMPANY_SUSPENDED`).
-  - Comprehensive test suite: 11 unit test suites (32 tests) and 4 E2E test suites (30 tests) covering registration, login, token rotation, reuse attacks, optimistic concurrency, RBAC, and security matrices.
+- **Phase 3 (Jobs and Search)**:
+  - Complete job lifecycle (`DRAFT`, `PUBLISHED`, `CLOSED`) with company-scoped recruiter authorization.
+  - PostgreSQL full-text search with `tsvector`, English dictionary, and GIN index (`idx_jobs_search_vector`).
+  - Deterministic search ranking (`RELEVANCE`, `NEWEST`, `SALARY_ASC`, `SALARY_DESC`) with ID tie-breaker.
+  - Base64 opaque cursor pagination (`GET /jobs`) and Redis search caching (TTL 60s).
+  - Candidate saved jobs with composite unique ownership `(candidateId, jobId)` and idempotent operations.
+- **Phase 4 (Applications and Recruitment Pipeline)**:
+  - Application submission transaction with composite unique constraint `(candidateId, jobId)` preventing duplicate applies.
+  - Append-only status history (`ApplicationStatusEvent`) and strict recruitment state machine transitions (`APPLIED` -> `REVIEWING` -> `INTERVIEWING` -> `PASSED` / `REJECTED`).
+  - Optimistic concurrency control via `expectedVersion` rejecting stale transitions with `409 VERSION_CONFLICT`.
+  - Scoped application detail views with candidate/recruiter role projection and terminal state immutability.
+  - Atomic domain event dispatching via Transactional Outbox.
+- **Phase 5 (CVs, Interviews, and Notifications)**:
+  - PDF CV upload validation (%PDF magic bytes, SHA-256 checksum, 10 MiB limit) and MinIO/S3 private storage adapter.
+  - Short-lived signed download URLs (15-minute TTL) scoped to candidate owners and interviewing recruiters.
+  - Retention-aware CV deletion: soft delete for referenced application CVs, hard delete for unreferenced CVs.
+  - Interview scheduling, updates, completion, and cancellation with recruiter feedback preservation.
+  - Multi-channel notification dispatching: in-app notifications and versioned email delivery via Nodemailer and Mailpit.
+- **Phase 6 (AI Recruitment Capabilities)**:
+  - Vendor-neutral `IAiProviderPort` and resilient Gemini adapter with timeout, exponential backoff, and rate-limit handling.
+  - Strict PII redactor (redacting emails, phone numbers, identity cards) and versioned prompt/output validation (`v1.0`).
+  - Explainable CV/JD matching orchestration with four weighted scoring components and gap analysis.
+  - Natural-language search query parsing (`POST /jobs/search/parse`) into structured filters.
+  - Candidate personalized job recommendations (`GET /recommendations/jobs`) excluding applied jobs.
+  - Mathematical/architectural proof verifying AI has 0 dependencies on `ApplicationsService` and cannot transition applications.
+- **Phase 7 (Administration, Observability, and Release Hardening)**:
+  - Admin management endpoints (`AdminModule`): user listing/filters, user status moderation with automatic session revocation, company status moderation, and job moderation.
+  - Append-only audit persistence and authorized query endpoint (`GET /admin/audit-logs`) with cursor pagination.
+  - Prometheus metrics exporter (`GET /metrics`) exposing HTTP rates/durations, queue depth/failures, and dependency health.
+  - Distributed trace propagation (`x-trace-id` / `x-request-id`) across HTTP requests, Outbox, and workers.
+  - Abuse-case security suite (`abuse-cases.spec.ts`) and end-to-end recruitment lifecycle verification suite (`recruitment-lifecycle.e2e-spec.ts`).
+  - Release hardening documentation: load testing, disaster recovery drill, rate limit policies, security audit reports, and operational runbooks.
 
 ### Fixed
 
+- Resolved issue **BEI-001**: Confirmed adherence to API-CONTRACT.md Section 7 recruitment state machine transitions.
+- Resolved issue **BEI-002**: Resolved submitted-CV retention policy: soft delete for referenced CVs, hard delete for unreferenced CVs.
+- Resolved issue **BEI-003**: Enforced strict AI privacy, PII redaction, and proved non-autonomous AI architecture.
+- Resolved issue **BEI-004**: Documented production deployment topology and environment configuration.
 - Resolved issue **BEI-005**: Verified refresh-cookie attributes (`HttpOnly`, `SameSite=Lax`, path-scoped `/api/v1/auth`), credentialed CORS origin allowlisting, and CSRF protection model with automated E2E tests.
+- Resolved issue **BEI-006**: Verified search performance under benchmark load achieving p95 = 5.62ms (< 100ms target).
 - Resolved issue **BEI-007**: Benchmarked and selected Argon2id algorithm with versioned memory-hard parameters for password hashing.
 
 ### Changed

@@ -29,6 +29,85 @@ enum CompanyMemberRole {
   RECRUITER
 }
 
+enum JobStatus {
+  DRAFT
+  PUBLISHED
+  UNPUBLISHED
+  CLOSED
+}
+
+enum WorkplaceType {
+  ONSITE
+  HYBRID
+  REMOTE
+}
+
+enum ExperienceLevel {
+  INTERN
+  FRESHER
+  JUNIOR
+  MID
+  SENIOR
+  LEAD
+  MANAGER
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERNSHIP
+}
+
+enum ApplicationStatus {
+  APPLIED
+  REVIEWING
+  INTERVIEWING
+  PASSED
+  REJECTED
+}
+
+enum CvProcessingStatus {
+  UPLOADED
+  EXTRACTING
+  READY
+  FAILED
+  DELETED
+}
+
+enum InterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationType {
+  APPLICATION_SUBMITTED
+  APPLICATION_STATUS_CHANGED
+  INTERVIEW_SCHEDULED
+  INTERVIEW_RESCHEDULED
+  INTERVIEW_CANCELLED
+  APPLICATION_OUTCOME
+}
+
+enum OperationStatus {
+  QUEUED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum AiAnalysisType {
+  CV_JOB_MATCH
+  CV_GAP_ANALYSIS
+  CV_JOB_ANALYSIS
+}
+
+enum AiAnalysisStatus {
+  SUCCEEDED
+  FAILED
+}
+
 model User {
   id           String     @id @default(uuid())
   email        String     @unique
@@ -42,6 +121,8 @@ model User {
   candidateProfile    CandidateProfile?
   companyMemberships  CompanyMembership[]
   auditLogs           AuditLog[]
+  notifications       Notification[]
+  operations          Operation[]
 
   @@map("users")
 }
@@ -81,6 +162,10 @@ model CandidateProfile {
   user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   skills      CandidateSkill[]
   experiences WorkExperience[]
+  savedJobs   SavedJob[]
+  applications Application[]
+  cvs         Cv[]
+  aiAnalyses  AiAnalysis[]
 
   @@map("candidate_profiles")
 }
@@ -139,6 +224,7 @@ model Company {
   updatedAt   DateTime      @updatedAt
 
   members CompanyMembership[]
+  jobs    Job[]
 
   @@map("companies")
 }
@@ -155,6 +241,162 @@ model CompanyMembership {
 
   @@unique([companyId, userId])
   @@map("company_memberships")
+}
+
+model Job {
+  id                  String          @id @default(uuid())
+  companyId           String
+  title               String
+  slug                String          @unique
+  description         String
+  requirements        String
+  responsibilities    String?
+  technologyNames     String[]
+  location            String
+  workplaceType       WorkplaceType
+  experienceLevel     ExperienceLevel
+  employmentType      EmploymentType
+  salaryMin           Int?
+  salaryMax           Int?
+  currency            String          @default("VND")
+  applicationDeadline DateTime
+  status              JobStatus       @default(DRAFT)
+  closeReason         String?
+  publishedAt         DateTime?
+  closedAt            DateTime?
+  version             Int             @default(1)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  savedJobs    SavedJob[]
+  applications Application[]
+  aiAnalyses   AiAnalysis[]
+
+  @@index([companyId])
+  @@index([status])
+  @@index([publishedAt])
+  @@index([applicationDeadline])
+  @@map("jobs")
+}
+
+model SavedJob {
+  id                 String   @id @default(uuid())
+  candidateProfileId String
+  jobId              String
+  createdAt          DateTime @default(now())
+
+  candidateProfile CandidateProfile @relation(fields: [candidateProfileId], references: [id], onDelete: Cascade)
+  job              Job              @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateProfileId, jobId])
+  @@index([candidateProfileId])
+  @@index([jobId])
+  @@map("saved_jobs")
+}
+
+model Application {
+  id            String            @id @default(uuid())
+  candidateId   String
+  jobId         String
+  submittedCvId String
+  status        ApplicationStatus @default(APPLIED)
+  candidateNote String?
+  version       Int               @default(1)
+  submittedAt   DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  candidate CandidateProfile         @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job                      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  history   ApplicationStatusEvent[]
+  interviews Interview[]
+
+  @@unique([candidateId, jobId])
+  @@index([candidateId])
+  @@index([jobId])
+  @@index([status])
+  @@map("applications")
+}
+
+model ApplicationStatusEvent {
+  id            String             @id @default(uuid())
+  applicationId String
+  fromStatus    ApplicationStatus?
+  toStatus      ApplicationStatus
+  reason        String?
+  actorId       String
+  occurredAt    DateTime           @default(now())
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, occurredAt])
+  @@map("application_status_events")
+}
+
+model Cv {
+  id                 String             @id @default(uuid())
+  candidateProfileId String
+  originalFileName   String
+  mimeType           String             @default("application/pdf")
+  sizeBytes          Int
+  checksumSha256     String
+  storageKey         String
+  extractedText      String?
+  processingStatus   CvProcessingStatus @default(UPLOADED)
+  failureCode        String?
+  isDefault          Boolean            @default(false)
+  version            Int                @default(1)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  candidateProfile CandidateProfile @relation(fields: [candidateProfileId], references: [id], onDelete: Cascade)
+  aiAnalyses       AiAnalysis[]
+
+  @@index([candidateProfileId])
+  @@index([processingStatus])
+  @@index([checksumSha256])
+  @@map("cvs")
+}
+
+model Interview {
+  id                    String          @id @default(uuid())
+  applicationId         String
+  status                InterviewStatus @default(SCHEDULED)
+  startsAt              DateTime
+  endsAt                DateTime
+  locationOrMeetingUrl  String
+  candidateInstructions String?
+  recruiterPrivateNotes String?
+  recruiterFeedback     String?
+  cancelReason          String?
+  version               Int             @default(1)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([status])
+  @@index([startsAt])
+  @@map("interviews")
+}
+
+model Notification {
+  id           String           @id @default(uuid())
+  userId       String
+  type         NotificationType
+  title        String
+  body         String
+  resourceType String?
+  resourceId   String?
+  readAt       DateTime?
+  createdAt    DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
 }
 
 model OutboxEvent {
@@ -190,4 +432,55 @@ model AuditLog {
   @@index([actorId])
   @@index([targetType, targetId])
   @@map("audit_logs")
+}
+
+model Operation {
+  id                 String          @id @default(uuid())
+  userId             String?
+  type               String
+  status             OperationStatus @default(QUEUED)
+  progressPercent    Int?
+  resultResourceType String?
+  resultResourceId   String?
+  failureCode        String?
+  failureMessage     String?
+  idempotencyKey     String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  completedAt        DateTime?
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@map("operations")
+}
+
+model AiAnalysis {
+  id                String           @id @default(uuid())
+  type              AiAnalysisType
+  candidateId       String
+  cvId              String
+  jobId             String?
+  status            AiAnalysisStatus @default(SUCCEEDED)
+  overallScore      Int?
+  components        Json             @default("[]")
+  matchedSkills     String[]
+  missingSkills     String[]
+  unmetRequirements String[]
+  suggestions       String[]
+  limitations       String[]
+  model             String
+  promptVersion     String
+  schemaVersion     String
+  createdAt         DateTime         @default(now())
+
+  candidate CandidateProfile @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  cv        Cv               @relation(fields: [cvId], references: [id], onDelete: Cascade)
+  job       Job?             @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([candidateId])
+  @@index([cvId])
+  @@index([jobId])
+  @@map("ai_analyses")
 }
