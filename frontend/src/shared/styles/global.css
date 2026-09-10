@@ -3,25 +3,25 @@
 
 @theme {
   /* Core ink / text */
-  --color-ink: #0F172A;
-  --color-ink-muted: #475569;
+  --color-ink: #14532D;
+  --color-ink-muted: #4B5563;
   --color-slate: #64748B;
 
   /* Action / brand */
-  --color-action: #0369A1;
-  --color-action-hover: #075985;
-  --color-action-dim: rgba(3, 105, 161, 0.10);
-  --color-action-border: rgba(3, 105, 161, 0.25);
+  --color-action: #16A34A;
+  --color-action-hover: #15803D;
+  --color-action-dim: rgba(22, 163, 74, 0.10);
+  --color-action-border: rgba(22, 163, 74, 0.25);
 
-  /* Surface layers (dark, depth-based) */
-  --color-canvas: #F8FAFC;      /* Page background */
+  /* Surface layers (light, depth-based) */
+  --color-canvas: #F0FDF4;      /* Page background */
   --color-surface: #FFFFFF;     /* Cards, sidebars */
-  --color-surface-raised: #F1F5F9; /* Elevated cards */
+  --color-surface-raised: #DCFCE7; /* Elevated cards */
   --color-surface-overlay: #FFFFFF; /* Modal overlays, popups */
 
   /* Border */
-  --color-border: #E2E8F0;
-  --color-border-subtle: rgba(226, 232, 240, 0.5);
+  --color-border: #BBF7D0;
+  --color-border-subtle: rgba(187, 247, 208, 0.7);
 
   /* Status colors */
   --color-danger: #DC2626;
@@ -94,7 +94,7 @@
 
   /* Selection */
   ::selection {
-    background: rgba(3, 105, 161, 0.20);
+    background: rgba(22, 163, 74, 0.20);
     color: var(--color-action-hover);
   }
 }
@@ -109,19 +109,19 @@
 }
 
 .dark {
-  --color-ink: #F8FAFC;
-  --color-ink-muted: #CBD5E1;
-  --color-slate: #94A3B8;
-  --color-canvas: #0F172A;
-  --color-surface: #111C2F;
-  --color-surface-raised: #1E293B;
-  --color-surface-overlay: #1E293B;
-  --color-border: #334155;
-  --color-border-subtle: rgba(51, 65, 85, 0.7);
-  --color-action: #38BDF8;
-  --color-action-hover: #7DD3FC;
-  --color-action-dim: rgba(56, 189, 248, 0.14);
-  --color-action-border: rgba(56, 189, 248, 0.34);
+  --color-ink: #F0FDF4;
+  --color-ink-muted: #BBF7D0;
+  --color-slate: #86EFAC;
+  --color-canvas: #022C22;
+  --color-surface: #064E3B;
+  --color-surface-raised: #065F46;
+  --color-surface-overlay: #065F46;
+  --color-border: #047857;
+  --color-border-subtle: rgba(4, 120, 87, 0.7);
+  --color-action: #4ADE80;
+  --color-action-hover: #86EFAC;
+  --color-action-dim: rgba(74, 222, 128, 0.14);
+  --color-action-border: rgba(74, 222, 128, 0.34);
   --color-danger: #F87171;
   --color-danger-bg: rgba(248, 113, 113, 0.14);
   --color-success: #4ADE80;
@@ -132,16 +132,19 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
-    --color-ink: #F8FAFC;
-    --color-ink-muted: #CBD5E1;
-    --color-slate: #94A3B8;
-    --color-canvas: #0F172A;
-    --color-surface: #111C2F;
-    --color-surface-raised: #1E293B;
-    --color-surface-overlay: #1E293B;
-    --color-border: #334155;
-    --color-action: #38BDF8;
-    --color-action-hover: #7DD3FC;
+    --color-ink: #F0FDF4;
+    --color-ink-muted: #BBF7D0;
+    --color-slate: #86EFAC;
+    --color-canvas: #022C22;
+    --color-surface: #064E3B;
+    --color-surface-raised: #065F46;
+    --color-surface-overlay: #065F46;
+    --color-border: #047857;
+    --color-border-subtle: rgba(4, 120, 87, 0.7);
+    --color-action: #4ADE80;
+    --color-action-hover: #86EFAC;
+    --color-action-dim: rgba(74, 222, 128, 0.14);
+    --color-action-border: rgba(74, 222, 128, 0.34);
     --color-danger: #F87171;
     --color-danger-bg: rgba(248, 113, 113, 0.14);
     --color-success: #4ADE80;

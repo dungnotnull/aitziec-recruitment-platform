@@ -14,7 +14,7 @@ Restore the green visual identity already defined by the project owner and preve
 
 ## Verification
 
-- Add a source-level regression test that reads the active imported stylesheet and asserts the canonical green tokens are present while the former blue action tokens are absent.
+- Add a browser regression test that loads the real application and asserts the computed light/dark theme tokens use the canonical green action and canvas colors.
 - Run the focused test, full frontend unit suite, typecheck, and production build.
 - Confirm the final Git diff touches only theme/test documentation and excludes the owner's untracked `fix*.cjs` files.
 
