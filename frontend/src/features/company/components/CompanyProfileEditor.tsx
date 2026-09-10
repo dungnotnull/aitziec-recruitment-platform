@@ -66,6 +66,7 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
     },
     onSuccess: (savedCompany) => {
       queryClient.setQueryData(['company', savedCompany.id], savedCompany)
+      localStorage.setItem('hr_company_id', savedCompany.id)
       navigate({ to: '/company', search: { companyId: savedCompany.id } })
     },
     onError: (error: any) => {

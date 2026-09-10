@@ -4,6 +4,7 @@ import { getCompany } from "../api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { Button } from "@/shared/ui/button"
 import { Building, Users, Briefcase, Edit, Globe, MapPin } from "lucide-react"
+
 import { MemberDirectory } from "./MemberDirectory"
 import { StateBoundary } from "@/shared/ui/state-boundary"
 import { Link } from "@tanstack/react-router"
@@ -12,12 +13,16 @@ import { useJobs } from "@/features/job/hooks/useJobs"
 export function CompanyDashboard({ companyId }: { companyId?: string }) {
   const { session } = useAuth()
 
+  const parsedCompanyId = companyId === 'undefined' ? undefined : companyId;
+  const activeCompanyId = parsedCompanyId || localStorage.getItem('hr_company_id') || undefined;
+
   const { data: company, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['company', companyId],
-    queryFn: () => getCompany(companyId!),
-    enabled: !!session && session.user.role === 'HR' && Boolean(companyId),
+    queryKey: ['company', activeCompanyId],
+    queryFn: () => getCompany(activeCompanyId!),
+    enabled: !!session && session.user.role === 'HR' && Boolean(activeCompanyId),
     retry: false
   })
+
   const jobsQuery = useJobs(
     company ? { companyId: company.id } : undefined,
     { enabled: Boolean(company) },
@@ -142,7 +147,7 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
            <div className="text-center p-8 border border-dashed border-border rounded-md">
             <h3 className="text-lg font-medium text-ink mb-2">No Company Profile Found</h3>
             <p className="text-slate mb-6">You haven't set up a company profile yet.</p>
-            <p className="text-slate mb-6">The backend does not expose company membership discovery. Create a company or open this workspace from a server-returned company link.</p>
+            <p className="text-slate mb-6">Create a company profile to get started with posting jobs and managing your team.</p>
             <Link to="/company/edit" search={{ companyId: undefined }}>
               <Button>Create Company Profile</Button>
             </Link>

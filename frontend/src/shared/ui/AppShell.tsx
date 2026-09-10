@@ -2,7 +2,7 @@ import * as React from "react"
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
 import { useAuth } from "@/features/auth/context"
 import { Button } from "./button"
-import { LogOut, User, Building2, Shield, Zap, Bell, BrainCircuit, Sparkles, ScrollText, Menu, X } from "lucide-react"
+import { LogOut, User, Building2, Shield, Zap, Bell, BrainCircuit, Sparkles, ScrollText, Menu, X, Search } from "lucide-react"
 import { logoutFn } from "@/features/auth/api"
 import { getNavigationItems } from "./navigation-items"
 import { NotificationUnreadBadge } from "@/features/notifications/NotificationUnreadBadge"
@@ -15,6 +15,7 @@ const navigationIcons = {
   building: Building2,
   shield: Shield,
   audit: ScrollText,
+  search: Search,
 } as const
 
 function NavLink({ to, children, icon: Icon, onNavigate }: { to: string; children: React.ReactNode; icon?: React.ElementType; onNavigate?: () => void }) {
