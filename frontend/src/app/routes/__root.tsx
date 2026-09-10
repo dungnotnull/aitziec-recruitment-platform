@@ -1,7 +1,13 @@
 import { createRootRouteWithContext, Outlet } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/router-devtools'
-import { QueryClient } from '@tanstack/react-query'
+import { lazy, Suspense } from 'react'
 import type { AuthSession } from '@/api/types'
+
+const RouterDevtools = import.meta.env.DEV
+  ? lazy(async () => {
+      const module = await import('@tanstack/router-devtools')
+      return { default: module.TanStackRouterDevtools }
+    })
+  : null
 
 interface MyRouterContext {
   auth: {
@@ -15,7 +21,11 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
   component: () => (
     <>
       <Outlet />
-      <TanStackRouterDevtools />
+      {RouterDevtools && (
+        <Suspense fallback={null}>
+          <RouterDevtools />
+        </Suspense>
+      )}
     </>
   ),
 })

@@ -1,25 +1,29 @@
-import * as React from "react"
 import { useAuth } from "@/features/auth/context"
 import { useQuery } from "@tanstack/react-query"
-import { getCompany } from "../api"
+import { getMyCompanies } from "../api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { Button } from "@/shared/ui/button"
-import { Building, Users, Briefcase } from "lucide-react"
+import { Building, Users, Briefcase, Edit, Globe, MapPin } from "lucide-react"
 import { MemberDirectory } from "./MemberDirectory"
 import { StateBoundary } from "@/shared/ui/state-boundary"
+import { Link } from "@tanstack/react-router"
+import { useJobs } from "@/features/job/hooks/useJobs"
 
 export function CompanyDashboard() {
   const { session } = useAuth()
 
-  // Hardcoded for now as backend doesn't have an endpoint to list current user's companies
-  const companySlug = 'techcorp-vietnam'
-
-  const { data: company, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['company', companySlug],
-    queryFn: () => getCompany(companySlug),
+  const { data: companies, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['my-companies'],
+    queryFn: getMyCompanies,
     enabled: !!session && session.user.role === 'HR',
-    retry: false // don't retry 404s endlessly
+    retry: false
   })
+
+  const company = companies && companies.length > 0 ? companies[0] : null;
+  const jobsQuery = useJobs(
+    company ? { companyId: company.id } : undefined,
+    { enabled: Boolean(company) },
+  )
 
   if (!session || session.user.role !== 'HR') {
     return (
@@ -41,12 +45,67 @@ export function CompanyDashboard() {
           <h2 className="text-2xl font-display font-bold text-ink">Company Dashboard</h2>
           <p className="text-slate">Manage your organization, jobs, and team members.</p>
         </div>
-        <Button>Post New Job</Button>
+        <div className="flex gap-2">
+          {company && (
+            <Link to="/company/edit">
+              <Button variant="outline">
+                <Edit className="mr-2 h-4 w-4" />
+                Edit Profile
+              </Button>
+            </Link>
+          )}
+          <Button
+            disabled
+            title="Posting jobs is not yet available (Phase 3)"
+          >
+            Post New Job
+          </Button>
+        </div>
       </div>
 
       <StateBoundary isLoading={isLoading} isError={shouldShowError} error={error} onRetry={() => refetch()}>
         {company ? (
           <>
+            {/* Scoped Company Profile View */}
+            <Card className="bg-surface/50">
+              <CardContent className="pt-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex gap-4">
+                    {company.logoUrl ? (
+                      <img src={company.logoUrl} alt={`${company.name} logo`} className="w-16 h-16 rounded-md object-cover border border-border" />
+                    ) : (
+                      <div className="w-16 h-16 rounded-md bg-slate/10 flex items-center justify-center border border-border">
+                        <Building className="h-8 w-8 text-slate" />
+                      </div>
+                    )}
+                    <div>
+                      <h3 className="text-xl font-bold text-ink">{company.name}</h3>
+                      <div className="flex items-center gap-4 mt-2 text-sm text-slate">
+                        {company.location && (
+                          <span className="flex items-center gap-1">
+                            <MapPin className="h-3 w-3" /> {company.location}
+                          </span>
+                        )}
+                        {company.websiteUrl && (
+                          <a href={company.websiteUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-action hover:underline">
+                            <Globe className="h-3 w-3" /> {company.websiteUrl.replace(/^https?:\/\//, '')}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <span className={`px-2 py-1 text-xs rounded-full font-medium ${company.status === 'ACTIVE' ? 'bg-success/10 text-success' : 'bg-slate/10 text-slate'}`}>
+                    {company.status}
+                  </span>
+                </div>
+                {company.description && (
+                  <div className="mt-4 text-sm text-ink whitespace-pre-wrap">
+                    {company.description}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <div className="grid gap-6 md:grid-cols-3">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -55,7 +114,7 @@ export function CompanyDashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{company.name}</div>
-                  <p className="text-xs text-slate mt-1">Status: {company.status}</p>
+                  <p className="text-xs text-slate mt-1">Slug: {company.slug}</p>
                 </CardContent>
               </Card>
 
@@ -65,8 +124,12 @@ export function CompanyDashboard() {
                   <Briefcase className="h-4 w-4 text-slate" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">12</div>
-                  <p className="text-xs text-slate mt-1">+2 this week</p>
+                  <div className="text-2xl font-bold">
+                    {jobsQuery.isLoading ? '—' : jobsQuery.data?.data.length ?? 0}
+                  </div>
+                  <p className="text-xs text-slate mt-1">
+                    {jobsQuery.isError ? 'Unable to load jobs' : 'Published jobs returned by the API'}
+                  </p>
                 </CardContent>
               </Card>
 
@@ -90,7 +153,9 @@ export function CompanyDashboard() {
            <div className="text-center p-8 border border-dashed border-border rounded-md">
             <h3 className="text-lg font-medium text-ink mb-2">No Company Profile Found</h3>
             <p className="text-slate mb-6">You haven't set up a company profile yet.</p>
-            <Button>Create Company Profile</Button>
+            <Link to="/company/edit">
+              <Button>Create Company Profile</Button>
+            </Link>
           </div>
         )}
       </StateBoundary>

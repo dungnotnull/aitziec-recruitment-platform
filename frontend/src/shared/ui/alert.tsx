@@ -1,6 +1,5 @@
 import * as React from "react"
 import { cn } from "./button"
-import { AlertCircle } from "lucide-react"
 
 const Alert = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement> & { variant?: "default" | "destructive" }>(({ className, variant = "default", ...props }, ref) => (
   <div

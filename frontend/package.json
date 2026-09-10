@@ -9,7 +9,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsr generate && tsc -b && vite build",
+    "typecheck": "tsr generate && tsc -b",
+    "test:unit": "vitest run --project unit",
+    "test:storybook": "vitest run --project storybook",
+    "test:e2e": "playwright test",
+    "security:frontend": "node scripts/check-sensitive-data.mjs dist",
     "lint": "oxlint",
     "preview": "vite preview",
     "storybook": "storybook dev -p 6006",
@@ -61,11 +66,7 @@
     "@storybook/addon-mcp": "^10.6.0",
     "@vitest/browser-playwright": "5.0.0",
     "@vitest/coverage-v8": "5.0.0",
+    "axe-core": "^4.13.0",
     "playwright": "latest"
-  },
-  "msw": {
-    "workerDirectory": [
-      "public"
-    ]
   }
 }

@@ -34,9 +34,8 @@ const Page: React.FC = () => {
           process starting with atomic components and ending with pages.
         </p>
         <p>
-          Render pages with mock data. This makes it easy to build and review page states without
-          needing to navigate to them in your app. Here are some handy patterns for managing page
-          data in Storybook:
+          Render presentational components with explicit story args so visual states can be
+          reviewed independently from the real API-connected application routes.
         </p>
         <ul>
           <li>
@@ -44,8 +43,8 @@ const Page: React.FC = () => {
             "args" of child component stories
           </li>
           <li>
-            Assemble data in the page component from your services. You can mock these services out
-            using Storybook.
+            Keep network-backed behavior in application routes and use Storybook for isolated
+            component presentation.
           </li>
         </ul>
         <p>

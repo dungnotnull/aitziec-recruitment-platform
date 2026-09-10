@@ -15,7 +15,13 @@ export function SkillCombobox({ profile }: { profile?: CandidateProfile }) {
   const [search, setSearch] = React.useState("")
   const queryClient = useQueryClient()
 
-  const selected = profile?.skills.map(s => s.name) || []
+  const getSkillName = (skillId: string) => {
+    const slug = skillId.replace(/^skill-/, '');
+    const found = skillsDB.find(dbSkill => dbSkill.toLowerCase().replace(/[^a-z0-9]/g, '-') === slug);
+    return found || slug;
+  }
+
+  const selected = profile?.skills.map(s => getSkillName(s.skillId)) || []
 
   const mutation = useMutation({
     mutationFn: (newSkills: string[]) => {
@@ -23,7 +29,7 @@ export function SkillCombobox({ profile }: { profile?: CandidateProfile }) {
       return updateMyProfile({
         expectedVersion: profile.version,
         skills: newSkills.map(s => ({
-          skillId: `skill-${s.toLowerCase().replace(/[^a-z0-9]/g, '-')}`, // Mock generation for now
+          skillId: `skill-${s.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
           yearsOfExperience: null
         }))
       })

@@ -1,11 +1,10 @@
-import * as React from "react"
 import { useAuth } from "@/features/auth/context"
 import { useQuery } from "@tanstack/react-query"
 import { getMyProfile } from "../api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { StateBoundary } from "@/shared/ui/state-boundary"
 import { ProfileEditor } from "./ProfileEditor"
-import { CVUploader } from "./CVUploader"
+import { CvUploader } from "@/features/cv/components/CvUploader"
 import { WorkExperienceEditor } from "./WorkExperienceEditor"
 import { ProfileVisibilityControl } from "./ProfileVisibilityControl"
 import { SkillCombobox } from "./SkillCombobox"
@@ -136,14 +135,14 @@ export function ProfileOverview() {
 
           {/* Right Column: Visibility, CVs */}
           <div className="space-y-8">
-            <ProfileVisibilityControl />
+            {profile && <ProfileVisibilityControl key={profile.version} profile={profile} />}
             
             <Card className="border-border shadow-sm">
               <CardHeader>
                 <CardTitle className="text-xl">CV Management</CardTitle>
               </CardHeader>
               <CardContent>
-                <CVUploader />
+                <CvUploader />
               </CardContent>
             </Card>
           </div>

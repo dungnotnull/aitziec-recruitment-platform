@@ -14,15 +14,33 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthRouteRouteImport } from './routes/auth/route'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
 import { Route as AuthenticatedCompanyRouteRouteImport } from './routes/_authenticated/company/route'
+import { Route as AuthenticatedNotificationsRouteImport } from './routes/_authenticated/notifications'
+import { Route as JobsIndexRouteImport } from './routes/jobs/index'
+import { Route as JobsJobIdOrSlugRouteImport } from './routes/jobs/$jobIdOrSlug'
+import { Route as AuthenticatedAdminAuditRouteImport } from './routes/_authenticated/admin/audit'
+import { Route as AuthenticatedCandidateAiRouteImport } from './routes/_authenticated/candidate/ai'
+import { Route as AuthenticatedCandidateApplicationsRouteImport } from './routes/_authenticated/candidate/applications'
+import { Route as AuthenticatedCandidateCvsRouteImport } from './routes/_authenticated/candidate/cvs'
+import { Route as AuthenticatedCandidateRecommendationsRouteImport } from './routes/_authenticated/candidate/recommendations'
+import { Route as AuthenticatedCandidateSavedJobsRouteImport } from './routes/_authenticated/candidate/saved-jobs'
+import { Route as AuthenticatedRecruiterWorkspaceRouteImport } from './routes/_authenticated/recruiter/workspace'
+import { Route as AuthenticatedRecruiterJobsJobIdApplicantsRouteImport } from './routes/_authenticated/recruiter/jobs.$jobId.applicants'
 
 const AuthenticatedProfileLazyRouteImport = createFileRoute(
   '/_authenticated/profile',
 )()
 const AuthLoginLazyRouteImport = createFileRoute('/auth/login')()
 const AuthRegisterLazyRouteImport = createFileRoute('/auth/register')()
+const AuthenticatedAdminIndexLazyRouteImport = createFileRoute(
+  '/_authenticated/admin/',
+)()
 const AuthenticatedCompanyIndexLazyRouteImport = createFileRoute(
   '/_authenticated/company/',
+)()
+const AuthenticatedCompanyEditLazyRouteImport = createFileRoute(
+  '/_authenticated/company/edit',
 )()
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
@@ -39,10 +57,21 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedCompanyRouteRoute =
   AuthenticatedCompanyRouteRouteImport.update({
     id: '/company',
     path: '/company',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedNotificationsRoute =
+  AuthenticatedNotificationsRouteImport.update({
+    id: '/notifications',
+    path: '/notifications',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedProfileLazyRoute =
@@ -63,6 +92,59 @@ const AuthRegisterLazyRoute = AuthRegisterLazyRouteImport.update({
   path: '/register',
   getParentRoute: () => AuthRouteRoute,
 } as any).lazy(() => import('./routes/auth/register.lazy').then((d) => d.Route))
+const JobsIndexRoute = JobsIndexRouteImport.update({
+  id: '/jobs/',
+  path: '/jobs/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JobsJobIdOrSlugRoute = JobsJobIdOrSlugRouteImport.update({
+  id: '/jobs/$jobIdOrSlug',
+  path: '/jobs/$jobIdOrSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedAdminIndexLazyRoute =
+  AuthenticatedAdminIndexLazyRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedAdminRouteRoute,
+  } as any).lazy(() =>
+    import('./routes/_authenticated/admin/index.lazy').then((d) => d.Route),
+  )
+const AuthenticatedAdminAuditRoute = AuthenticatedAdminAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AuthenticatedAdminRouteRoute,
+} as any)
+const AuthenticatedCandidateAiRoute =
+  AuthenticatedCandidateAiRouteImport.update({
+    id: '/candidate/ai',
+    path: '/candidate/ai',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedCandidateApplicationsRoute =
+  AuthenticatedCandidateApplicationsRouteImport.update({
+    id: '/candidate/applications',
+    path: '/candidate/applications',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedCandidateCvsRoute =
+  AuthenticatedCandidateCvsRouteImport.update({
+    id: '/candidate/cvs',
+    path: '/candidate/cvs',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedCandidateRecommendationsRoute =
+  AuthenticatedCandidateRecommendationsRouteImport.update({
+    id: '/candidate/recommendations',
+    path: '/candidate/recommendations',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedCandidateSavedJobsRoute =
+  AuthenticatedCandidateSavedJobsRouteImport.update({
+    id: '/candidate/saved-jobs',
+    path: '/candidate/saved-jobs',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedCompanyIndexLazyRoute =
   AuthenticatedCompanyIndexLazyRouteImport.update({
     id: '/',
@@ -71,62 +153,172 @@ const AuthenticatedCompanyIndexLazyRoute =
   } as any).lazy(() =>
     import('./routes/_authenticated/company/index.lazy').then((d) => d.Route),
   )
+const AuthenticatedCompanyEditLazyRoute =
+  AuthenticatedCompanyEditLazyRouteImport.update({
+    id: '/edit',
+    path: '/edit',
+    getParentRoute: () => AuthenticatedCompanyRouteRoute,
+  } as any).lazy(() =>
+    import('./routes/_authenticated/company/edit.lazy').then((d) => d.Route),
+  )
+const AuthenticatedRecruiterWorkspaceRoute =
+  AuthenticatedRecruiterWorkspaceRouteImport.update({
+    id: '/recruiter/workspace',
+    path: '/recruiter/workspace',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedRecruiterJobsJobIdApplicantsRoute =
+  AuthenticatedRecruiterJobsJobIdApplicantsRouteImport.update({
+    id: '/recruiter/jobs/$jobId/applicants',
+    path: '/recruiter/jobs/$jobId/applicants',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/auth': typeof AuthRouteRouteWithChildren
   '/': typeof AuthenticatedIndexRoute
+  '/admin': typeof AuthenticatedAdminRouteRouteWithChildren
   '/company': typeof AuthenticatedCompanyRouteRouteWithChildren
+  '/notifications': typeof AuthenticatedNotificationsRoute
+  '/jobs/$jobIdOrSlug': typeof JobsJobIdOrSlugRoute
   '/profile': typeof AuthenticatedProfileLazyRoute
   '/auth/login': typeof AuthLoginLazyRoute
   '/auth/register': typeof AuthRegisterLazyRoute
+  '/jobs/': typeof JobsIndexRoute
+  '/admin/audit': typeof AuthenticatedAdminAuditRoute
+  '/candidate/ai': typeof AuthenticatedCandidateAiRoute
+  '/candidate/applications': typeof AuthenticatedCandidateApplicationsRoute
+  '/candidate/cvs': typeof AuthenticatedCandidateCvsRoute
+  '/candidate/recommendations': typeof AuthenticatedCandidateRecommendationsRoute
+  '/candidate/saved-jobs': typeof AuthenticatedCandidateSavedJobsRoute
+  '/recruiter/workspace': typeof AuthenticatedRecruiterWorkspaceRoute
+  '/company/edit': typeof AuthenticatedCompanyEditLazyRoute
+  '/admin/': typeof AuthenticatedAdminIndexLazyRoute
   '/company/': typeof AuthenticatedCompanyIndexLazyRoute
+  '/recruiter/jobs/$jobId/applicants': typeof AuthenticatedRecruiterJobsJobIdApplicantsRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRouteRouteWithChildren
+  '/notifications': typeof AuthenticatedNotificationsRoute
+  '/jobs/$jobIdOrSlug': typeof JobsJobIdOrSlugRoute
   '/profile': typeof AuthenticatedProfileLazyRoute
   '/auth/login': typeof AuthLoginLazyRoute
   '/auth/register': typeof AuthRegisterLazyRoute
   '/': typeof AuthenticatedIndexRoute
+  '/jobs': typeof JobsIndexRoute
+  '/admin/audit': typeof AuthenticatedAdminAuditRoute
+  '/candidate/ai': typeof AuthenticatedCandidateAiRoute
+  '/candidate/applications': typeof AuthenticatedCandidateApplicationsRoute
+  '/candidate/cvs': typeof AuthenticatedCandidateCvsRoute
+  '/candidate/recommendations': typeof AuthenticatedCandidateRecommendationsRoute
+  '/candidate/saved-jobs': typeof AuthenticatedCandidateSavedJobsRoute
+  '/recruiter/workspace': typeof AuthenticatedRecruiterWorkspaceRoute
+  '/company/edit': typeof AuthenticatedCompanyEditLazyRoute
+  '/admin': typeof AuthenticatedAdminIndexLazyRoute
   '/company': typeof AuthenticatedCompanyIndexLazyRoute
+  '/recruiter/jobs/$jobId/applicants': typeof AuthenticatedRecruiterJobsJobIdApplicantsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/auth': typeof AuthRouteRouteWithChildren
   '/_authenticated': typeof AuthenticatedRouteWithChildren
+  '/_authenticated/admin': typeof AuthenticatedAdminRouteRouteWithChildren
   '/_authenticated/company': typeof AuthenticatedCompanyRouteRouteWithChildren
+  '/_authenticated/notifications': typeof AuthenticatedNotificationsRoute
+  '/jobs/$jobIdOrSlug': typeof JobsJobIdOrSlugRoute
   '/_authenticated/profile': typeof AuthenticatedProfileLazyRoute
   '/auth/login': typeof AuthLoginLazyRoute
   '/auth/register': typeof AuthRegisterLazyRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/jobs/': typeof JobsIndexRoute
+  '/_authenticated/admin/audit': typeof AuthenticatedAdminAuditRoute
+  '/_authenticated/candidate/ai': typeof AuthenticatedCandidateAiRoute
+  '/_authenticated/candidate/applications': typeof AuthenticatedCandidateApplicationsRoute
+  '/_authenticated/candidate/cvs': typeof AuthenticatedCandidateCvsRoute
+  '/_authenticated/candidate/recommendations': typeof AuthenticatedCandidateRecommendationsRoute
+  '/_authenticated/candidate/saved-jobs': typeof AuthenticatedCandidateSavedJobsRoute
+  '/_authenticated/recruiter/workspace': typeof AuthenticatedRecruiterWorkspaceRoute
+  '/_authenticated/company/edit': typeof AuthenticatedCompanyEditLazyRoute
+  '/_authenticated/admin/': typeof AuthenticatedAdminIndexLazyRoute
   '/_authenticated/company/': typeof AuthenticatedCompanyIndexLazyRoute
+  '/_authenticated/recruiter/jobs/$jobId/applicants': typeof AuthenticatedRecruiterJobsJobIdApplicantsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/auth'
     | '/'
+    | '/admin'
     | '/company'
+    | '/notifications'
+    | '/jobs/$jobIdOrSlug'
     | '/profile'
     | '/auth/login'
     | '/auth/register'
+    | '/jobs/'
+    | '/admin/audit'
+    | '/candidate/ai'
+    | '/candidate/applications'
+    | '/candidate/cvs'
+    | '/candidate/recommendations'
+    | '/candidate/saved-jobs'
+    | '/recruiter/workspace'
+    | '/company/edit'
+    | '/admin/'
     | '/company/'
+    | '/recruiter/jobs/$jobId/applicants'
   fileRoutesByTo: FileRoutesByTo
-  to: '/auth' | '/profile' | '/auth/login' | '/auth/register' | '/' | '/company'
+  to:
+    | '/auth'
+    | '/notifications'
+    | '/jobs/$jobIdOrSlug'
+    | '/profile'
+    | '/auth/login'
+    | '/auth/register'
+    | '/'
+    | '/jobs'
+    | '/admin/audit'
+    | '/candidate/ai'
+    | '/candidate/applications'
+    | '/candidate/cvs'
+    | '/candidate/recommendations'
+    | '/candidate/saved-jobs'
+    | '/recruiter/workspace'
+    | '/company/edit'
+    | '/admin'
+    | '/company'
+    | '/recruiter/jobs/$jobId/applicants'
   id:
     | '__root__'
     | '/auth'
     | '/_authenticated'
+    | '/_authenticated/admin'
     | '/_authenticated/company'
+    | '/_authenticated/notifications'
+    | '/jobs/$jobIdOrSlug'
     | '/_authenticated/profile'
     | '/auth/login'
     | '/auth/register'
     | '/_authenticated/'
+    | '/jobs/'
+    | '/_authenticated/admin/audit'
+    | '/_authenticated/candidate/ai'
+    | '/_authenticated/candidate/applications'
+    | '/_authenticated/candidate/cvs'
+    | '/_authenticated/candidate/recommendations'
+    | '/_authenticated/candidate/saved-jobs'
+    | '/_authenticated/recruiter/workspace'
+    | '/_authenticated/company/edit'
+    | '/_authenticated/admin/'
     | '/_authenticated/company/'
+    | '/_authenticated/recruiter/jobs/$jobId/applicants'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AuthRouteRoute: typeof AuthRouteRouteWithChildren
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
+  JobsJobIdOrSlugRoute: typeof JobsJobIdOrSlugRoute
+  JobsIndexRoute: typeof JobsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -152,11 +344,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/admin': {
+      id: '/_authenticated/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AuthenticatedAdminRouteRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/company': {
       id: '/_authenticated/company'
       path: '/company'
       fullPath: '/company'
       preLoaderRoute: typeof AuthenticatedCompanyRouteRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/notifications': {
+      id: '/_authenticated/notifications'
+      path: '/notifications'
+      fullPath: '/notifications'
+      preLoaderRoute: typeof AuthenticatedNotificationsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/profile': {
@@ -180,12 +386,96 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRegisterLazyRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/jobs/': {
+      id: '/jobs/'
+      path: '/jobs'
+      fullPath: '/jobs/'
+      preLoaderRoute: typeof JobsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/jobs/$jobIdOrSlug': {
+      id: '/jobs/$jobIdOrSlug'
+      path: '/jobs/$jobIdOrSlug'
+      fullPath: '/jobs/$jobIdOrSlug'
+      preLoaderRoute: typeof JobsJobIdOrSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/admin/': {
+      id: '/_authenticated/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AuthenticatedAdminIndexLazyRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
+    '/_authenticated/admin/audit': {
+      id: '/_authenticated/admin/audit'
+      path: '/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof AuthenticatedAdminAuditRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
+    '/_authenticated/candidate/ai': {
+      id: '/_authenticated/candidate/ai'
+      path: '/candidate/ai'
+      fullPath: '/candidate/ai'
+      preLoaderRoute: typeof AuthenticatedCandidateAiRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/candidate/applications': {
+      id: '/_authenticated/candidate/applications'
+      path: '/candidate/applications'
+      fullPath: '/candidate/applications'
+      preLoaderRoute: typeof AuthenticatedCandidateApplicationsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/candidate/cvs': {
+      id: '/_authenticated/candidate/cvs'
+      path: '/candidate/cvs'
+      fullPath: '/candidate/cvs'
+      preLoaderRoute: typeof AuthenticatedCandidateCvsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/candidate/recommendations': {
+      id: '/_authenticated/candidate/recommendations'
+      path: '/candidate/recommendations'
+      fullPath: '/candidate/recommendations'
+      preLoaderRoute: typeof AuthenticatedCandidateRecommendationsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/candidate/saved-jobs': {
+      id: '/_authenticated/candidate/saved-jobs'
+      path: '/candidate/saved-jobs'
+      fullPath: '/candidate/saved-jobs'
+      preLoaderRoute: typeof AuthenticatedCandidateSavedJobsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/company/': {
       id: '/_authenticated/company/'
       path: '/'
       fullPath: '/company/'
       preLoaderRoute: typeof AuthenticatedCompanyIndexLazyRouteImport
       parentRoute: typeof AuthenticatedCompanyRouteRoute
+    }
+    '/_authenticated/company/edit': {
+      id: '/_authenticated/company/edit'
+      path: '/edit'
+      fullPath: '/company/edit'
+      preLoaderRoute: typeof AuthenticatedCompanyEditLazyRouteImport
+      parentRoute: typeof AuthenticatedCompanyRouteRoute
+    }
+    '/_authenticated/recruiter/workspace': {
+      id: '/_authenticated/recruiter/workspace'
+      path: '/recruiter/workspace'
+      fullPath: '/recruiter/workspace'
+      preLoaderRoute: typeof AuthenticatedRecruiterWorkspaceRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/recruiter/jobs/$jobId/applicants': {
+      id: '/_authenticated/recruiter/jobs/$jobId/applicants'
+      path: '/recruiter/jobs/$jobId/applicants'
+      fullPath: '/recruiter/jobs/$jobId/applicants'
+      preLoaderRoute: typeof AuthenticatedRecruiterJobsJobIdApplicantsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
   }
 }
@@ -204,12 +494,30 @@ const AuthRouteRouteWithChildren = AuthRouteRoute._addFileChildren(
   AuthRouteRouteChildren,
 )
 
+interface AuthenticatedAdminRouteRouteChildren {
+  AuthenticatedAdminAuditRoute: typeof AuthenticatedAdminAuditRoute
+  AuthenticatedAdminIndexLazyRoute: typeof AuthenticatedAdminIndexLazyRoute
+}
+
+const AuthenticatedAdminRouteRouteChildren: AuthenticatedAdminRouteRouteChildren =
+  {
+    AuthenticatedAdminAuditRoute: AuthenticatedAdminAuditRoute,
+    AuthenticatedAdminIndexLazyRoute: AuthenticatedAdminIndexLazyRoute,
+  }
+
+const AuthenticatedAdminRouteRouteWithChildren =
+  AuthenticatedAdminRouteRoute._addFileChildren(
+    AuthenticatedAdminRouteRouteChildren,
+  )
+
 interface AuthenticatedCompanyRouteRouteChildren {
+  AuthenticatedCompanyEditLazyRoute: typeof AuthenticatedCompanyEditLazyRoute
   AuthenticatedCompanyIndexLazyRoute: typeof AuthenticatedCompanyIndexLazyRoute
 }
 
 const AuthenticatedCompanyRouteRouteChildren: AuthenticatedCompanyRouteRouteChildren =
   {
+    AuthenticatedCompanyEditLazyRoute: AuthenticatedCompanyEditLazyRoute,
     AuthenticatedCompanyIndexLazyRoute: AuthenticatedCompanyIndexLazyRoute,
   }
 
@@ -219,15 +527,36 @@ const AuthenticatedCompanyRouteRouteWithChildren =
   )
 
 interface AuthenticatedRouteChildren {
+  AuthenticatedAdminRouteRoute: typeof AuthenticatedAdminRouteRouteWithChildren
   AuthenticatedCompanyRouteRoute: typeof AuthenticatedCompanyRouteRouteWithChildren
+  AuthenticatedNotificationsRoute: typeof AuthenticatedNotificationsRoute
   AuthenticatedProfileLazyRoute: typeof AuthenticatedProfileLazyRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+  AuthenticatedCandidateAiRoute: typeof AuthenticatedCandidateAiRoute
+  AuthenticatedCandidateApplicationsRoute: typeof AuthenticatedCandidateApplicationsRoute
+  AuthenticatedCandidateCvsRoute: typeof AuthenticatedCandidateCvsRoute
+  AuthenticatedCandidateRecommendationsRoute: typeof AuthenticatedCandidateRecommendationsRoute
+  AuthenticatedCandidateSavedJobsRoute: typeof AuthenticatedCandidateSavedJobsRoute
+  AuthenticatedRecruiterWorkspaceRoute: typeof AuthenticatedRecruiterWorkspaceRoute
+  AuthenticatedRecruiterJobsJobIdApplicantsRoute: typeof AuthenticatedRecruiterJobsJobIdApplicantsRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAdminRouteRoute: AuthenticatedAdminRouteRouteWithChildren,
   AuthenticatedCompanyRouteRoute: AuthenticatedCompanyRouteRouteWithChildren,
+  AuthenticatedNotificationsRoute: AuthenticatedNotificationsRoute,
   AuthenticatedProfileLazyRoute: AuthenticatedProfileLazyRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+  AuthenticatedCandidateAiRoute: AuthenticatedCandidateAiRoute,
+  AuthenticatedCandidateApplicationsRoute:
+    AuthenticatedCandidateApplicationsRoute,
+  AuthenticatedCandidateCvsRoute: AuthenticatedCandidateCvsRoute,
+  AuthenticatedCandidateRecommendationsRoute:
+    AuthenticatedCandidateRecommendationsRoute,
+  AuthenticatedCandidateSavedJobsRoute: AuthenticatedCandidateSavedJobsRoute,
+  AuthenticatedRecruiterWorkspaceRoute: AuthenticatedRecruiterWorkspaceRoute,
+  AuthenticatedRecruiterJobsJobIdApplicantsRoute:
+    AuthenticatedRecruiterJobsJobIdApplicantsRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
@@ -237,6 +566,8 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   AuthRouteRoute: AuthRouteRouteWithChildren,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  JobsJobIdOrSlugRoute: JobsJobIdOrSlugRoute,
+  JobsIndexRoute: JobsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

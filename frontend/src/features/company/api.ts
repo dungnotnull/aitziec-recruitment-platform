@@ -14,8 +14,14 @@ export const createCompany = async (data: CreateCompanyInput): Promise<Company> 
   return response.data.data;
 };
 
-export const getCompany = async (idOrSlug: string): Promise<Company> => {
+export async function getCompany(idOrSlug: string): Promise<Company> {
   const response = await apiClient.get<SuccessResponse<Company>>(`/companies/${idOrSlug}`);
+  return response.data.data;
+}
+
+export async function getMyCompanies(): Promise<Company[]> {
+  // This API is proposed as API-COMP-007 in Phase 3
+  const response = await apiClient.get<{ data: Company[] }>('/companies/mine');
   return response.data.data;
 };
 
@@ -24,10 +30,10 @@ export const updateCompany = async (id: string, data: UpdateCompanyInput): Promi
   return response.data.data;
 };
 
-export const listMembers = async (companyId: string, cursor?: string): Promise<PaginatedResponse<CompanyMembership[]>> => {
+export const listMembers = async (companyId: string, cursor?: string): Promise<PaginatedResponse<CompanyMembership>> => {
   const params = cursor ? { cursor } : {};
   // PaginatedResponse already extends SuccessResponse
-  const response = await apiClient.get<PaginatedResponse<CompanyMembership[]>>(`/companies/${companyId}/members`, { params });
+  const response = await apiClient.get<PaginatedResponse<CompanyMembership>>(`/companies/${companyId}/members`, { params });
   return response.data;
 };
 

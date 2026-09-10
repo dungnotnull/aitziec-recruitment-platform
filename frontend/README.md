@@ -1,5 +1,19 @@
 # React + TypeScript + Vite
 
+## Verification
+
+The application uses real `/api/v1` requests at runtime. MSW is limited to tests and Storybook.
+
+```text
+npm run lint
+npm run typecheck
+npm run test:unit
+npm run build
+npm run security:frontend
+```
+
+See `docs/OPERATIONS.md` for real-environment E2E credentials, deployment assumptions, incident response, and rollback requirements.
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:

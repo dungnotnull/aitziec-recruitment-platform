@@ -8,8 +8,8 @@ work updates this file. `../API-CONTRACT.md` controls HTTP behavior,
 provides dependency-readiness evidence.
 
 **Baseline date:** 2026-09-08
-**Current phase:** Phase 1 — Platform and Enterprise UI Foundation (not started)
-**Runtime status:** Frontend implementation has not started.
+**Current phase:** Phase 7 — Release hardening (in progress)
+**Runtime status:** Contracted Phase 5–6 frontend surfaces are implemented; live and production-only evidence remains open.
 **Contract version:** `0.1.0-draft`
 
 Task syntax:
@@ -39,8 +39,8 @@ or a mock looks correct. Backend API availability must be proven independently.
 
 ## Enterprise UI Surface Inventory
 
-All surfaces are `PLANNED`. “Backend dependency” identifies readiness, not
-implementation status.
+Task checkboxes and phase status notes below are authoritative. “Backend
+dependency” identifies readiness, not implementation status.
 
 | Area | Primary surfaces | Backend dependency | Enterprise UI requirement |
 | --- | --- | --- | --- |
@@ -88,7 +88,7 @@ direction, and an executable backlog before runtime implementation.
 
 ## Phase 1 — Platform and Enterprise UI Foundation
 
-**Phase status:** Planned.
+**Phase status:** In progress — 7 of 18 tasks verified on 2026-09-10; contract/privacy/live-integration gates remain open.
 **Goal:** create a reproducible, typed, accessible application shell and design
 system that can support public, candidate, recruiter, and admin workflows.
 
@@ -163,28 +163,28 @@ workflows against contract-backed mocks, then verified backend integrations.
 **Goal:** make public discovery fast and trustworthy while providing recruiters
 a dense, safe job-authoring and lifecycle workspace.
 
-- [ ] **FE-3-001 Build public discovery shell** — Refs: JOB-004, SEARCH-001–004; Depends: FE-1-024; Evidence: branded header, search entry, content hierarchy, mobile navigation, and first-load skeleton pass.
+- [x] **FE-3-001 Build public discovery shell** — Refs: JOB-004, SEARCH-001–004; Depends: FE-1-024; Evidence: branded header, search entry, content hierarchy, mobile navigation, and first-load skeleton pass.
 - [ ] **FE-3-002 Define typed job-search URL schema** — Refs: `JobSearchFilters`, API contract §13; Depends: FE-1-005, FE-1-012; Evidence: parse/serialize round trips normalize invalid query, filters, sorting, freshness, and cursor state.
-- [ ] **FE-3-003 Build keyword search and submit behavior** — Refs: SEARCH-001, API-JOB-001; Depends: FE-3-001–002; Backend: BE-3-010–014; Evidence: keyboard submit, cancellation, safe query encoding, clear action, and URL restoration pass.
-- [ ] **FE-3-004 Build structured desktop filter rail** — Refs: SEARCH-002, API-JOB-001; Depends: FE-3-002; Evidence: skill, salary, location, experience, employment, company, and freshness controls map exactly to contract fields.
+- [x] **FE-3-003 Build keyword search and submit behavior** — Refs: SEARCH-001, API-JOB-001; Depends: FE-3-001–002; Backend: BE-3-010–014; Evidence: keyboard submit, cancellation, safe query encoding, clear action, and URL restoration pass.
+- [x] **FE-3-004 Build structured desktop filter rail** — Refs: SEARCH-002, API-JOB-001; Depends: FE-3-002; Evidence: skill, salary, location, experience, employment, company, and freshness controls map exactly to contract fields.
 - [ ] **FE-3-005 Build mobile filter sheet and active-filter summary** — Refs: SEARCH-002, frontend CLAUDE “Layout and Responsive Behavior”; Depends: FE-3-004, FE-1-021; Evidence: focus trap/restore, apply/reset, individual chip removal, scroll containment, and 320px completion pass.
 - [ ] **FE-3-006 Build deterministic sort control** — Refs: SEARCH-003–004, API contract §13; Depends: FE-3-002; Evidence: allowed sorts, fallback, cursor reset, accessible label, and URL back/forward behavior pass.
-- [ ] **FE-3-007 Build job result cards and list states** — Refs: JOB-004, API-JOB-001; Depends: FE-3-003–006, FE-1-026; Evidence: salary/location/stack/status content, loading/empty/error/refresh, and no private factors pass.
-- [ ] **FE-3-008 Build cursor result continuation** — Refs: SEARCH-003, API-JOB-001; Depends: FE-3-007; Evidence: append, duplicate prevention, focus placement, back navigation, end state, and failed continuation retry pass.
-- [ ] **FE-3-009 Build public job detail** — Refs: JOB-001–005, API-JOB-002; Depends: FE-3-007; Backend: BE-3-003; Evidence: semantic content, safe rich text, expiry/closed behavior, company link, and not-found state pass.
+- [x] **FE-3-007 Build job result cards and list states** — Refs: JOB-004, API-JOB-001; Depends: FE-3-003–006, FE-1-026; Evidence: salary/location/stack/status content, loading/empty/error/refresh, and no private factors pass.
+- [x] **FE-3-008 Build cursor result continuation** — Refs: SEARCH-003, API-JOB-001; Depends: FE-3-007; Evidence: append, duplicate prevention, focus placement, back navigation, end state, and failed continuation retry pass.
+- [x] **FE-3-009 Build public job detail** — Refs: JOB-001–005, API-JOB-002; Depends: FE-3-007; Backend: BE-3-003; Evidence: semantic content, safe rich text, expiry/closed behavior, company link, and not-found state pass.
 - [ ] **FE-3-010 Build public company detail entry from jobs** — Refs: COMP-003, API-COMP-002; Depends: FE-3-009, FE-2-015; Evidence: public projection and return navigation preserve job-search context.
-- [ ] **FE-3-011 Build candidate save/unsave control** — Refs: SAVE-001, API-SAVE-002–003; Depends: FE-2-004, FE-3-007; Backend: BE-3-019; Evidence: idempotent pending state, optimistic rollback, auth handoff, accessible name, and list/card sync pass.
-- [ ] **FE-3-012 Build saved-jobs library** — Refs: SAVE-002, API-SAVE-001; Depends: FE-3-011; Backend: BE-3-020; Evidence: cursor, empty, stale job, unsave, responsive, and ownership-safe fixtures pass.
-- [ ] **FE-3-013 Build recruiter job workspace route** — Refs: JOB-001–005, API-JOB-009 proposed; Depends: FE-2-013, FEI-006; Evidence: active-company scope, all lifecycle statuses, empty/create CTA, and pagination pass after contract approval.
-- [ ] **FE-3-014 Build job editor information architecture** — Refs: JOB-001, JOB-006; Depends: FE-1-023, FE-3-013; Evidence: sections group overview, description, requirements, stack, location, level/type, compensation, and deadline logically.
-- [ ] **FE-3-015 Build job description and requirement inputs** — Refs: JOB-001, API-JOB-003–004; Depends: FE-3-014; Evidence: visible labels, safe plain/structured content, character guidance, autosave policy, and dirty guard pass.
-- [ ] **FE-3-016 Build job skill/technology requirements editor** — Refs: JOB-001, API-SKILL-001; Depends: FE-3-014, FE-2-009; Evidence: canonical selection, requirement level, duplicate prevention, keyboard reorder, and mobile layout pass.
-- [ ] **FE-3-017 Build compensation and deadline editor** — Refs: JOB-001, JOB-006; Depends: FE-3-014; Evidence: minor-unit/currency formatting, optional bounds, min≤max, UTC deadline, and locale display tests pass.
-- [ ] **FE-3-018 Build draft-job creation mutation** — Refs: API-JOB-003; Depends: FE-3-014–017; Backend: BE-3-002; Evidence: validation mapping, duplicate-submit protection, created draft navigation, and request ID handling pass.
-- [ ] **FE-3-019 Build existing-job edit mutation** — Refs: API-JOB-004; Depends: FE-3-018; Backend: BE-3-004; Evidence: load/edit/save, expected version, conflict recovery, permission loss, and cache synchronization pass.
+- [x] **FE-3-011 Build candidate save/unsave control** — Refs: SAVE-001, API-SAVE-002–003; Depends: FE-2-004, FE-3-007; Backend: BE-3-019; Evidence: idempotent pending state, optimistic rollback, auth handoff, accessible name, and list/card sync pass.
+- [x] **FE-3-012 Build saved-jobs library** — Refs: SAVE-002, API-SAVE-001; Depends: FE-3-011; Backend: BE-3-020; Evidence: cursor, empty, stale job, unsave, responsive, and ownership-safe fixtures pass.
+- [x] **FE-3-013 Build recruiter job workspace route** — Refs: JOB-001–005, API-JOB-009 proposed; Depends: FE-2-013, FEI-006; Evidence: active-company scope, all lifecycle statuses, empty/create CTA, and pagination pass after contract approval.
+- [x] **FE-3-014 Build job editor information architecture** — Refs: JOB-001, JOB-006; Depends: FE-1-023, FE-3-013; Evidence: sections group overview, description, requirements, stack, location, level/type, compensation, and deadline logically.
+- [x] **FE-3-015 Build job description and requirement inputs** — Refs: JOB-001, API-JOB-003–004; Depends: FE-3-014; Evidence: visible labels, safe plain/structured content, character guidance, autosave policy, and dirty guard pass.
+- [x] **FE-3-016 Build job skill/technology requirements editor** — Refs: JOB-001, API-SKILL-001; Depends: FE-3-014, FE-2-009; Evidence: canonical selection, requirement level, duplicate prevention, keyboard reorder, and mobile layout pass.
+- [x] **FE-3-017 Build compensation and deadline editor** — Refs: JOB-001, JOB-006; Depends: FE-3-014; Evidence: minor-unit/currency formatting, optional bounds, min≤max, UTC deadline, and locale display tests pass.
+- [x] **FE-3-018 Build draft-job creation mutation** — Refs: API-JOB-003; Depends: FE-3-014–017; Backend: BE-3-002; Evidence: validation mapping, duplicate-submit protection, created draft navigation, and request ID handling pass.
+- [x] **FE-3-019 Build existing-job edit mutation** — Refs: API-JOB-004; Depends: FE-3-018; Backend: BE-3-004; Evidence: load/edit/save, expected version, conflict recovery, permission loss, and cache synchronization pass.
 - [ ] **FE-3-020 Build publish eligibility review** — Refs: JOB-002, API-JOB-005; Depends: FE-3-019; Backend: BE-3-005–006; Evidence: missing requirements are linked, consequence copy is explicit, and only eligible drafts expose publish.
 - [ ] **FE-3-021 Build unpublish and close workflows** — Refs: JOB-003–005, API-JOB-006–007; Depends: FE-3-019; Backend: BE-3-007–008; Evidence: action-specific confirmation, optional close reason, version conflict, audit expectation, and refreshed status pass.
-- [ ] **FE-3-022 Build lifecycle status and deadline presentation** — Refs: JOB-002–005; Depends: FE-3-013, FE-3-020–021; Evidence: text/icon/status semantics distinguish draft, published, unpublished, closed, expired without color alone.
+- [x] **FE-3-022 Build lifecycle status and deadline presentation** — Refs: JOB-002–005; Depends: FE-3-013, FE-3-020–021; Evidence: text/icon/status semantics distinguish draft, published, unpublished, closed, expired without color alone.
 - [ ] **FE-3-023 Handle moderation and company restrictions** — Refs: COMP-004, ADMIN-001–002; Depends: FE-3-013; Evidence: suspended company/restricted publication fixtures remove invalid actions and explain next steps.
 - [ ] **FE-3-024 Verify representative search performance** — Refs: NFR-PERF-001–003; Depends: FE-3-003–012; Backend: BE-3-016; Evidence: agreed corpus test records input responsiveness, cancellation, rendering, navigation, and p95 API observations.
 - [ ] **FE-3-025 Verify Phase 3 mock journeys** — Refs: JOB, SEARCH, SAVE; Depends: FE-3-001–024; Evidence: guest/candidate/recruiter journeys pass with success, empty, denial, conflict, expiry, and mobile variants.
@@ -196,26 +196,26 @@ a dense, safe job-authoring and lifecycle workspace.
 **Goal:** deliver the end-to-end hiring workflow with strict transitions,
 privacy-safe projections, concurrency recovery, and usable recruiter density.
 
-- [ ] **FE-4-001 Build job apply entry and auth handoff** — Refs: APP-001, API-APP-001; Depends: FE-3-009, FE-2-004; Evidence: guest return path, closed/expired/applied states, and candidate-only disclosure pass.
-- [ ] **FE-4-002 Build owned-CV application selector** — Refs: APP-001, CV-005; Depends: FE-4-001, FE-2-020; Evidence: ready/default CV, processing/failed exclusion, privacy context, and upload recovery pass.
-- [ ] **FE-4-003 Build application confirmation step** — Refs: APP-001–002; Depends: FE-4-002; Evidence: job/company/CV summary, no private leak, final eligibility copy, and keyboard review pass.
-- [ ] **FE-4-004 Submit an idempotent application** — Refs: APP-001–002, APP-008, API-APP-001; Depends: FE-4-003, FE-1-011; Backend: BE-4-005; Evidence: stable key, one submission, pending lock, duplicate/deadline errors, and success navigation pass.
-- [ ] **FE-4-005 Build candidate application list** — Refs: APP-006, API-APP-002; Depends: FE-4-004; Backend: BE-4-010; Evidence: status filter, cursor, empty, withdrawn-unavailable baseline, mobile cards, and refresh states pass.
-- [ ] **FE-4-006 Build candidate application detail** — Refs: APP-006, API-APP-003; Depends: FE-4-005; Backend: BE-4-011; Evidence: job/CV/status/history projection renders without recruiter-private fields.
-- [ ] **FE-4-007 Build application evidence rail** — Refs: APP-002–007, AUDIT-001; Depends: FE-4-006, FE-1-025; Evidence: ordered event timestamps, actor-safe labels, reasons, terminal state, and responsive timeline pass.
-- [ ] **FE-4-008 Build recruiter applicant workspace** — Refs: APP-006, API-APP-004; Depends: FE-3-013; Backend: BE-4-012; Evidence: active job scope, status/sort/cursor controls, dense table, mobile cards, and denial states pass.
-- [ ] **FE-4-009 Build applicant filters and selection model** — Refs: APP-003–006; Depends: FE-4-008; Evidence: URL-backed status/sort, deterministic selection, back navigation, and no unsupported bulk transition pass.
+- [x] **FE-4-001 Build job apply entry and auth handoff** — Refs: APP-001, API-APP-001; Depends: FE-3-009, FE-2-004; Evidence: guest return path, closed/expired/applied states, and candidate-only disclosure pass.
+- [x] **FE-4-002 Build owned-CV application selector** — Refs: APP-001, CV-005; Depends: FE-4-001, FE-2-020; Evidence: ready/default CV, processing/failed exclusion, privacy context, and upload recovery pass.
+- [x] **FE-4-003 Build application confirmation step** — Refs: APP-001–002; Depends: FE-4-002; Evidence: job/company/CV summary, no private leak, final eligibility copy, and keyboard review pass.
+- [x] **FE-4-004 Submit an idempotent application** — Refs: APP-001–002, APP-008, API-APP-001; Depends: FE-4-003, FE-1-011; Backend: BE-4-005; Evidence: stable key, one submission, pending lock, duplicate/deadline errors, and success navigation pass.
+- [x] **FE-4-005 Build candidate application list** — Refs: APP-006, API-APP-002; Depends: FE-4-004; Backend: BE-4-010; Evidence: status filter, cursor, empty, withdrawn-unavailable baseline, mobile cards, and refresh states pass.
+- [x] **FE-4-006 Build candidate application detail** — Refs: APP-006, API-APP-003; Depends: FE-4-005; Backend: BE-4-011; Evidence: job/CV/status/history projection renders without recruiter-private fields.
+- [x] **FE-4-007 Build application evidence rail** — Refs: APP-002–007, AUDIT-001; Depends: FE-4-006, FE-1-025; Evidence: ordered event timestamps, actor-safe labels, reasons, terminal state, and responsive timeline pass.
+- [x] **FE-4-008 Build recruiter applicant workspace** — Refs: APP-006, API-APP-004; Depends: FE-3-013; Backend: BE-4-012; Evidence: active job scope, status/sort/cursor controls, dense table, mobile cards, and denial states pass.
+- [x] **FE-4-009 Build applicant filters and selection model** — Refs: APP-003–006; Depends: FE-4-008; Evidence: URL-backed status/sort, deterministic selection, back navigation, and no unsupported bulk transition pass.
 - [ ] **FE-4-010 Build recruiter application detail projection** — Refs: APP-006, API-APP-003; Depends: FE-4-008; Backend: BE-4-013; Evidence: authorized profile/CV/application data, private notes boundary, and signed-download-on-action pass.
-- [ ] **FE-4-011 Render exact allowed pipeline transitions** — Refs: APP-003–004, API contract §7; Depends: FE-4-010; Evidence: APPLIED→REVIEWING→INTERVIEWING→PASSED/REJECTED controls match the contract and all unlisted transitions are absent.
-- [ ] **FE-4-012 Implement transition mutation and confirmation** — Refs: APP-005, APP-008, API-APP-005; Depends: FE-4-011, FE-1-011; Backend: BE-4-008; Evidence: target, reason rule, expected version, idempotency, actor scope, and refreshed history pass.
+- [x] **FE-4-011 Render exact allowed pipeline transitions** — Refs: APP-003–004, API contract §7; Depends: FE-4-010; Evidence: APPLIED→REVIEWING→INTERVIEWING→PASSED/REJECTED controls match the contract and all unlisted transitions are absent.
+- [x] **FE-4-012 Implement transition mutation and confirmation** — Refs: APP-005, APP-008, API-APP-005; Depends: FE-4-011, FE-1-011; Backend: BE-4-008; Evidence: target, reason rule, expected version, idempotency, actor scope, and refreshed history pass.
 - [ ] **FE-4-013 Implement transition conflict recovery** — Refs: APP-005, APP-008; Depends: FE-4-012; Evidence: stale status/version shows current server state and prevents silent resubmission.
-- [ ] **FE-4-014 Handle immutable terminal outcomes** — Refs: APP-007; Depends: FE-4-011–013; Evidence: passed/rejected fixtures remove mutation controls and preserve readable history.
+- [x] **FE-4-014 Handle immutable terminal outcomes** — Refs: APP-007; Depends: FE-4-011–013; Evidence: passed/rejected fixtures remove mutation controls and preserve readable history.
 - [ ] **FE-4-015 Track early-rejection decision in UI** — Refs: APP-003–004; Depends: FEI-008; Evidence: no early-reject control exists unless product and contract state machine change.
-- [ ] **FE-4-016 Build interview list within application** — Refs: INT-003–004, API-INT-002; Depends: FE-4-006, FE-4-010; Backend: BE-5-014; Evidence: candidate/recruiter projections, cursor, history, empty, and private-field separation pass.
-- [ ] **FE-4-017 Build interview scheduling form** — Refs: INT-001–003, API-INT-001; Depends: FE-4-011, FE-1-023; Backend: BE-5-013; Evidence: only INTERVIEWING applications, UTC conversion, end-after-start, instructions/notes distinction, and idempotency pass.
-- [ ] **FE-4-018 Build interview reschedule and edit workflow** — Refs: INT-002–005, API-INT-003; Depends: FE-4-016–017; Backend: BE-5-015; Evidence: current values, expected version, visible/private fields, conflict, notification expectation, and history refresh pass.
-- [ ] **FE-4-019 Build interview completion workflow** — Refs: INT-003–004, API-INT-004; Depends: FE-4-016; Backend: BE-5-016; Evidence: optional private feedback, version handling, completed state, and unchanged application status pass.
-- [ ] **FE-4-020 Build interview cancellation workflow** — Refs: INT-004–005, API-INT-005; Depends: FE-4-016; Backend: BE-5-017; Evidence: required reason, consequence confirmation, terminal interview state, history, and notification expectation pass.
+- [x] **FE-4-016 Build interview list within application** — Refs: INT-003–004, API-INT-002; Depends: FE-4-006, FE-4-010; Backend: BE-5-014; Evidence: candidate/recruiter projections, cursor, history, empty, and private-field separation pass.
+- [x] **FE-4-017 Build interview scheduling form** — Refs: INT-001–003, API-INT-001; Depends: FE-4-011, FE-1-023; Backend: BE-5-013; Evidence: only INTERVIEWING applications, UTC conversion, end-after-start, instructions/notes distinction, and idempotency pass.
+- [x] **FE-4-018 Build interview reschedule and edit workflow** — Refs: INT-002–005, API-INT-003; Depends: FE-4-016–017; Backend: BE-5-015; Evidence: current values, expected version, visible/private fields, conflict, notification expectation, and history refresh pass.
+- [x] **FE-4-019 Build interview completion workflow** — Refs: INT-003–004, API-INT-004; Depends: FE-4-016; Backend: BE-5-016; Evidence: optional private feedback, version handling, completed state, and unchanged application status pass.
+- [x] **FE-4-020 Build interview cancellation workflow** — Refs: INT-004–005, API-INT-005; Depends: FE-4-016; Backend: BE-5-017; Evidence: required reason, consequence confirmation, terminal interview state, history, and notification expectation pass.
 - [ ] **FE-4-021 Define direct interview-detail navigation** — Refs: API-INT-006 proposed; Depends: FEI-010; Evidence: deep link is disabled or uses application context until the endpoint is contracted and verified.
 - [ ] **FE-4-022 Verify pipeline accessibility and density** — Refs: frontend CLAUDE “Accessibility Requirements”; Depends: FE-4-008–020; Evidence: complete pipeline work is possible without drag, hover, or color; 200% zoom and 320px layouts pass.
 - [ ] **FE-4-023 Verify Phase 4 mock journeys** — Refs: APP, INT; Depends: FE-4-001–022; Evidence: candidate apply/history and recruiter review/interview journeys pass with duplicate, denial, conflict, and terminal variants.
@@ -227,17 +227,17 @@ privacy-safe projections, concurrency recovery, and usable recruiter density.
 **Goal:** expose asynchronous work and AI assistance transparently without
 leaking sensitive data or implying autonomous hiring decisions.
 
-- [ ] **FE-5-001 Build notification center route and list** — Refs: NOTIF-001, API-NOTIF-001; Depends: FE-2-004, FE-1-026; Backend: BE-5-020; Evidence: read filter, cursor, grouping, empty/error, resource link, and owner-only fixtures pass.
-- [ ] **FE-5-002 Build notification read/unread control** — Refs: NOTIF-001, API-NOTIF-002; Depends: FE-5-001; Evidence: accessible name, optimistic rollback, repeated action, and list/detail synchronization pass.
+- [x] **FE-5-001 Build notification center route and list** — Refs: NOTIF-001, API-NOTIF-001; Depends: FE-2-004, FE-1-026; Backend: BE-5-020; Evidence: read filter, cursor, grouping, empty/error, resource link, and owner-only fixtures pass.
+- [x] **FE-5-002 Build notification read/unread control** — Refs: NOTIF-001, API-NOTIF-002; Depends: FE-5-001; Evidence: accessible name, optimistic rollback, repeated action, and list/detail synchronization pass.
 - [ ] **FE-5-003 Define global unread-summary behavior** — Refs: NOTIF-001; Depends: FEI-011; Evidence: badge polling/count behavior uses an approved contract and announces changes without interruption.
-- [ ] **FE-5-004 Build generic asynchronous-operation tracker** — Refs: AI-007, API-AI-003; Depends: FE-1-025–026; Backend: BE-6-011; Evidence: queued/running/succeeded/failed states, bounded polling, cancellation cleanup, timeout, and retry guidance pass.
-- [ ] **FE-5-005 Integrate CV processing with operation feedback** — Refs: CV-004, AI-007; Depends: FE-2-022, FE-5-004; Evidence: upload-to-processing transition remains understandable after navigation and page refresh.
+- [x] **FE-5-004 Build generic asynchronous-operation tracker** — Refs: AI-007, API-AI-003; Depends: FE-1-025–026; Backend: BE-6-011; Evidence: queued/running/succeeded/failed states, bounded polling, cancellation cleanup, timeout, and retry guidance pass.
+- [x] **FE-5-005 Integrate CV processing with operation feedback** — Refs: CV-004, AI-007; Depends: FE-2-022, FE-5-004; Evidence: upload-to-processing transition remains understandable after navigation and page refresh.
 - [ ] **FE-5-006 Build CV-to-job analysis request flow** — Refs: AI-002–004, API-AI-001; Depends: FE-2-020, FE-3-009, FE-5-004; Backend: BE-6-008–011; Evidence: owned/authorized inputs, idempotency, privacy notice, 202 result, and denial states pass.
-- [ ] **FE-5-007 Build AI analysis result shell** — Refs: AI-002–004, API-AI-002; Depends: FE-5-006; Evidence: loading/failure/version/provenance/limitations and non-decision advisory copy pass.
-- [ ] **FE-5-008 Build component match-score presentation** — Refs: AI-003; Depends: FE-5-007; Evidence: overall and component scores include text labels, bounds, evidence, confidence/limitations, and accessible non-color meaning.
+- [x] **FE-5-007 Build AI analysis result shell** — Refs: AI-002–004, API-AI-002; Depends: FE-5-006; Evidence: loading/failure/version/provenance/limitations and non-decision advisory copy pass.
+- [x] **FE-5-008 Build component match-score presentation** — Refs: AI-003; Depends: FE-5-007; Evidence: overall and component scores include text labels, bounds, evidence, confidence/limitations, and accessible non-color meaning.
 - [ ] **FE-5-009 Build matched-evidence and unmet-requirement views** — Refs: AI-003; Depends: FE-5-007; Evidence: candidate/job evidence is attributed, expandable by keyboard, and never invents candidate claims.
 - [ ] **FE-5-010 Build practical gap-analysis guidance** — Refs: AI-004; Depends: FE-5-007–009; Evidence: suggestions distinguish missing evidence from missing skill and avoid guaranteed outcome language.
-- [ ] **FE-5-011 Build natural-language search input** — Refs: AI-005, API-JOB-008; Depends: FE-3-002–006; Backend: BE-6-014; Evidence: parsed filters are previewed, editable, validated, URL-applied, and provider/rate-limit errors preserve the query.
+- [x] **FE-5-011 Build natural-language search input** — Refs: AI-005, API-JOB-008; Depends: FE-3-002–006; Backend: BE-6-014; Evidence: parsed filters are previewed, editable, validated, URL-applied, and provider/rate-limit errors preserve the query.
 - [ ] **FE-5-012 Build job recommendations surface** — Refs: AI-006, API-AI-004; Depends: FE-3-007–012; Backend: BE-6-017; Evidence: reason codes, exclusions, cursor, cold start, empty, save action, and privacy controls pass.
 - [ ] **FE-5-013 Implement recommendation consent/opt-out UX** — Refs: AI-006, NFR-SEC-003–004; Depends: FEI-013, FE-5-012; Evidence: approved data-source explanation, control state, deletion/retention effect, and non-dark-pattern review pass.
 - [ ] **FE-5-014 Implement AI privacy and failure messaging** — Refs: AI-001, AI-007–009; Depends: FEI-013, FE-5-006–012; Evidence: timeout, rate limit, invalid output, permanent failure, retryability, and privacy copy map to classified errors.
@@ -248,27 +248,27 @@ leaking sensitive data or implying autonomous hiring decisions.
 
 ## Phase 6 — Administration and Audit
 
-**Phase status:** Planned.
+**Phase status:** In progress — 5 of 13 tasks verified on 2026-09-10; discovery contracts and live authorization evidence remain open.
 **Goal:** provide explicit, high-accountability moderation and audit interfaces
 without exposing private data or hiding consequences.
 
-- [ ] **FE-6-001 Build admin route boundary and workspace shell** — Refs: ADMIN-001–002; Depends: FE-2-004–005, FE-1-024; Backend: BE-7-001; Evidence: admin-only navigation, direct denial, session role change, and responsive shell pass.
-- [ ] **FE-6-002 Build user administration table** — Refs: ADMIN-001, API-ADMIN-001; Depends: FE-6-001; Evidence: typed filters, cursor, dense rows, mobile detail cards, loading/empty/error, and non-sensitive projection pass.
-- [ ] **FE-6-003 Build user status moderation** — Refs: ADMIN-001–002, API-ADMIN-002; Depends: FE-6-002; Backend: BE-7-002; Evidence: target/status/consequence, required reason, pending lock, session impact, and audit expectation pass.
+- [x] **FE-6-001 Build admin route boundary and workspace shell** — Refs: ADMIN-001–002; Depends: FE-2-004–005, FE-1-024; Backend: BE-7-001; Evidence: admin-only navigation, direct denial, session role change, and responsive shell pass.
+- [x] **FE-6-002 Build user administration table** — Refs: ADMIN-001, API-ADMIN-001; Depends: FE-6-001; Evidence: typed filters, cursor, dense rows, mobile detail cards, loading/empty/error, and non-sensitive projection pass.
+- [x] **FE-6-003 Build user status moderation** — Refs: ADMIN-001–002, API-ADMIN-002; Depends: FE-6-002; Backend: BE-7-002; Evidence: target/status/consequence, required reason, pending lock, session impact, and audit expectation pass.
 - [ ] **FE-6-004 Build company moderation lookup and detail** — Refs: COMP-004, ADMIN-001–002; Depends: FE-6-001, FEI-014; Evidence: admin company discovery uses an approved contract before implementation.
 - [ ] **FE-6-005 Build company status moderation** — Refs: API-ADMIN-003; Depends: FE-6-004; Backend: BE-7-003; Evidence: target/status/reason/version, conflict, downstream publication impact, and confirmation pass.
 - [ ] **FE-6-006 Build job moderation lookup and detail** — Refs: ADMIN-001–002; Depends: FE-6-001, FEI-014; Evidence: admin job discovery uses an approved contract or an explicitly reusable scoped endpoint.
 - [ ] **FE-6-007 Build job moderation action** — Refs: API-ADMIN-004; Depends: FE-6-006; Backend: BE-7-004; Evidence: unpublish/close reason, expected version, consequence, conflict, and updated lifecycle pass.
 - [ ] **FE-6-008 Define application administration surface** — Refs: ADMIN-001; Depends: FEI-014; Evidence: list/detail/moderation behavior remains blocked until product scope and contract operations are explicit.
-- [ ] **FE-6-009 Build audit-log explorer** — Refs: AUDIT-001–003, API-ADMIN-005; Depends: FE-6-001; Backend: BE-7-006; Evidence: actor/action/target/time filters, cursor, URL restoration, dense/mobile views, and empty/error states pass.
-- [ ] **FE-6-010 Build redacted audit detail drawer** — Refs: AUDIT-002–003; Depends: FE-6-009; Evidence: request ID, actor, target, action, timestamp, and safe metadata render while prohibited fields fail fixture scans.
+- [x] **FE-6-009 Build audit-log explorer** — Refs: AUDIT-001–003, API-ADMIN-005; Depends: FE-6-001; Backend: BE-7-006; Evidence: actor/action/target/time filters, cursor, URL restoration, dense/mobile views, and empty/error states pass.
+- [x] **FE-6-010 Build redacted audit detail drawer** — Refs: AUDIT-002–003; Depends: FE-6-009; Evidence: request ID, actor, target, action, timestamp, and safe metadata render while prohibited fields fail fixture scans.
 - [ ] **FE-6-011 Verify moderation accessibility and accountability** — Refs: ADMIN-002, frontend CLAUDE “Accessibility Requirements”; Depends: FE-6-002–010; Evidence: keyboard, zoom, focus, error summary, non-color status, and destructive confirmation review pass.
 - [ ] **FE-6-012 Verify Phase 6 mock journeys** — Refs: ADMIN, AUDIT; Depends: FE-6-001–011; Evidence: user/company/job moderation and audit exploration pass with denial, conflict, redaction, and mobile variants.
 - [ ] **FE-6-013 Verify Phase 6 live integrations** — Refs: API-ADMIN-001–005; Depends: FE-6-012 and corresponding backend verification; Evidence: live role authorization, reason/version rules, downstream effects, and audit records pass.
 
 ## Phase 7 — Accessibility, Performance, Security, and Release Hardening
 
-**Phase status:** Planned.
+**Phase status:** In progress — hardening code and guest verification exist; authenticated, production, and policy gates remain open.
 **Goal:** verify the frontend as an operable, secure, accessible, responsive,
 performant, and deployable enterprise application.
 
@@ -309,6 +309,11 @@ changes, or verification events; routine edits belong in Git history.
 
 | Date | Task or phase | Change | Evidence / next action |
 | --- | --- | --- | --- |
+| 2026-09-10 | Phase 7 hardening | Added real-environment Playwright projects, axe light/dark checks, 320px reflow/target checks, responsive role navigation, reduced motion/dark tokens, production bundle scanning, changelog, and operations runbook | 37 unit tests, build, typecheck, lint, Chromium/WebKit/mobile guest journeys, 12 axe checks, and production dependency audit pass; Firefox runner hangs in this host and authenticated journeys require real role credentials. |
+| 2026-09-10 | FE-7-018, FE-7-021–023 | Blocked by production decisions | FEI-003/012/015 must approve origin/cookie/CSP, localization, telemetry, and deployment topology before these tasks can be verified. |
+| 2026-09-10 | FE-7-024–025 | Partial audit only | `npm audit` reports zero advisories and runtime/dist contain no mock worker; Storybook 10.6 versus Vitest 5 peer incompatibility and proposed `/companies/mine` contract drift keep release gates open. |
+| 2026-09-10 | Phase 6 | Implemented contracted admin user moderation and audit exploration | FE-6-001–003 and FE-6-009–010 verified; company/job discovery and application administration remain blocked by FEI-014. |
+| 2026-09-10 | Phase 5 | Implemented contracted notification, operation, AI result, recommendation, and natural-language search surfaces using `/api/v1` | FE-5-001–002, FE-5-004–005, FE-5-007–008, and FE-5-011 verified; unread summary, consent/retention, reason-code projection, and live backend evidence remain open. |
 | 2026-09-08 | Phase 0 | Verified | Frontend instructions, 181 detailed `FE-*` tasks, decision register, source links, UTF-8, honest runtime status, and whitespace checks passed; Phase 1 is next and not started. |
 | 2026-09-08 | Frontend scope | React + Vite workstream restored by explicit user direction | Documentation only; no runtime capability is claimed. |
 | 2026-09-08 | Enterprise UI | Added trust-and-evidence design direction | Phase 1 establishes semantic tokens, accessible primitives, Storybook, responsive shell, and evidence rail before feature pages. |

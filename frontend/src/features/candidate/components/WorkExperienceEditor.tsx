@@ -18,7 +18,7 @@ const experienceSchema = z.object({
     title: z.string().min(1, "Title is required"),
     startDate: z.string().min(1, "Start date is required"),
     endDate: z.string().optional(),
-    isCurrent: z.boolean().default(false),
+    isCurrent: z.boolean(),
   }))
 })
 
