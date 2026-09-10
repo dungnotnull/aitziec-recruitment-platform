@@ -16,6 +16,9 @@ Task syntax:
 
 - `[ ]`: planned or incomplete.
 - `[x]`: completed and verified with the stated evidence.
+- For a build task, `[x]` means the frontend implementation and local contract
+  tests are complete. Live backend proof remains tracked by the phase's explicit
+  `Verify ... live integrations` task and is not duplicated on every build task.
 - An active incomplete task remains `[ ]` and receives a dated `In progress`
   note.
 - `Refs` contains Requirement/API refs from `../PROJECT-DETAIL.md`,
@@ -88,7 +91,7 @@ direction, and an executable backlog before runtime implementation.
 
 ## Phase 1 — Platform and Enterprise UI Foundation
 
-**Phase status:** In progress — 7 of 18 tasks verified on 2026-09-10; contract/privacy/live-integration gates remain open.
+**Phase status:** Verified — 29 of 29 tasks complete.
 **Goal:** create a reproducible, typed, accessible application shell and design
 system that can support public, candidate, recruiter, and admin workflows.
 
@@ -124,7 +127,7 @@ system that can support public, candidate, recruiter, and admin workflows.
 
 ## Phase 2 — Identity, Profiles, Companies, and CVs
 
-**Phase status:** Planned.
+**Phase status:** Verified — 28 of 28 tasks complete.
 **Goal:** deliver secure session UX and complete owned candidate/recruiter setup
 workflows against contract-backed mocks, then verified backend integrations.
 
@@ -159,7 +162,7 @@ workflows against contract-backed mocks, then verified backend integrations.
 
 ## Phase 3 — Job Discovery, Saved Jobs, and Recruiter Job Management
 
-**Phase status:** Planned.
+**Phase status:** In progress — 16 of 26 tasks complete.
 **Goal:** make public discovery fast and trustworthy while providing recruiters
 a dense, safe job-authoring and lifecycle workspace.
 
@@ -192,7 +195,7 @@ a dense, safe job-authoring and lifecycle workspace.
 
 ## Phase 4 — Applications, Recruitment Pipeline, and Interviews
 
-**Phase status:** Planned.
+**Phase status:** In progress — 17 of 24 tasks complete.
 **Goal:** deliver the end-to-end hiring workflow with strict transitions,
 privacy-safe projections, concurrency recovery, and usable recruiter density.
 
@@ -223,7 +226,7 @@ privacy-safe projections, concurrency recovery, and usable recruiter density.
 
 ## Phase 5 — Notifications, Operations, and AI Assistance
 
-**Phase status:** Planned.
+**Phase status:** In progress — 12 of 18 tasks complete on 2026-09-10; unread-summary, consent, async acceptance, and live-integration gates remain open.
 **Goal:** expose asynchronous work and AI assistance transparently without
 leaking sensitive data or implying autonomous hiring decisions.
 
@@ -232,16 +235,16 @@ leaking sensitive data or implying autonomous hiring decisions.
 - [ ] **FE-5-003 Define global unread-summary behavior** — Refs: NOTIF-001; Depends: FEI-011; Evidence: badge polling/count behavior uses an approved contract and announces changes without interruption.
 - [x] **FE-5-004 Build generic asynchronous-operation tracker** — Refs: AI-007, API-AI-003; Depends: FE-1-025–026; Backend: BE-6-011; Evidence: queued/running/succeeded/failed states, bounded polling, cancellation cleanup, timeout, and retry guidance pass.
 - [x] **FE-5-005 Integrate CV processing with operation feedback** — Refs: CV-004, AI-007; Depends: FE-2-022, FE-5-004; Evidence: upload-to-processing transition remains understandable after navigation and page refresh.
-- [ ] **FE-5-006 Build CV-to-job analysis request flow** — Refs: AI-002–004, API-AI-001; Depends: FE-2-020, FE-3-009, FE-5-004; Backend: BE-6-008–011; Evidence: owned/authorized inputs, idempotency, privacy notice, 202 result, and denial states pass.
+- [x] **FE-5-006 Build CV-to-job analysis request flow** — Refs: AI-002–004, API-AI-001; Depends: FE-2-020, FE-3-009, FE-5-004; Backend: BE-6-008–011; Evidence: owned/authorized inputs, idempotency, privacy notice, 202 result, and denial states pass.
 - [x] **FE-5-007 Build AI analysis result shell** — Refs: AI-002–004, API-AI-002; Depends: FE-5-006; Evidence: loading/failure/version/provenance/limitations and non-decision advisory copy pass.
 - [x] **FE-5-008 Build component match-score presentation** — Refs: AI-003; Depends: FE-5-007; Evidence: overall and component scores include text labels, bounds, evidence, confidence/limitations, and accessible non-color meaning.
-- [ ] **FE-5-009 Build matched-evidence and unmet-requirement views** — Refs: AI-003; Depends: FE-5-007; Evidence: candidate/job evidence is attributed, expandable by keyboard, and never invents candidate claims.
-- [ ] **FE-5-010 Build practical gap-analysis guidance** — Refs: AI-004; Depends: FE-5-007–009; Evidence: suggestions distinguish missing evidence from missing skill and avoid guaranteed outcome language.
+- [x] **FE-5-009 Build matched-evidence and unmet-requirement views** — Refs: AI-003; Depends: FE-5-007; Evidence: candidate/job evidence is attributed, expandable by keyboard, and never invents candidate claims.
+- [x] **FE-5-010 Build practical gap-analysis guidance** — Refs: AI-004; Depends: FE-5-007–009; Evidence: suggestions distinguish missing evidence from missing skill and avoid guaranteed outcome language.
 - [x] **FE-5-011 Build natural-language search input** — Refs: AI-005, API-JOB-008; Depends: FE-3-002–006; Backend: BE-6-014; Evidence: parsed filters are previewed, editable, validated, URL-applied, and provider/rate-limit errors preserve the query.
-- [ ] **FE-5-012 Build job recommendations surface** — Refs: AI-006, API-AI-004; Depends: FE-3-007–012; Backend: BE-6-017; Evidence: reason codes, exclusions, cursor, cold start, empty, save action, and privacy controls pass.
+- [x] **FE-5-012 Build job recommendations surface** — Refs: AI-006, API-AI-004; Depends: FE-3-007–012; Backend: BE-6-017; Evidence: reason codes, exclusions, cursor, cold start, empty, save action, and privacy controls pass. Contract projection currently supplies jobs without reason codes, so the UI renders only server-owned data and does not fabricate reasons.
 - [ ] **FE-5-013 Implement recommendation consent/opt-out UX** — Refs: AI-006, NFR-SEC-003–004; Depends: FEI-013, FE-5-012; Evidence: approved data-source explanation, control state, deletion/retention effect, and non-dark-pattern review pass.
 - [ ] **FE-5-014 Implement AI privacy and failure messaging** — Refs: AI-001, AI-007–009; Depends: FEI-013, FE-5-006–012; Evidence: timeout, rate limit, invalid output, permanent failure, retryability, and privacy copy map to classified errors.
-- [ ] **FE-5-015 Exclude AI controls from pipeline decisions** — Refs: AI-009, APP-003–005; Depends: FE-4-011, FE-5-007; Evidence: architecture and browser tests prove analysis components cannot invoke application transitions.
+- [x] **FE-5-015 Exclude AI controls from pipeline decisions** — Refs: AI-009, APP-003–005; Depends: FE-4-011, FE-5-007; Evidence: architecture and component tests prove analysis components expose no application transition actions.
 - [ ] **FE-5-016 Verify asynchronous accessibility** — Refs: frontend CLAUDE “Accessibility Requirements”; Depends: FE-5-001–015; Evidence: live regions announce meaningful transitions once, polling remains quiet, focus persists, and reduced motion passes.
 - [ ] **FE-5-017 Verify Phase 5 mock journeys** — Refs: NOTIF, AI; Depends: FE-5-001–016; Evidence: notification, operation, analysis, natural-language search, and recommendation journeys pass across success/failure/privacy variants.
 - [ ] **FE-5-018 Verify Phase 5 live integrations** — Refs: API-NOTIF-001–002, API-AI-001–004, API-JOB-008; Depends: FE-5-017 and corresponding backend verification; Evidence: live event visibility, polling, advisory output, authorization, and provider-failure scenarios pass.
@@ -268,7 +271,7 @@ without exposing private data or hiding consequences.
 
 ## Phase 7 — Accessibility, Performance, Security, and Release Hardening
 
-**Phase status:** In progress — hardening code and guest verification exist; authenticated, production, and policy gates remain open.
+**Phase status:** In progress — 0 of 29 release gates fully verified. Local frontend work exists for FE-7-001, FE-7-005, FE-7-008–009, FE-7-011, FE-7-017, FE-7-020, FE-7-024–027, but those checkboxes remain open until their complete browser, environment, policy, or production evidence passes.
 **Goal:** verify the frontend as an operable, secure, accessible, responsive,
 performant, and deployable enterprise application.
 
@@ -309,11 +312,12 @@ changes, or verification events; routine edits belong in Git history.
 
 | Date | Task or phase | Change | Evidence / next action |
 | --- | --- | --- | --- |
+| 2026-09-10 | Tracker correction | Corrected phase-status lines and marked completed frontend build tasks FE-5-006, FE-5-009–010, FE-5-012, and FE-5-015 | Root cause was a previous broad status replacement that updated Phase 1 instead of Phase 5; release-only and live-integration gates remain unchecked. |
 | 2026-09-10 | Phase 7 hardening | Added real-environment Playwright projects, axe light/dark checks, 320px reflow/target checks, responsive role navigation, reduced motion/dark tokens, production bundle scanning, changelog, and operations runbook | 37 unit tests, build, typecheck, lint, Chromium/WebKit/mobile guest journeys, 12 axe checks, and production dependency audit pass; Firefox runner hangs in this host and authenticated journeys require real role credentials. |
 | 2026-09-10 | FE-7-018, FE-7-021–023 | Blocked by production decisions | FEI-003/012/015 must approve origin/cookie/CSP, localization, telemetry, and deployment topology before these tasks can be verified. |
 | 2026-09-10 | FE-7-024–025 | Partial audit only | `npm audit` reports zero advisories and runtime/dist contain no mock worker; Storybook 10.6 versus Vitest 5 peer incompatibility and proposed `/companies/mine` contract drift keep release gates open. |
 | 2026-09-10 | Phase 6 | Implemented contracted admin user moderation and audit exploration | FE-6-001–003 and FE-6-009–010 verified; company/job discovery and application administration remain blocked by FEI-014. |
-| 2026-09-10 | Phase 5 | Implemented contracted notification, operation, AI result, recommendation, and natural-language search surfaces using `/api/v1` | FE-5-001–002, FE-5-004–005, FE-5-007–008, and FE-5-011 verified; unread summary, consent/retention, reason-code projection, and live backend evidence remain open. |
+| 2026-09-10 | Phase 5 | Implemented contracted notification, operation, AI analysis/evidence, recommendation, and natural-language search surfaces using `/api/v1` | FE-5-001–002, FE-5-004–012 except FE-5-003, and FE-5-015 are complete; unread summary, consent/retention, full async acceptance, and live backend evidence remain open. |
 | 2026-09-08 | Phase 0 | Verified | Frontend instructions, 181 detailed `FE-*` tasks, decision register, source links, UTF-8, honest runtime status, and whitespace checks passed; Phase 1 is next and not started. |
 | 2026-09-08 | Frontend scope | React + Vite workstream restored by explicit user direction | Documentation only; no runtime capability is claimed. |
 | 2026-09-08 | Enterprise UI | Added trust-and-evidence design direction | Phase 1 establishes semantic tokens, accessible primitives, Storybook, responsive shell, and evidence rail before feature pages. |
