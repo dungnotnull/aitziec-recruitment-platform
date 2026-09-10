@@ -7,7 +7,12 @@ import { OutboxService } from '../../src/outbox/outbox.service';
 import { AuthenticatedUser } from '../../src/common/decorators/current-user.decorator';
 import { InMemoryPrismaService } from '../e2e/in-memory-prisma';
 import { ApplicationStatus, InterviewStatus } from '@prisma/client';
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 
 describe('InterviewsService (Unit)', () => {
   let service: InterviewsService;
@@ -33,6 +38,13 @@ describe('InterviewsService (Unit)', () => {
     id: 'cand-user-1',
     email: 'cand@test.com',
     role: 'CANDIDATE',
+    status: 'ACTIVE',
+  };
+
+  const adminUser: AuthenticatedUser = {
+    id: 'admin-user-1',
+    email: 'admin@itziec.com',
+    role: 'ADMIN',
     status: 'ACTIVE',
   };
 
@@ -313,6 +325,78 @@ describe('InterviewsService (Unit)', () => {
             reason: 'Interviewer emergency leave',
           }),
         }),
+      );
+    });
+  });
+
+  describe('getInterviewDetail (BE-8-018)', () => {
+    let interview: any;
+
+    beforeEach(async () => {
+      interview = await inMemoryPrisma.interview.create({
+        data: {
+          id: 'int-detail-1',
+          applicationId: testApplication.id,
+          status: InterviewStatus.SCHEDULED,
+          startsAt: new Date(Date.now() + 86400000),
+          endsAt: new Date(Date.now() + 90000000),
+          locationOrMeetingUrl: 'https://meet.google.com/abc-xyz',
+          candidateInstructions: 'Please bring your laptop and ID',
+          recruiterPrivateNotes: 'Candidate asked for 50k compensation range',
+          recruiterFeedback: 'Solid background in distributed systems',
+          version: 1,
+        },
+      });
+    });
+
+    it('returns interview detail for candidate omitting private recruiter notes and feedback', async () => {
+      const result = await service.getInterviewDetail(candidateUser, interview.id);
+
+      expect(result.id).toBe(interview.id);
+      expect(result.locationOrMeetingUrl).toBe('https://meet.google.com/abc-xyz');
+      expect(result.candidateInstructions).toBe('Please bring your laptop and ID');
+      expect((result as any).recruiterPrivateNotes).toBeUndefined();
+      expect((result as any).recruiterFeedback).toBeUndefined();
+    });
+
+    it('returns full interview detail including private notes for authorized HR', async () => {
+      const result = await service.getInterviewDetail(hrUser, interview.id);
+
+      expect(result.id).toBe(interview.id);
+      expect(result.recruiterPrivateNotes).toBe('Candidate asked for 50k compensation range');
+      expect(result.recruiterFeedback).toBe('Solid background in distributed systems');
+    });
+
+    it('returns full interview detail including private notes for system ADMIN', async () => {
+      const result = await service.getInterviewDetail(adminUser, interview.id);
+
+      expect(result.id).toBe(interview.id);
+      expect(result.recruiterPrivateNotes).toBe('Candidate asked for 50k compensation range');
+      expect(result.recruiterFeedback).toBe('Solid background in distributed systems');
+    });
+
+    it('denies access to an outsider HR with ForbiddenException', async () => {
+      await expect(service.getInterviewDetail(outsiderHr, interview.id)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('denies access to an unrelated candidate with ForbiddenException', async () => {
+      const otherCandidate: AuthenticatedUser = {
+        id: 'other-cand-99',
+        email: 'other@test.com',
+        role: 'CANDIDATE',
+        status: 'ACTIVE',
+      };
+
+      await expect(service.getInterviewDetail(otherCandidate, interview.id)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('throws NotFoundException for non-existent interviewId', async () => {
+      await expect(service.getInterviewDetail(hrUser, 'non-existent-id')).rejects.toThrow(
+        NotFoundException,
       );
     });
   });

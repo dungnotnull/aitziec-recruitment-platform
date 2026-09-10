@@ -63,7 +63,7 @@ export class JobSearchQueryDto {
     return value;
   })
   @IsArray()
-  @IsString({ each: true })
+  @IsIn(['INTERN', 'FRESHER', 'JUNIOR', 'MID', 'SENIOR', 'LEAD', 'MANAGER'], { each: true })
   experienceLevel?: ('INTERN' | 'FRESHER' | 'JUNIOR' | 'MID' | 'SENIOR' | 'LEAD' | 'MANAGER')[];
 
   @ApiPropertyOptional({
@@ -81,7 +81,7 @@ export class JobSearchQueryDto {
     return value;
   })
   @IsArray()
-  @IsString({ each: true })
+  @IsIn(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP'], { each: true })
   employmentType?: ('FULL_TIME' | 'PART_TIME' | 'CONTRACT' | 'INTERNSHIP')[];
 
   @ApiPropertyOptional({
@@ -99,7 +99,7 @@ export class JobSearchQueryDto {
     return value;
   })
   @IsArray()
-  @IsString({ each: true })
+  @IsIn(['ONSITE', 'HYBRID', 'REMOTE'], { each: true })
   workplaceType?: ('ONSITE' | 'HYBRID' | 'REMOTE')[];
 
   @ApiPropertyOptional({ example: 'comp-uuid' })

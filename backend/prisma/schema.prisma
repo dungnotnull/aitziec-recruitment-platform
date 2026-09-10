@@ -88,6 +88,15 @@ enum NotificationType {
   INTERVIEW_RESCHEDULED
   INTERVIEW_CANCELLED
   APPLICATION_OUTCOME
+  COMPANY_INVITATION_CREATED
+  COMPANY_MEMBER_ADDED
+}
+
+enum CompanyInvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
 }
 
 enum OperationStatus {
@@ -120,9 +129,11 @@ model User {
   refreshSessions     RefreshSession[]
   candidateProfile    CandidateProfile?
   companyMemberships  CompanyMembership[]
+  sentInvitations     CompanyInvitation[]
   auditLogs           AuditLog[]
   notifications       Notification[]
   operations          Operation[]
+  recommendationPreference RecommendationPreference?
 
   @@map("users")
 }
@@ -171,13 +182,31 @@ model CandidateProfile {
 }
 
 model Skill {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  createdAt DateTime @default(now())
+  id             String       @id @default(uuid())
+  name           String       @unique
+  normalizedName String       @unique
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @default(now()) @updatedAt
 
   candidates CandidateSkill[]
+  aliases    SkillAlias[]
 
+  @@index([active, normalizedName])
   @@map("skills")
+}
+
+model SkillAlias {
+  id             String   @id @default(uuid())
+  skillId        String
+  alias          String
+  normalizedName String   @unique
+  createdAt      DateTime @default(now())
+
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@index([skillId])
+  @@map("skill_aliases")
 }
 
 model CandidateSkill {
@@ -223,8 +252,9 @@ model Company {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  members CompanyMembership[]
-  jobs    Job[]
+  members     CompanyMembership[]
+  invitations CompanyInvitation[]
+  jobs        Job[]
 
   @@map("companies")
 }
@@ -241,6 +271,29 @@ model CompanyMembership {
 
   @@unique([companyId, userId])
   @@map("company_memberships")
+}
+
+model CompanyInvitation {
+  id          String                  @id @default(uuid())
+  companyId   String
+  email       String
+  role        CompanyMemberRole       @default(RECRUITER)
+  invitedById String?
+  tokenHash   String                  @unique
+  status      CompanyInvitationStatus @default(PENDING)
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invitedBy User?   @relation(fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([email])
+  @@index([status])
+  @@map("company_invitations")
 }
 
 model Job {
@@ -344,6 +397,8 @@ model Cv {
   extractedText      String?
   processingStatus   CvProcessingStatus @default(UPLOADED)
   failureCode        String?
+  latestOperationId  String?
+  extractionAttempts Int                @default(0)
   isDefault          Boolean            @default(false)
   version            Int                @default(1)
   createdAt          DateTime           @default(now())
@@ -355,6 +410,7 @@ model Cv {
   @@index([candidateProfileId])
   @@index([processingStatus])
   @@index([checksumSha256])
+  @@index([latestOperationId])
   @@map("cvs")
 }
 
@@ -484,3 +540,20 @@ model AiAnalysis {
   @@index([jobId])
   @@map("ai_analyses")
 }
+
+model RecommendationPreference {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  enabled              Boolean  @default(true)
+  consentPolicyVersion String   @default("v1.0")
+  consentedAt          DateTime @default(now())
+  version              Int      @default(1)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("recommendation_preferences")
+}
+

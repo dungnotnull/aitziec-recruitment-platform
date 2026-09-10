@@ -33,8 +33,9 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
       .useValue(inMemoryPrisma)
       .overrideProvider(RedisService)
       .useValue({
-        getClient: () => ({}),
+        getClient: () => null,
         isHealthy: async () => true,
+        onModuleDestroy: jest.fn(),
       })
       .compile();
 
@@ -119,6 +120,16 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
 
     expect(cvUploadRes.status).toBe(202);
     readyCvId = cvUploadRes.body.data.cv.id;
+
+    // With asynchronous extraction, mark the uploaded test CV as READY with extractedText for AI analysis tests
+    await inMemoryPrisma.cv.update({
+      where: { id: readyCvId },
+      data: {
+        processingStatus: 'READY',
+        extractedText:
+          'Senior Engineer with 5 years experience in NestJS, TypeScript, PostgreSQL, Docker.',
+      },
+    });
 
     // 7. Create a Not-Ready CV in inMemoryPrisma to test 409 CV_NOT_READY
     const candProfile = inMemoryPrisma.candidateProfiles.find(
@@ -291,6 +302,63 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
     it('rejects non-candidate roles with 403 Forbidden', async () => {
       const res = await request(app.getHttpServer())
         .get('/api/v1/recommendations/jobs')
+        .set('Authorization', `Bearer ${hrToken}`);
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('BE-8-021: GET & PATCH /recommendation-preferences', () => {
+    it('GET returns default recommendation preferences for candidate', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/recommendation-preferences')
+        .set('Authorization', `Bearer ${otherCandidateToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.enabled).toBe(true);
+      expect(res.body.data.consentPolicyVersion).toBe('v1.0');
+      expect(res.body.data.version).toBe(1);
+    });
+
+    it('PATCH updates preference and causes recommendation opt-out', async () => {
+      const patchRes = await request(app.getHttpServer())
+        .patch('/api/v1/recommendation-preferences')
+        .set('Authorization', `Bearer ${otherCandidateToken}`)
+        .send({
+          enabled: false,
+          expectedVersion: 1,
+        });
+
+      expect(patchRes.status).toBe(200);
+      expect(patchRes.body.data.enabled).toBe(false);
+      expect(patchRes.body.data.version).toBe(2);
+
+      // Now query recommendations -> should return empty with optedOut flag
+      const recRes = await request(app.getHttpServer())
+        .get('/api/v1/recommendations/jobs')
+        .set('Authorization', `Bearer ${otherCandidateToken}`);
+
+      expect(recRes.status).toBe(200);
+      expect(recRes.body.data).toHaveLength(0);
+      expect(recRes.body.meta.optedOut).toBe(true);
+    });
+
+    it('PATCH rejects version conflict with 409', async () => {
+      const patchRes = await request(app.getHttpServer())
+        .patch('/api/v1/recommendation-preferences')
+        .set('Authorization', `Bearer ${otherCandidateToken}`)
+        .send({
+          enabled: true,
+          expectedVersion: 1, // now version is 2
+        });
+
+      expect(patchRes.status).toBe(409);
+      expect(patchRes.body.error.code).toBe('VERSION_CONFLICT');
+    });
+
+    it('rejects non-candidate role with 403 Forbidden', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/recommendation-preferences')
         .set('Authorization', `Bearer ${hrToken}`);
 
       expect(res.status).toBe(403);

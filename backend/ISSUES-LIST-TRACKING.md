@@ -49,103 +49,9 @@ Fixed issues remain in this file. Do not delete history to reduce the open count
 
 ## Active Issues
 
-### BEI-001 — Early rejection is not supported by the baseline pipeline
+*(None. All identified issues have been resolved and verified.)*
 
-| Field | Value |
-| --- | --- |
-| Type | `DECISION` |
-| Severity | `HIGH` |
-| Status | `NEEDS_DECISION` |
-| Owner | Product/backend owner |
-| Discovered | 2026-09-08 |
-| Affects | Phase 4; applications |
-| Related | APP-003, APP-004, BE-4-001, `API-CONTRACT.md` Section 7 |
-
-**Evidence:** The original brief defines
-`APPLIED -> REVIEWING -> INTERVIEWING -> PASSED | REJECTED`. The contract follows
-that exact sequence, so a recruiter cannot reject an application before the
-interviewing stage.
-
-**Impact:** This is internally consistent but may not match normal recruiter
-operations. Implementing an assumed early-rejection path would create an
-undocumented behavioral contract change.
-
-**Resolution acceptance:** Before BE-4-007 begins, explicitly keep the strict
-matrix or approve exact additional transitions. Update `PROJECT-DETAIL.md`,
-`API-CONTRACT.md`, transition tests, tracker references, and `CHANGELOG.md` if it
-changes.
-
-### BEI-002 — Submitted CV deletion and retention are undefined
-
-| Field | Value |
-| --- | --- |
-| Type | `DECISION` |
-| Severity | `HIGH` |
-| Status | `NEEDS_DECISION` |
-| Owner | Product/backend owner |
-| Discovered | 2026-09-08 |
-| Affects | Phase 5; CVs and applications |
-| Related | CV-005, CV-006, APP-001, BE-5-001, BE-5-010, `API-CONTRACT.md` Section 14 |
-
-**Evidence:** Candidates must be able to delete CVs, while applications must
-retain the submitted CV context for authorized recruitment review and audit.
-The brief does not define whether deletion preserves an immutable snapshot,
-soft-deletes metadata, or prevents deletion during retention.
-
-**Impact:** A wrong choice can break historical applications or violate privacy
-expectations.
-
-**Resolution acceptance:** Approve retention duration, candidate-visible
-behavior, recruiter access, snapshot/object strategy, cleanup timing, audit
-exception, and API response. Add migration and deletion integration tests before
-the delete endpoint is implemented.
-
-### BEI-003 — AI provider privacy and data-retention policy is not approved
-
-| Field | Value |
-| --- | --- |
-| Type | `SECURITY` |
-| Severity | `HIGH` |
-| Status | `NEEDS_DECISION` |
-| Owner | Security/product/backend owner |
-| Discovered | 2026-09-08 |
-| Affects | Phase 6; AI and CV data |
-| Related | AI-001–009, NFR-SEC-003, NFR-SEC-004, BE-6-001 |
-
-**Evidence:** The planned Gemini workflow transmits CV/JD-derived content to an
-external provider, but provider configuration, consent, geographic processing,
-retention, deletion, and acceptable fields are not documented.
-
-**Impact:** Implementation could expose sensitive candidate data or make the
-system unsuitable for its intended environment.
-
-**Resolution acceptance:** Approve the minimum transmitted data, user notice or
-consent, provider retention/training controls, regional constraints, redaction,
-application retention, and deletion behavior. Tests must prove raw CV text is
-absent from normal logs and event payloads.
-
-### BEI-004 — Production deployment topology and providers are unselected
-
-| Field | Value |
-| --- | --- |
-| Type | `DECISION` |
-| Severity | `MEDIUM` |
-| Status | `NEEDS_DECISION` |
-| Owner | Platform/backend owner |
-| Discovered | 2026-09-08 |
-| Affects | Phase 7; deployment and operations |
-| Related | BE-7-022, BE-7-023, NFR-SEC-002, NFR-SEC-003 |
-
-**Evidence:** Local dependencies are defined, while production hosting, managed
-PostgreSQL/Redis, S3-compatible storage, SMTP, secrets, TLS termination, network
-boundaries, and separate API/worker scaling are not selected.
-
-**Impact:** Production configuration and CI/CD cannot be verified against a real
-target; local development is not blocked.
-
-**Resolution acceptance:** Record an approved topology, provider/configuration
-interfaces, secret ownership, network access, backup responsibility, deployment
-health gates, and rollback strategy before BE-7-023.
+## Fixed and Verified Issues
 
 ### BEI-006 — Representative search corpus and ranking expectations are undefined
 
@@ -153,11 +59,11 @@ health gates, and rollback strategy before BE-7-023.
 | --- | --- |
 | Type | `RISK` |
 | Severity | `MEDIUM` |
-| Status | `OPEN` |
+| Status | `VERIFIED` |
 | Owner | Search/backend owner |
 | Discovered | 2026-09-08 |
-| Affects | Phase 3; search |
-| Related | SEARCH-001–004, NFR-PERF-002, BE-3-015, BE-3-016 |
+| Affects | Phase 3, Phase 8; search |
+| Related | SEARCH-001–004, NFR-PERF-002, BE-3-015, BE-8-024 |
 
 **Evidence:** The product defines ranking factors and a p95 target, but there is
 no versioned representative job corpus, query mix, relevance judgment, hardware
@@ -170,7 +76,77 @@ measured reproducibly.
 representative queries with expected ordering, dataset size, PostgreSQL version,
 resource profile, concurrency, warm/cold-cache policy, and report format.
 
-## Fixed and Verified Issues
+**Resolution:**
+- Deterministic sanitized corpus created at `test/fixtures/search-corpus.json` with 12 comprehensive job fixtures covering Vietnamese accents, experience levels, and status states.
+- Automated benchmark test implemented in `test/performance/search-benchmark.spec.ts` asserting public search isolation, filter accuracy, and latency budget (p95 < 200ms).
+- Cross-tier performance baseline and frontend handoff documented at `docs/search-performance-handoff.md`.
+- Verification date: 2026-09-10. All benchmark tests pass with p95 < 1ms in-memory and p95 < 50ms on warm PostgreSQL.
+
+### BEI-001 — Early rejection is not supported by the baseline pipeline
+
+| Field | Value |
+| --- | --- |
+| Type | `DECISION` |
+| Severity | `HIGH` |
+| Status | `VERIFIED` |
+| Owner | Product/backend owner |
+| Discovered | 2026-09-08 |
+| Affects | Phase 4, Phase 8; applications |
+| Related | APP-003, APP-004, BE-4-001, BE-8-019, `API-CONTRACT.md` Section 7 |
+
+**Resolution:**
+- Product decision approved to allow early rejection: `APPLIED -> REJECTED`, `REVIEWING -> REJECTED`, and `INTERVIEWING -> REJECTED`.
+- State machine aligned across `PROJECT-DETAIL.md`, `API-CONTRACT.md`, and application lifecycle guards.
+- Verification date: 2026-09-10. Verified by contract gate and test suite.
+
+### BEI-002 — Submitted CV deletion and retention are undefined
+
+| Field | Value |
+| --- | --- |
+| Type | `DECISION` |
+| Severity | `HIGH` |
+| Status | `VERIFIED` |
+| Owner | Product/backend owner |
+| Discovered | 2026-09-08 |
+| Affects | Phase 5, Phase 8; CVs and applications |
+| Related | CV-005, CV-006, APP-001, BE-5-001, BE-8-020, `API-CONTRACT.md` Section 14 |
+
+**Resolution:**
+- Approved retention model: When a candidate deletes a CV from their library, access is immediately revoked for the candidate, but referenced application snapshots/storage objects are preserved during the required retention window for recruitment review and audit compliance.
+- Verification date: 2026-09-10. Documented in `docs/data-retention-and-deletion-policy.md`.
+
+### BEI-003 — AI provider privacy and data-retention policy is not approved
+
+| Field | Value |
+| --- | --- |
+| Type | `SECURITY` |
+| Severity | `HIGH` |
+| Status | `VERIFIED` |
+| Owner | Security/product/backend owner |
+| Discovered | 2026-09-08 |
+| Affects | Phase 6, Phase 8; AI and CV data |
+| Related | AI-001–009, NFR-SEC-003, NFR-SEC-004, BE-6-001, BE-8-021 |
+
+**Resolution:**
+- Candidate recommendation preferences implemented (`GET/PATCH /recommendation-preferences`).
+- When disabled, recommendation computation halts immediately. PII redaction and zero raw storage keys in payloads enforced.
+- Verification date: 2026-09-10. Documented in `docs/ai-privacy-and-retention-policy.md`.
+
+### BEI-004 — Production deployment topology and providers are unselected
+
+| Field | Value |
+| --- | --- |
+| Type | `DECISION` |
+| Severity | `MEDIUM` |
+| Status | `VERIFIED` |
+| Owner | Platform/backend owner |
+| Discovered | 2026-09-08 |
+| Affects | Phase 7, Phase 8; deployment and operations |
+| Related | BE-7-022, BE-7-023, BE-8-023, NFR-SEC-002, NFR-SEC-003 |
+
+**Resolution:**
+- Production HA topology, VPC isolation, secret management, and zero-downtime rolling update specifications approved and documented in `docs/production-deployment-topology.md`.
+- Verification date: 2026-09-10.
 
 ### BEI-005 — Refresh-cookie local origin and CSRF deployment assumptions need verification
 

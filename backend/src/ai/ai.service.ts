@@ -1,4 +1,11 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
@@ -9,6 +16,10 @@ import { CreateCvJobAnalysisDto } from './dto/create-analysis.dto';
 import { AiAnalysisDto, ScoreComponentDto } from './dto/ai-analysis.dto';
 import { OperationDto } from './dto/operation.dto';
 import { RecommendationQueryDto } from './dto/recommendation.dto';
+import {
+  RecommendationPreferenceDto,
+  UpdateRecommendationPreferenceDto,
+} from './dto/recommendation-preference.dto';
 import { CollectionResponse } from '../common/dto/response.dto';
 import { JobDto } from '../jobs/dto/job.dto';
 import { JobsService } from '../jobs/jobs.service';
@@ -249,12 +260,31 @@ export class AiService {
   }
 
   /**
-   * Explainable Job Recommendations for Candidates (BE-6-015, BE-6-016, BE-6-017).
+   * Explainable Job Recommendations for Candidates (BE-6-015, BE-6-016, BE-6-017, BE-8-022).
    */
   async getJobRecommendations(
     user: AuthenticatedUser,
     query: RecommendationQueryDto,
   ): Promise<CollectionResponse<JobDto>> {
+    // 0. Check candidate recommendation preference / opt-out status (BE-8-021)
+    const preference = await this.prisma.recommendationPreference.findUnique({
+      where: { userId: user.id },
+    });
+    if (preference && !preference.enabled) {
+      return {
+        data: [],
+        meta: {
+          optedOut: true,
+          message: 'Candidate has disabled automated job recommendations.',
+          page: {
+            nextCursor: null,
+            hasNextPage: false,
+            limit: query.limit || 20,
+          },
+        } as any,
+      };
+    }
+
     const candidateProfile = await this.prisma.candidateProfile.findUnique({
       where: { userId: user.id },
       include: {
@@ -276,17 +306,22 @@ export class AiService {
     });
     const appliedJobIds = new Set(existingApplications.map((a: any) => a.jobId));
 
-    // 2. Query active published jobs
+    // 2. Query active published jobs belonging to ACTIVE companies (BE-8-022 public eligibility)
     const publishedJobs = await this.prisma.job.findMany({
       where: {
         status: 'PUBLISHED',
         applicationDeadline: { gt: new Date() },
+        company: { status: 'ACTIVE' },
       },
       include: { company: true },
     });
 
-    // 3. Filter out applied jobs
-    const eligibleJobs = publishedJobs.filter((j: any) => !appliedJobIds.has(j.id));
+    // 3. Filter out applied jobs and non-active companies
+    const eligibleJobs = publishedJobs.filter((j: any) => {
+      if (appliedJobIds.has(j.id)) return false;
+      if (j.company && j.company.status !== 'ACTIVE') return false;
+      return true;
+    });
 
     // 4. Candidate skills set
     const candidateSkills = new Set<string>();
@@ -296,20 +331,28 @@ export class AiService {
       }
     }
 
-    // 5. Score jobs based on skill overlap & headline
+    // 5. Score jobs based on skill overlap & headline, with transparent explainability (BE-8-022)
     const scoredJobs = eligibleJobs.map((job: any) => {
       let score = 50; // base score for active jobs
+      const reasonCodes: string[] = ['ACTIVE_ELIGIBLE_JOB'];
+      const evidence: string[] = ['Job is currently published and open for applications'];
 
       const jobTechs = job.technologyNames || [];
+      const matchedSkillsList: string[] = [];
       if (jobTechs.length > 0) {
         let matchedCount = 0;
         for (const tech of jobTechs) {
           if (candidateSkills.has(tech.toLowerCase())) {
             matchedCount++;
+            matchedSkillsList.push(tech);
           }
         }
         const skillOverlapRatio = matchedCount / jobTechs.length;
         score += Math.round(skillOverlapRatio * 40);
+        if (matchedCount > 0) {
+          reasonCodes.push('SKILL_MATCH');
+          evidence.push(`Matched ${matchedCount} skill(s): ${matchedSkillsList.join(', ')}`);
+        }
       }
 
       // Title relevance with headline
@@ -318,9 +361,18 @@ export class AiService {
         job.title.toLowerCase().includes(candidateProfile.headline.toLowerCase())
       ) {
         score += 10;
+        reasonCodes.push('HEADLINE_MATCH');
+        evidence.push(`Job title matches candidate headline: ${candidateProfile.headline}`);
       }
 
-      return { job, score };
+      score = Math.min(100, Math.max(0, score));
+
+      const limitations = [
+        'AI generated recommendations do not guarantee interview invitation',
+        'Recommendation match is evaluated based on profile skills and advertised job requirements',
+      ];
+
+      return { job, score, reasonCodes, evidence, limitations };
     });
 
     // 6. Sort deterministically by score desc, then publishedAt desc, then id
@@ -332,24 +384,40 @@ export class AiService {
       return a.job.id.localeCompare(b.job.id);
     });
 
-    // 7. Cursor pagination
+    // 7. Cursor pagination with strict validation (BE-8-022)
     const limit = query.limit || 20;
     let startIndex = 0;
 
     if (query.cursor) {
       try {
         const decoded = Buffer.from(query.cursor, 'base64').toString('utf8');
-        const [cursorScoreStr, cursorId] = decoded.split(':');
-        const cursorScore = parseInt(cursorScoreStr, 10);
+        const parts = decoded.split(':');
+        if (parts.length !== 2 || isNaN(parseInt(parts[0], 10)) || !parts[1]) {
+          throw new BadRequestException({
+            code: ERROR_CODES.INVALID_CURSOR,
+            message: 'Invalid pagination cursor format.',
+          });
+        }
+        const cursorScore = parseInt(parts[0], 10);
+        const cursorId = parts[1];
 
         const foundIdx = scoredJobs.findIndex(
           (item) => item.score === cursorScore && item.job.id === cursorId,
         );
         if (foundIdx !== -1) {
           startIndex = foundIdx + 1;
+        } else {
+          throw new BadRequestException({
+            code: ERROR_CODES.INVALID_CURSOR,
+            message: 'Cursor is stale or not found in current results.',
+          });
         }
-      } catch {
-        // Invalid cursor falls back to first page
+      } catch (err: any) {
+        if (err instanceof BadRequestException) throw err;
+        throw new BadRequestException({
+          code: ERROR_CODES.INVALID_CURSOR,
+          message: 'Invalid pagination cursor format.',
+        });
       }
     }
 
@@ -363,7 +431,17 @@ export class AiService {
     }
 
     return {
-      data: pageItems.map((item) => this.jobsService.mapToDto(item.job)),
+      data: pageItems.map((item) => {
+        const jobDto = this.jobsService.mapToDto(item.job);
+        return {
+          ...jobDto,
+          job: jobDto,
+          score: item.score,
+          reasonCodes: item.reasonCodes,
+          evidence: item.evidence,
+          limitations: item.limitations,
+        };
+      }) as any,
       meta: {
         page: {
           nextCursor,
@@ -371,6 +449,96 @@ export class AiService {
           limit,
         },
       } as any,
+    };
+  }
+
+  /**
+   * Recommendation Preferences and Consent (BE-8-021).
+   */
+  async getRecommendationPreferences(
+    user: AuthenticatedUser,
+  ): Promise<RecommendationPreferenceDto> {
+    let pref = await this.prisma.recommendationPreference.findUnique({
+      where: { userId: user.id },
+    });
+
+    if (!pref) {
+      pref = await this.prisma.recommendationPreference.create({
+        data: {
+          userId: user.id,
+          enabled: true,
+          consentPolicyVersion: 'v1.0',
+          version: 1,
+        },
+      });
+    }
+
+    return this.mapPreferenceToDto(pref);
+  }
+
+  async updateRecommendationPreferences(
+    user: AuthenticatedUser,
+    dto: UpdateRecommendationPreferenceDto,
+    requestId?: string,
+  ): Promise<RecommendationPreferenceDto> {
+    let current = await this.prisma.recommendationPreference.findUnique({
+      where: { userId: user.id },
+    });
+
+    if (!current) {
+      current = await this.prisma.recommendationPreference.create({
+        data: {
+          userId: user.id,
+          enabled: true,
+          consentPolicyVersion: 'v1.0',
+          version: 1,
+        },
+      });
+    }
+
+    if (current.version !== dto.expectedVersion) {
+      throw new ConflictException({
+        code: ERROR_CODES.VERSION_CONFLICT,
+        message: `Version conflict: current version is ${current.version}, expected ${dto.expectedVersion}.`,
+      });
+    }
+
+    const updated = await this.prisma.recommendationPreference.update({
+      where: { userId: user.id },
+      data: {
+        enabled: dto.enabled,
+        consentPolicyVersion: dto.consentPolicyVersion || current.consentPolicyVersion,
+        consentedAt: new Date(),
+        version: { increment: 1 },
+      },
+    });
+
+    await this.auditService.record({
+      actorId: user.id,
+      action: 'RECOMMENDATION_PREFERENCE_UPDATED',
+      targetType: 'USER',
+      targetId: user.id,
+      requestId,
+      metadata: {
+        enabled: updated.enabled,
+        consentPolicyVersion: updated.consentPolicyVersion,
+        version: updated.version,
+      },
+    });
+
+    return this.mapPreferenceToDto(updated);
+  }
+
+  private mapPreferenceToDto(pref: any): RecommendationPreferenceDto {
+    return {
+      id: pref.id,
+      userId: pref.userId,
+      enabled: pref.enabled,
+      consentPolicyVersion: pref.consentPolicyVersion,
+      consentedAt: new Date(pref.consentedAt).toISOString(),
+      version: pref.version,
+      createdAt: new Date(pref.createdAt).toISOString(),
+      updatedAt: new Date(pref.updatedAt).toISOString(),
     };
   }
 

@@ -7,10 +7,12 @@ export class InMemoryPrismaService {
   refreshSessions: any[] = [];
   candidateProfiles: any[] = [];
   skills: any[] = [];
+  skillAliases: any[] = [];
   candidateSkills: any[] = [];
   workExperiences: any[] = [];
   companies: any[] = [];
   companyMemberships: any[] = [];
+  companyInvitations: any[] = [];
   jobs: any[] = [];
   savedJobs: any[] = [];
   applications: any[] = [];
@@ -22,16 +24,19 @@ export class InMemoryPrismaService {
   outboxEvents: any[] = [];
   operations: any[] = [];
   aiAnalyses: any[] = [];
+  recommendationPreferences: any[] = [];
 
   reset() {
     this.users = [];
     this.refreshSessions = [];
     this.candidateProfiles = [];
     this.skills = [];
+    this.skillAliases = [];
     this.candidateSkills = [];
     this.workExperiences = [];
     this.companies = [];
     this.companyMemberships = [];
+    this.companyInvitations = [];
     this.jobs = [];
     this.savedJobs = [];
     this.applications = [];
@@ -43,6 +48,7 @@ export class InMemoryPrismaService {
     this.outboxEvents = [];
     this.operations = [];
     this.aiAnalyses = [];
+    this.recommendationPreferences = [];
   }
 
   user = {
@@ -214,16 +220,152 @@ export class InMemoryPrismaService {
 
   skill = {
     findUnique: async (args: any) => {
-      return this.skills.find((s) => s.id === args.where.id || s.name === args.where.name) || null;
+      let found: any = null;
+      if (args.where.id) {
+        found = this.skills.find((s) => s.id === args.where.id);
+      } else if (args.where.name) {
+        found = this.skills.find((s) => s.name.toLowerCase() === args.where.name.toLowerCase());
+      } else if (args.where.normalizedName) {
+        found = this.skills.find((s) => s.normalizedName === args.where.normalizedName);
+      }
+      if (!found) return null;
+      const res = { ...found };
+      if (args.include?.aliases) {
+        res.aliases = this.skillAliases.filter((a) => a.skillId === found.id);
+      }
+      return res;
+    },
+    findFirst: async (args?: any) => {
+      const items = await this.skill.findMany(args);
+      return items[0] || null;
+    },
+    findMany: async (args?: any) => {
+      let result = [...this.skills];
+      if (args?.where) {
+        if (args.where.active !== undefined) {
+          result = result.filter((s) => s.active === args.where.active);
+        }
+        if (args.where.id) {
+          if (args.where.id.in) {
+            result = result.filter((s) => args.where.id.in.includes(s.id));
+          } else {
+            result = result.filter((s) => s.id === args.where.id);
+          }
+        }
+        if (args.where.OR && Array.isArray(args.where.OR)) {
+          result = result.filter((s) => {
+            return args.where.OR.some((cond: any) => {
+              if (cond.normalizedName?.contains) {
+                const term = cond.normalizedName.contains.toLowerCase();
+                return s.normalizedName.includes(term);
+              }
+              if (cond.name?.contains) {
+                const term = cond.name.contains.toLowerCase();
+                return s.name.toLowerCase().includes(term);
+              }
+              if (cond.aliases?.some?.normalizedName?.contains) {
+                const term = cond.aliases.some.normalizedName.contains.toLowerCase();
+                const aliases = this.skillAliases.filter((a) => a.skillId === s.id);
+                return aliases.some(
+                  (a) => a.normalizedName.includes(term) || a.alias.toLowerCase().includes(term),
+                );
+              }
+              return false;
+            });
+          });
+        }
+      }
+
+      result.sort((a, b) => {
+        if (a.normalizedName < b.normalizedName) return -1;
+        if (a.normalizedName > b.normalizedName) return 1;
+        return a.id.localeCompare(b.id);
+      });
+
+      if (args?.cursor?.id) {
+        const idx = result.findIndex((r) => r.id === args.cursor.id);
+        if (idx !== -1) {
+          result = result.slice(idx);
+        }
+      }
+      if (args?.skip) {
+        result = result.slice(args.skip);
+      }
+      if (args?.take) {
+        result = result.slice(0, args.take);
+      }
+
+      if (args?.include?.aliases) {
+        result = result.map((s) => ({
+          ...s,
+          aliases: this.skillAliases.filter((a) => a.skillId === s.id),
+        }));
+      }
+
+      return result;
+    },
+    count: async (args?: any) => {
+      const items = await this.skill.findMany(args);
+      return items.length;
     },
     create: async (args: any) => {
-      const skill = {
+      const normalized = args.data.normalizedName || args.data.name.trim().toLowerCase();
+      const existing = this.skills.find(
+        (s) =>
+          s.name.toLowerCase() === args.data.name.toLowerCase() || s.normalizedName === normalized,
+      );
+      if (existing) {
+        throw new Error('Skill name or normalizedName already exists');
+      }
+      const item = {
         id: args.data.id || uuidv4(),
-        ...args.data,
+        name: args.data.name,
+        normalizedName: normalized,
+        active: args.data.active ?? true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      this.skills.push(item);
+      return { ...item };
+    },
+    update: async (args: any) => {
+      const item = this.skills.find((s) => s.id === args.where.id);
+      if (!item) throw new Error('Skill not found');
+      if (args.data.name !== undefined) item.name = args.data.name;
+      if (args.data.normalizedName !== undefined) item.normalizedName = args.data.normalizedName;
+      if (args.data.active !== undefined) item.active = args.data.active;
+      item.updatedAt = new Date();
+      return { ...item };
+    },
+  };
+
+  skillAlias = {
+    findMany: async (args?: any) => {
+      let result = [...this.skillAliases];
+      if (args?.where?.skillId) {
+        result = result.filter((a) => a.skillId === args.where.skillId);
+      }
+      return result;
+    },
+    findUnique: async (args: any) => {
+      if (args.where.normalizedName) {
+        return (
+          this.skillAliases.find((a) => a.normalizedName === args.where.normalizedName) || null
+        );
+      }
+      return null;
+    },
+    create: async (args: any) => {
+      const normalized = args.data.normalizedName || args.data.alias.trim().toLowerCase();
+      const item = {
+        id: args.data.id || uuidv4(),
+        skillId: args.data.skillId,
+        alias: args.data.alias,
+        normalizedName: normalized,
         createdAt: new Date(),
       };
-      this.skills.push(skill);
-      return skill;
+      this.skillAliases.push(item);
+      return { ...item };
     },
   };
 
@@ -288,6 +430,8 @@ export class InMemoryPrismaService {
       const comp = {
         id: args.data.id || uuidv4(),
         ...args.data,
+        status: args.data.status || 'ACTIVE',
+        version: args.data.version || 1,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -305,6 +449,47 @@ export class InMemoryPrismaService {
         return this.companies[idx];
       }
       return null;
+    },
+    findMany: async (args?: any) => {
+      let rows = [...this.companies];
+      if (args?.where) {
+        if (args.where.status) {
+          rows = rows.filter((c) => c.status === args.where.status);
+        }
+        if (args.where.OR) {
+          rows = rows.filter((c) =>
+            args.where.OR.some((cond: any) => {
+              if (cond.name?.contains) {
+                const query = cond.name.contains.toLowerCase();
+                if (c.name.toLowerCase().includes(query)) return true;
+              }
+              if (cond.slug?.contains) {
+                const query = cond.slug.contains.toLowerCase();
+                if (c.slug.toLowerCase().includes(query)) return true;
+              }
+              return false;
+            }),
+          );
+        }
+      }
+      rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      if (args?.cursor?.id) {
+        const idx = rows.findIndex((r) => r.id === args.cursor.id);
+        if (idx !== -1) {
+          rows = rows.slice(idx);
+        }
+      }
+      if (args?.skip) {
+        rows = rows.slice(args.skip);
+      }
+      if (args?.take) {
+        rows = rows.slice(0, args.take);
+      }
+      return rows;
+    },
+    count: async (args?: any) => {
+      const items = await this.company.findMany(args);
+      return items.length;
     },
   };
 
@@ -333,10 +518,35 @@ export class InMemoryPrismaService {
       return null;
     },
     findMany: async (args: any) => {
-      const rows = this.companyMemberships.filter((m) => m.companyId === args.where.companyId);
+      let rows = [...this.companyMemberships];
+      if (args?.where) {
+        if (args.where.companyId) {
+          rows = rows.filter((m) => m.companyId === args.where.companyId);
+        }
+        if (args.where.userId) {
+          rows = rows.filter((m) => m.userId === args.where.userId);
+        }
+      }
+
+      rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+      if (args?.cursor?.id) {
+        const idx = rows.findIndex((r) => r.id === args.cursor.id);
+        if (idx !== -1) {
+          rows = rows.slice(idx);
+        }
+      }
+      if (args?.skip) {
+        rows = rows.slice(args.skip);
+      }
+      if (args?.take) {
+        rows = rows.slice(0, args.take);
+      }
+
       return rows.map((m) => {
         const user = this.users.find((u) => u.id === m.userId);
-        return { ...m, user };
+        const company = this.companies.find((c) => c.id === m.companyId);
+        return { ...m, user, company };
       });
     },
     count: async (args: any) => {
@@ -360,6 +570,82 @@ export class InMemoryPrismaService {
       const idx = this.companyMemberships.findIndex((m) => m.id === args.where.id);
       if (idx !== -1) {
         const deleted = this.companyMemberships.splice(idx, 1)[0];
+        return deleted;
+      }
+      return null;
+    },
+  };
+
+  companyInvitation = {
+    findUnique: async (args: any) => {
+      if (args.where?.id) {
+        return this.companyInvitations.find((i) => i.id === args.where.id) || null;
+      }
+      if (args.where?.tokenHash) {
+        return this.companyInvitations.find((i) => i.tokenHash === args.where.tokenHash) || null;
+      }
+      return null;
+    },
+    findFirst: async (args: any) => {
+      return (
+        this.companyInvitations.find((i) => {
+          if (args.where?.companyId && i.companyId !== args.where.companyId) return false;
+          if (args.where?.email && i.email.toLowerCase() !== args.where.email.toLowerCase())
+            return false;
+          if (args.where?.status && i.status !== args.where.status) return false;
+          return true;
+        }) || null
+      );
+    },
+    findMany: async (args?: any) => {
+      let rows = [...this.companyInvitations];
+      if (args?.where) {
+        if (args.where.companyId) {
+          rows = rows.filter((i) => i.companyId === args.where.companyId);
+        }
+        if (args.where.email) {
+          rows = rows.filter((i) => i.email.toLowerCase() === args.where.email.toLowerCase());
+        }
+        if (args.where.status) {
+          rows = rows.filter((i) => i.status === args.where.status);
+        }
+      }
+      return rows;
+    },
+    create: async (args: any) => {
+      const inv = {
+        id: args.data.id || uuidv4(),
+        companyId: args.data.companyId,
+        email: args.data.email,
+        role: args.data.role || 'RECRUITER',
+        invitedById: args.data.invitedById || null,
+        tokenHash: args.data.tokenHash,
+        status: args.data.status || 'PENDING',
+        expiresAt: args.data.expiresAt,
+        acceptedAt: args.data.acceptedAt || null,
+        revokedAt: args.data.revokedAt || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      this.companyInvitations.push(inv);
+      return { ...inv };
+    },
+    update: async (args: any) => {
+      const idx = this.companyInvitations.findIndex((i) => i.id === args.where.id);
+      if (idx !== -1) {
+        this.companyInvitations[idx] = {
+          ...this.companyInvitations[idx],
+          ...args.data,
+          updatedAt: new Date(),
+        };
+        return { ...this.companyInvitations[idx] };
+      }
+      return null;
+    },
+    delete: async (args: any) => {
+      const idx = this.companyInvitations.findIndex((i) => i.id === args.where.id);
+      if (idx !== -1) {
+        const deleted = this.companyInvitations.splice(idx, 1)[0];
         return deleted;
       }
       return null;
@@ -408,11 +694,39 @@ export class InMemoryPrismaService {
           !j.location.toLowerCase().includes(args.where.location.toLowerCase())
         )
           return false;
-        if (args.where?.experienceLevel && j.experienceLevel !== args.where.experienceLevel)
-          return false;
-        if (args.where?.employmentType && j.employmentType !== args.where.employmentType)
-          return false;
-        if (args.where?.workplaceType && j.workplaceType !== args.where.workplaceType) return false;
+        if (args.where?.experienceLevel) {
+          if (
+            typeof args.where.experienceLevel === 'string' &&
+            j.experienceLevel !== args.where.experienceLevel
+          )
+            return false;
+          if (
+            args.where.experienceLevel.in &&
+            !args.where.experienceLevel.in.includes(j.experienceLevel)
+          )
+            return false;
+        }
+        if (args.where?.employmentType) {
+          if (
+            typeof args.where.employmentType === 'string' &&
+            j.employmentType !== args.where.employmentType
+          )
+            return false;
+          if (
+            args.where.employmentType.in &&
+            !args.where.employmentType.in.includes(j.employmentType)
+          )
+            return false;
+        }
+        if (args.where?.workplaceType) {
+          if (
+            typeof args.where.workplaceType === 'string' &&
+            j.workplaceType !== args.where.workplaceType
+          )
+            return false;
+          if (args.where.workplaceType.in && !args.where.workplaceType.in.includes(j.workplaceType))
+            return false;
+        }
         if (args.where?.salaryMin && j.salaryMax && j.salaryMax < args.where.salaryMin)
           return false;
         if (args.where?.salaryMax && j.salaryMin && j.salaryMin > args.where.salaryMax)
@@ -427,17 +741,63 @@ export class InMemoryPrismaService {
           new Date(j.applicationDeadline) <= new Date(args.where.applicationDeadline.gt)
         )
           return false;
+        if (args.where?.company?.status) {
+          const comp = this.companies.find((c) => c.id === j.companyId);
+          if (!comp || comp.status !== args.where.company.status) return false;
+        }
+        if (args.where?.OR && Array.isArray(args.where.OR)) {
+          const matchOr = args.where.OR.some((cond: any) => {
+            if (
+              cond.title?.contains &&
+              j.title.toLowerCase().includes(cond.title.contains.toLowerCase())
+            )
+              return true;
+            if (
+              cond.description?.contains &&
+              j.description.toLowerCase().includes(cond.description.contains.toLowerCase())
+            )
+              return true;
+            if (
+              cond.requirements?.contains &&
+              j.requirements.toLowerCase().includes(cond.requirements.contains.toLowerCase())
+            )
+              return true;
+            if (
+              cond.slug?.contains &&
+              j.slug.toLowerCase().includes(cond.slug.contains.toLowerCase())
+            )
+              return true;
+            if (
+              cond.company?.name?.contains &&
+              this.companies
+                .find((c) => c.id === j.companyId)
+                ?.name.toLowerCase()
+                .includes(cond.company.name.contains.toLowerCase())
+            )
+              return true;
+            return false;
+          });
+          if (!matchOr) return false;
+        }
         return true;
       });
 
       if (args.orderBy) {
-        const orderKey = Object.keys(args.orderBy)[0];
-        const direction = args.orderBy[orderKey];
+        const orderList = Array.isArray(args.orderBy) ? args.orderBy : [args.orderBy];
         result.sort((a, b) => {
-          if (direction === 'desc') {
-            return a[orderKey] < b[orderKey] ? 1 : -1;
+          for (const order of orderList) {
+            const orderKey = Object.keys(order)[0];
+            const direction = order[orderKey];
+            const valA = a[orderKey] instanceof Date ? a[orderKey].getTime() : a[orderKey];
+            const valB = b[orderKey] instanceof Date ? b[orderKey].getTime() : b[orderKey];
+            if (valA !== valB) {
+              if (direction === 'desc') {
+                return valA < valB ? 1 : -1;
+              }
+              return valA > valB ? 1 : -1;
+            }
           }
-          return a[orderKey] > b[orderKey] ? 1 : -1;
+          return 0;
         });
       }
 
@@ -641,6 +1001,64 @@ export class InMemoryPrismaService {
         if (args.where?.candidateId && a.candidateId !== args.where.candidateId) return false;
         if (args.where?.jobId && a.jobId !== args.where.jobId) return false;
         if (args.where?.status && a.status !== args.where.status) return false;
+        if (args.where?.job?.companyId) {
+          const job = this.jobs.find((j) => j.id === a.jobId);
+          if (!job || job.companyId !== args.where.job.companyId) return false;
+        }
+        if (args.where?.submittedAt) {
+          const subTime = new Date(a.submittedAt).getTime();
+          if (
+            args.where.submittedAt.gte &&
+            subTime < new Date(args.where.submittedAt.gte).getTime()
+          ) {
+            return false;
+          }
+          if (
+            args.where.submittedAt.lte &&
+            subTime > new Date(args.where.submittedAt.lte).getTime()
+          ) {
+            return false;
+          }
+        }
+        if (args.where?.OR && Array.isArray(args.where.OR)) {
+          const cand = this.candidateProfiles.find((c) => c.id === a.candidateId);
+          const job = this.jobs.find((j) => j.id === a.jobId);
+          const company = job ? this.companies.find((c) => c.id === job.companyId) : null;
+          const match = args.where.OR.some((cond: any) => {
+            if (
+              cond.candidate?.fullName?.contains &&
+              cand?.fullName.toLowerCase().includes(cond.candidate.fullName.contains.toLowerCase())
+            ) {
+              return true;
+            }
+            if (
+              cond.job?.title?.contains &&
+              job?.title.toLowerCase().includes(cond.job.title.contains.toLowerCase())
+            ) {
+              return true;
+            }
+            if (
+              cond.job?.slug?.contains &&
+              job?.slug.toLowerCase().includes(cond.job.slug.contains.toLowerCase())
+            ) {
+              return true;
+            }
+            if (
+              cond.job?.company?.name?.contains &&
+              company?.name.toLowerCase().includes(cond.job.company.name.contains.toLowerCase())
+            ) {
+              return true;
+            }
+            if (
+              cond.job?.company?.slug?.contains &&
+              company?.slug.toLowerCase().includes(cond.job.company.slug.contains.toLowerCase())
+            ) {
+              return true;
+            }
+            return false;
+          });
+          if (!match) return false;
+        }
         return true;
       });
 
@@ -860,6 +1278,8 @@ export class InMemoryPrismaService {
         extractedText: args.data.extractedText ?? null,
         processingStatus: args.data.processingStatus || 'UPLOADED',
         failureCode: args.data.failureCode ?? null,
+        latestOperationId: args.data.latestOperationId ?? null,
+        extractionAttempts: args.data.extractionAttempts ?? 0,
         isDefault: args.data.isDefault ?? false,
         version: args.data.version || 1,
         createdAt: new Date(),
@@ -1221,6 +1641,78 @@ export class InMemoryPrismaService {
       };
       this.aiAnalyses.push(item);
       return item;
+    },
+  };
+
+  recommendationPreference = {
+    findUnique: async (args: any) => {
+      if (args.where.id) {
+        return this.recommendationPreferences.find((p) => p.id === args.where.id) || null;
+      }
+      if (args.where.userId) {
+        return this.recommendationPreferences.find((p) => p.userId === args.where.userId) || null;
+      }
+      return null;
+    },
+    findFirst: async (args: any) => {
+      if (!args?.where) return this.recommendationPreferences[0] || null;
+      return (
+        this.recommendationPreferences.find((p) => {
+          if (args.where.userId && p.userId !== args.where.userId) return false;
+          return true;
+        }) || null
+      );
+    },
+    create: async (args: any) => {
+      const pref = {
+        id: args.data.id || uuidv4(),
+        userId: args.data.userId,
+        enabled: args.data.enabled !== undefined ? args.data.enabled : true,
+        consentPolicyVersion: args.data.consentPolicyVersion || 'v1.0',
+        consentedAt: args.data.consentedAt || new Date(),
+        version: args.data.version || 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      this.recommendationPreferences.push(pref);
+      return pref;
+    },
+    update: async (args: any) => {
+      const idx = this.recommendationPreferences.findIndex(
+        (p) =>
+          (args.where.id && p.id === args.where.id) ||
+          (args.where.userId && p.userId === args.where.userId),
+      );
+      if (idx === -1) throw new Error('RecommendationPreference not found');
+      const cur = this.recommendationPreferences[idx];
+      const updated = {
+        ...cur,
+        ...args.data,
+        version:
+          typeof args.data.version === 'object' && args.data.version.increment
+            ? cur.version + args.data.version.increment
+            : args.data.version !== undefined
+              ? args.data.version
+              : cur.version + 1,
+        updatedAt: new Date(),
+      };
+      this.recommendationPreferences[idx] = updated;
+      return updated;
+    },
+    upsert: async (args: any) => {
+      const existing = await this.recommendationPreference.findUnique(args);
+      if (existing) {
+        return this.recommendationPreference.update({
+          where: args.where,
+          data: args.update,
+        });
+      }
+      return this.recommendationPreference.create({
+        data: {
+          ...args.create,
+          ...args.where,
+        },
+      });
     },
   };
 

@@ -1,19 +1,36 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { JobStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CompaniesService } from '../companies/companies.service';
 import { JobsService } from '../jobs/jobs.service';
+import { ApplicationsService } from '../applications/applications.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { ERROR_CODES } from '../common/constants/error-codes';
 import { CollectionResponse } from '../common/dto/response.dto';
 import { UserSummaryDto } from '../auth/dto/auth.dto';
 import { CompanyDto } from '../companies/dto/company.dto';
 import { JobDto } from '../jobs/dto/job.dto';
+import { ApplicationStatus } from '../applications/dto/application.dto';
 import { AdminUserQueryDto, UpdateUserStatusDto } from './dto/admin-user.dto';
 import { UpdateCompanyStatusDto } from './dto/admin-company.dto';
 import { ModerateJobDto } from './dto/admin-job.dto';
 import { AuditLogDto, AuditLogQueryDto } from './dto/admin-audit.dto';
+import { AdminCompanyQueryDto } from './dto/admin-company-query.dto';
+import { AdminJobQueryDto } from './dto/admin-job-query.dto';
+import {
+  AdminApplicationDetailDto,
+  AdminApplicationQueryDto,
+  AdminApplicationStatusEventDto,
+  AdminApplicationSummaryDto,
+  ModerateApplicationDto,
+} from './dto/admin-application.dto';
 
 @Injectable()
 export class AdminService {
@@ -22,6 +39,8 @@ export class AdminService {
     private readonly auditService: AuditService,
     private readonly companiesService: CompaniesService,
     private readonly jobsService: JobsService,
+    private readonly applicationsService: ApplicationsService,
+    private readonly outboxService: OutboxService,
   ) {}
 
   /**
@@ -391,6 +410,486 @@ export class AdminService {
       requestId: log.requestId ?? null,
       metadata: metadataObj,
       occurredAt: log.occurredAt instanceof Date ? log.occurredAt.toISOString() : log.occurredAt,
+    };
+  }
+
+  /**
+   * List companies for admin with search, status filter and cursor pagination (BE-8-013).
+   */
+  async listCompanies(
+    query: AdminCompanyQueryDto,
+    requestId?: string,
+  ): Promise<CollectionResponse<CompanyDto>> {
+    const limit = query.limit || 20;
+
+    const where: any = {};
+    if (query.status) {
+      where.status = query.status;
+    }
+    if (query.search) {
+      where.OR = [
+        { name: { contains: query.search, mode: 'insensitive' } },
+        { slug: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+
+    const findArgs: any = {
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+    };
+
+    if (query.cursor) {
+      findArgs.cursor = { id: query.cursor };
+      findArgs.skip = 1;
+    }
+
+    const rows = await this.prisma.company.findMany(findArgs);
+    const hasNextPage = rows.length > limit;
+    const items = hasNextPage ? rows.slice(0, limit) : rows;
+    const nextCursor = hasNextPage && items.length > 0 ? items[items.length - 1].id : null;
+
+    return {
+      data: items.map((c: any) => this.mapCompanyToDto(c)),
+      meta: {
+        requestId: requestId || '',
+        page: {
+          nextCursor,
+          hasNextPage,
+          limit,
+        },
+      } as any,
+    };
+  }
+
+  /**
+   * List jobs for admin with search, companyId, status, experienceLevel filter and cursor pagination (BE-8-013).
+   */
+  async listJobs(query: AdminJobQueryDto, requestId?: string): Promise<CollectionResponse<JobDto>> {
+    const limit = query.limit || 20;
+
+    const where: any = {};
+    if (query.companyId) {
+      where.companyId = query.companyId;
+    }
+    if (query.status) {
+      where.status = query.status;
+    }
+    if (query.experienceLevel) {
+      where.experienceLevel = query.experienceLevel;
+    }
+    if (query.search) {
+      where.OR = [
+        { title: { contains: query.search, mode: 'insensitive' } },
+        { slug: { contains: query.search, mode: 'insensitive' } },
+        { company: { name: { contains: query.search, mode: 'insensitive' } } },
+      ];
+    }
+
+    const findArgs: any = {
+      where,
+      include: { company: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+    };
+
+    if (query.cursor) {
+      findArgs.cursor = { id: query.cursor };
+      findArgs.skip = 1;
+    }
+
+    const rows = await this.prisma.job.findMany(findArgs);
+    const hasNextPage = rows.length > limit;
+    const items = hasNextPage ? rows.slice(0, limit) : rows;
+    const nextCursor = hasNextPage && items.length > 0 ? items[items.length - 1].id : null;
+
+    return {
+      data: items.map((j: any) => this.mapJobToDto(j)),
+      meta: {
+        requestId: requestId || '',
+        page: {
+          nextCursor,
+          hasNextPage,
+          limit,
+        },
+      } as any,
+    };
+  }
+
+  private mapCompanyToDto(company: any): CompanyDto {
+    return {
+      id: company.id,
+      slug: company.slug,
+      name: company.name,
+      description: company.description ?? null,
+      websiteUrl: company.websiteUrl ?? null,
+      logoUrl: company.logoUrl ?? null,
+      location: company.location ?? null,
+      status: company.status,
+      version: company.version ?? 1,
+      createdAt:
+        company.createdAt instanceof Date ? company.createdAt.toISOString() : company.createdAt,
+      updatedAt:
+        company.updatedAt instanceof Date ? company.updatedAt.toISOString() : company.updatedAt,
+    };
+  }
+
+  private mapJobToDto(job: any): JobDto {
+    return {
+      id: job.id,
+      company: {
+        id: job.company?.id || job.companyId,
+        slug: job.company?.slug || '',
+        name: job.company?.name || '',
+        logoUrl: job.company?.logoUrl ?? null,
+      },
+      title: job.title,
+      slug: job.slug,
+      description: job.description,
+      requirements: job.requirements,
+      responsibilities: job.responsibilities ?? null,
+      technologyNames: job.technologyNames || [],
+      location: job.location,
+      workplaceType: job.workplaceType,
+      experienceLevel: job.experienceLevel,
+      employmentType: job.employmentType,
+      salaryMin: job.salaryMin ?? null,
+      salaryMax: job.salaryMax ?? null,
+      currency: job.currency,
+      applicationDeadline:
+        job.applicationDeadline instanceof Date
+          ? job.applicationDeadline.toISOString()
+          : job.applicationDeadline,
+      status: job.status,
+      publishedAt: job.publishedAt
+        ? job.publishedAt instanceof Date
+          ? job.publishedAt.toISOString()
+          : job.publishedAt
+        : null,
+      closedAt: job.closedAt
+        ? job.closedAt instanceof Date
+          ? job.closedAt.toISOString()
+          : job.closedAt
+        : null,
+      version: job.version,
+      createdAt: job.createdAt instanceof Date ? job.createdAt.toISOString() : job.createdAt,
+      updatedAt: job.updatedAt instanceof Date ? job.updatedAt.toISOString() : job.updatedAt,
+    };
+  }
+
+  // --- APPLICATION REDACTION & MODERATION (BE-8-014, BE-8-015) ---
+
+  public decodeApplicationCursor(cursorStr: string): { id: string; submittedAt?: string } {
+    try {
+      let decoded = '';
+      try {
+        decoded = Buffer.from(cursorStr, 'base64url').toString('utf8');
+      } catch {
+        decoded = Buffer.from(cursorStr, 'base64').toString('utf8');
+      }
+      try {
+        const parsed = JSON.parse(decoded);
+        if (parsed && typeof parsed.id === 'string') {
+          return parsed;
+        }
+      } catch {
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(decoded)) {
+          return { id: decoded };
+        }
+      }
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cursorStr)) {
+        return { id: cursorStr };
+      }
+      throw new Error();
+    } catch {
+      throw new BadRequestException({
+        code: ERROR_CODES.INVALID_CURSOR,
+        message: 'Invalid pagination cursor',
+      });
+    }
+  }
+
+  public encodeApplicationCursor(item: { id: string; submittedAt: string | Date }): string {
+    const payload = {
+      id: item.id,
+      submittedAt:
+        item.submittedAt instanceof Date ? item.submittedAt.toISOString() : item.submittedAt,
+    };
+    return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  }
+
+  /**
+   * List applications for admin with search, status/company/job filters, and cursor pagination (BE-8-014).
+   * Strictly redacts CV text, storage keys, phone numbers, notes, feedback, and tokens.
+   */
+  async listApplications(
+    query: AdminApplicationQueryDto,
+    requestId?: string,
+  ): Promise<CollectionResponse<AdminApplicationSummaryDto>> {
+    const limit = query.limit || 20;
+
+    const where: any = {};
+    if (query.companyId) {
+      where.job = { ...(where.job || {}), companyId: query.companyId };
+    }
+    if (query.jobId) {
+      where.jobId = query.jobId;
+    }
+    if (query.status) {
+      where.status = query.status;
+    }
+    if (query.submittedAfter || query.submittedBefore) {
+      where.submittedAt = {};
+      if (query.submittedAfter) where.submittedAt.gte = new Date(query.submittedAfter);
+      if (query.submittedBefore) where.submittedAt.lte = new Date(query.submittedBefore);
+    }
+    if (query.search && query.search.trim()) {
+      const term = query.search.trim();
+      where.OR = [
+        { candidate: { fullName: { contains: term, mode: 'insensitive' } } },
+        { job: { title: { contains: term, mode: 'insensitive' } } },
+        { job: { slug: { contains: term, mode: 'insensitive' } } },
+        { job: { company: { name: { contains: term, mode: 'insensitive' } } } },
+        { job: { company: { slug: { contains: term, mode: 'insensitive' } } } },
+      ];
+    }
+
+    const findArgs: any = {
+      where,
+      include: {
+        candidate: {
+          include: {
+            skills: {
+              include: {
+                skill: true,
+              },
+            },
+          },
+        },
+        job: {
+          include: {
+            company: true,
+          },
+        },
+      },
+      orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+    };
+
+    if (query.cursor) {
+      const decoded = this.decodeApplicationCursor(query.cursor);
+      findArgs.cursor = { id: decoded.id };
+      findArgs.skip = 1;
+    }
+
+    const rows = await this.prisma.application.findMany(findArgs);
+    const hasNextPage = rows.length > limit;
+    const items = hasNextPage ? rows.slice(0, limit) : rows;
+    const nextCursor =
+      hasNextPage && items.length > 0
+        ? this.encodeApplicationCursor(items[items.length - 1])
+        : null;
+
+    return {
+      data: items.map((app: any) => this.mapApplicationToSummary(app)),
+      meta: {
+        requestId: requestId || '',
+        page: {
+          nextCursor,
+          hasNextPage,
+          limit,
+        },
+      } as any,
+    };
+  }
+
+  /**
+   * Get application detail for admin with ordered status history (BE-8-014).
+   * Redacts sensitive personal notes, phone, CV storage keys, and recruiter feedback.
+   */
+  async getApplicationDetail(applicationId: string): Promise<AdminApplicationDetailDto> {
+    const app = await this.prisma.application.findUnique({
+      where: { id: applicationId },
+      include: {
+        candidate: {
+          include: {
+            skills: {
+              include: {
+                skill: true,
+              },
+            },
+          },
+        },
+        job: {
+          include: {
+            company: true,
+          },
+        },
+        history: {
+          orderBy: { occurredAt: 'asc' },
+        },
+      },
+    });
+
+    if (!app) {
+      throw new NotFoundException({
+        code: ERROR_CODES.RESOURCE_NOT_FOUND,
+        message: 'Application not found.',
+      });
+    }
+
+    return this.mapApplicationToDetail(app);
+  }
+
+  /**
+   * Audited admin application moderation with optimistic concurrency and shared state transition policy (BE-8-015).
+   * Permitted even when the owning company is suspended.
+   */
+  async moderateApplication(
+    adminUser: AuthenticatedUser,
+    applicationId: string,
+    dto: ModerateApplicationDto,
+    requestId?: string,
+  ): Promise<AdminApplicationDetailDto> {
+    const application = await this.prisma.application.findUnique({
+      where: { id: applicationId },
+      include: {
+        job: {
+          include: { company: true },
+        },
+      },
+    });
+
+    if (!application) {
+      throw new NotFoundException({
+        code: ERROR_CODES.RESOURCE_NOT_FOUND,
+        message: 'Application not found.',
+      });
+    }
+
+    if (application.version !== dto.expectedVersion) {
+      throw new ConflictException({
+        code: ERROR_CODES.VERSION_CONFLICT,
+        message: `Version conflict: Expected version ${dto.expectedVersion}, but current version is ${application.version}.`,
+      });
+    }
+
+    // Reuse shared transition logic
+    this.applicationsService.validateStatusTransition(
+      application.status as ApplicationStatus,
+      dto.targetStatus,
+    );
+
+    await this.prisma.$transaction(async (tx: any) => {
+      // 1. Update application status & increment version
+      await tx.application.update({
+        where: { id: applicationId },
+        data: {
+          status: dto.targetStatus,
+          version: { increment: 1 },
+        },
+      });
+
+      // 2. Append ApplicationStatusEvent
+      await tx.applicationStatusEvent.create({
+        data: {
+          applicationId,
+          fromStatus: application.status,
+          toStatus: dto.targetStatus,
+          reason: dto.reason,
+          actorId: adminUser.id,
+        },
+      });
+
+      // 3. Record AuditLog
+      await this.auditService.record(
+        {
+          actorId: adminUser.id,
+          action: 'APPLICATION_MODERATED',
+          targetType: 'Application',
+          targetId: applicationId,
+          requestId,
+          metadata: {
+            fromStatus: application.status,
+            toStatus: dto.targetStatus,
+            reason: dto.reason,
+            expectedVersion: dto.expectedVersion,
+            newVersion: application.version + 1,
+          },
+        },
+        tx,
+      );
+
+      // 4. Emit outbox event
+      await this.outboxService.recordEvent(tx, {
+        eventName: 'ApplicationStatusChanged',
+        aggregateType: 'Application',
+        aggregateId: application.id,
+        payload: {
+          applicationId,
+          candidateId: application.candidateId,
+          jobId: application.jobId,
+          fromStatus: application.status,
+          toStatus: dto.targetStatus,
+          changedAt: new Date().toISOString(),
+        },
+        requestId,
+        actorId: adminUser.id,
+      });
+    });
+
+    return this.getApplicationDetail(applicationId);
+  }
+
+  // --- REDACTION MAPPERS (BE-8-014) ---
+
+  private mapApplicationToSummary(app: any): AdminApplicationSummaryDto {
+    const skills: string[] = (app.candidate?.skills || [])
+      .map((cs: any) => cs.skill?.name || cs.skillId)
+      .filter(Boolean);
+
+    return {
+      id: app.id,
+      jobId: app.jobId,
+      candidateId: app.candidateId,
+      status: app.status,
+      version: app.version,
+      submittedAt:
+        app.submittedAt instanceof Date ? app.submittedAt.toISOString() : app.submittedAt,
+      updatedAt: app.updatedAt instanceof Date ? app.updatedAt.toISOString() : app.updatedAt,
+      candidate: {
+        id: app.candidate?.id || app.candidateId,
+        fullName: app.candidate?.fullName || '',
+        headline: app.candidate?.headline ?? null,
+        skills,
+      },
+      job: {
+        id: app.job?.id || app.jobId,
+        title: app.job?.title || '',
+        slug: app.job?.slug || '',
+      },
+      company: {
+        id: app.job?.company?.id || app.job?.companyId || '',
+        name: app.job?.company?.name || '',
+        slug: app.job?.company?.slug || '',
+      },
+    };
+  }
+
+  private mapApplicationToDetail(app: any): AdminApplicationDetailDto {
+    const summary = this.mapApplicationToSummary(app);
+    const history: AdminApplicationStatusEventDto[] = (app.history || []).map((evt: any) => ({
+      id: evt.id,
+      fromStatus: evt.fromStatus ?? null,
+      toStatus: evt.toStatus,
+      reason: evt.reason ?? null,
+      actorId: evt.actorId,
+      occurredAt: evt.occurredAt instanceof Date ? evt.occurredAt.toISOString() : evt.occurredAt,
+    }));
+
+    return {
+      ...summary,
+      history,
     };
   }
 }

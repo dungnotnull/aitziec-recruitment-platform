@@ -82,12 +82,30 @@ ALTER TABLE "saved_jobs" ADD CONSTRAINT "saved_jobs_candidateProfileId_fkey" FOR
 -- AddForeignKey
 ALTER TABLE "saved_jobs" ADD CONSTRAINT "saved_jobs_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "jobs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
--- Full-text search tsvector generated column and GIN index
-ALTER TABLE "jobs" ADD COLUMN "search_vector" tsvector GENERATED ALWAYS AS (
+-- Full-text search tsvector column maintained by trigger
+ALTER TABLE "jobs" ADD COLUMN "search_vector" tsvector;
+
+CREATE OR REPLACE FUNCTION jobs_search_vector_update() RETURNS trigger AS $$
+BEGIN
+  NEW.search_vector :=
+    setweight(to_tsvector('simple', coalesce(NEW."title", '')), 'A') ||
+    setweight(to_tsvector('simple', coalesce(array_to_string(NEW."technologyNames", ' '), '')), 'B') ||
+    setweight(to_tsvector('simple', coalesce(NEW."description", '')), 'C') ||
+    setweight(to_tsvector('simple', coalesce(NEW."requirements", '')), 'D');
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER jobs_search_vector_trigger
+BEFORE INSERT OR UPDATE OF "title", "technologyNames", "description", "requirements"
+ON "jobs"
+FOR EACH ROW
+EXECUTE FUNCTION jobs_search_vector_update();
+
+UPDATE "jobs" SET "search_vector" =
   setweight(to_tsvector('simple', coalesce("title", '')), 'A') ||
   setweight(to_tsvector('simple', coalesce(array_to_string("technologyNames", ' '), '')), 'B') ||
   setweight(to_tsvector('simple', coalesce("description", '')), 'C') ||
-  setweight(to_tsvector('simple', coalesce("requirements", '')), 'D')
-) STORED;
+  setweight(to_tsvector('simple', coalesce("requirements", '')), 'D');
 
 CREATE INDEX "jobs_search_vector_gin_idx" ON "jobs" USING GIN ("search_vector");

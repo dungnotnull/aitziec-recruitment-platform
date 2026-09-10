@@ -91,4 +91,39 @@ export class CompanyScopeService {
 
     return company;
   }
+
+  async assertMemberOrAdminReadOnly(companyId: string, user: AuthenticatedUser): Promise<Company> {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException({
+        code: ERROR_CODES.RESOURCE_NOT_FOUND,
+        message: 'Company not found.',
+      });
+    }
+
+    if (user.role === 'ADMIN') {
+      return company;
+    }
+
+    const membership = await this.prisma.companyMembership.findUnique({
+      where: {
+        companyId_userId: {
+          companyId,
+          userId: user.id,
+        },
+      },
+    });
+
+    if (!membership) {
+      throw new ForbiddenException({
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'You are not a member of this company.',
+      });
+    }
+
+    return company;
+  }
 }

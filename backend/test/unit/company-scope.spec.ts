@@ -84,4 +84,29 @@ describe('CompanyScopeService (BE-2-019, BE-2-020)', () => {
       NotFoundException,
     );
   });
+
+  describe('assertMemberOrAdminReadOnly (BE-8-009)', () => {
+    it('allows company member to read company data even if company is SUSPENDED', async () => {
+      mockPrisma.company.findUnique.mockResolvedValue(suspendedCompany);
+      mockPrisma.companyMembership.findUnique.mockResolvedValue({
+        role: 'RECRUITER',
+      });
+
+      const user: any = { id: 'user-recruiter', role: 'HR' };
+      const res = await service.assertMemberOrAdminReadOnly('comp-2', user);
+      expect(res).toBeDefined();
+      expect(res.id).toBe('comp-2');
+      expect(res.status).toBe('SUSPENDED');
+    });
+
+    it('rejects outsider from read-only operations with 403 Forbidden', async () => {
+      mockPrisma.company.findUnique.mockResolvedValue(suspendedCompany);
+      mockPrisma.companyMembership.findUnique.mockResolvedValue(null);
+
+      const user: any = { id: 'outsider', role: 'HR' };
+      await expect(service.assertMemberOrAdminReadOnly('comp-2', user)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+  });
 });

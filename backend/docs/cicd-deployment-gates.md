@@ -21,11 +21,12 @@ Mọi pull request hoặc commit lên nhánh chính bắt buộc phải vượt 
 3. **Gate 3: Kiểm thử tích hợp & Hợp đồng (`npm run test:e2e`):**
    - Kiểm chứng 100% ma trận phân quyền, hợp đồng API-CONTRACT và luồng tuyển dụng end-to-end.
 4. **Gate 4: Cổng Di Chuyển Schema An Toàn (`npx prisma migrate deploy`):**
-   - Chạy migration trước khi update code API.
-   - Nguyên tắc: Chỉ áp dụng các thay đổi schema tương thích ngược (Additive changes only).
+    - Chạy migration trước khi update code API.
+    - Nguyên tắc: Chỉ áp dụng các thay đổi schema tương thích ngược (Additive changes only).
+    - Quy trình xử lý sự cố migration lỗi: xem chi tiết tại `docs/phase-8-migration-verification.md` (`npx prisma migrate resolve --rolled-back` và `npx prisma migrate deploy`).
 5. **Gate 5: Triển Khai Không Gián Đoạn (Zero-Downtime Rolling Update):**
-   - Khởi động container phiên bản mới, kiểm tra `/health/ready` trả về 200 OK.
-   - Khi container mới sẵn sàng, Traefik/Ingress chuyển hướng traffic và hủy dần container cũ.
+    - Khởi động container phiên bản mới, kiểm tra `/health/ready` trả về 200 OK.
+    - Khi container mới sẵn sàng, Traefik/Ingress chuyển hướng traffic và hủy dần container cũ.
 
 ---
 
@@ -34,3 +35,4 @@ Mọi pull request hoặc commit lên nhánh chính bắt buộc phải vượt 
 Nếu sau khi triển khai phát hiện lỗi nghiêm trọng (tỷ lệ 5xx > 1%):
 1. Chuyển ingress traffic ngay lập tức về hình ảnh container phiên bản ổn định trước đó (Image Tag trước).
 2. Thời gian rollback tự động: **< 60 giây**.
+3. Nếu migration thất bại, kích hoạt quy trình xử lý rollback theo `docs/phase-8-migration-verification.md`.

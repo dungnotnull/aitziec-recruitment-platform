@@ -23,10 +23,14 @@ export class QueueService implements OnModuleDestroy {
 
   constructor(private readonly redisService: RedisService) {}
 
-  getOrCreateQueue(queueName: string): Queue {
+  getOrCreateQueue(queueName: string): Queue | null {
     let queue = this.queues.get(queueName);
     if (!queue) {
       const redisConnection = this.redisService.getClient();
+      if (!redisConnection || typeof redisConnection.on !== 'function') {
+        this.logger.warn(`Redis client not available, queue ${queueName} not created`);
+        return null;
+      }
       queue = new Queue(queueName, {
         connection: redisConnection,
         defaultJobOptions: {
@@ -52,6 +56,7 @@ export class QueueService implements OnModuleDestroy {
   ): Promise<Job<T> | null> {
     try {
       const queue = this.getOrCreateQueue(queueName);
+      if (!queue) return null;
       return await queue.add(jobName, data, {
         attempts: options?.attempts ?? 3,
         backoff: {
@@ -60,14 +65,21 @@ export class QueueService implements OnModuleDestroy {
         },
         jobId: options?.jobId,
       });
-    } catch (err) {
+    } catch (err: any) {
       this.logger.warn(`Failed to add job to queue ${queueName}: ${err.message}`);
       return null;
     }
   }
 
-  registerWorker<T = any>(queueName: string, processor: (job: Job<T>) => Promise<any>): Worker {
+  registerWorker<T = any>(
+    queueName: string,
+    processor: (job: Job<T>) => Promise<any>,
+  ): Worker | null {
     const redisConnection = this.redisService.getClient();
+    if (!redisConnection || typeof redisConnection.on !== 'function') {
+      this.logger.warn(`Redis client not available, worker for queue ${queueName} not registered`);
+      return null;
+    }
     const worker = new Worker(queueName, processor, {
       connection: redisConnection,
       concurrency: 5,

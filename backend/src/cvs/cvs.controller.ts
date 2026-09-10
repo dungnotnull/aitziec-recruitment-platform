@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -111,6 +112,24 @@ export class CvsController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<SignedDownloadDto> {
     return this.cvsService.getSignedDownloadUrl(user, cvId);
+  }
+
+  @Post(':cvId/retry-processing')
+  @Roles('CANDIDATE', 'ADMIN')
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({ summary: 'Retry failed CV text extraction with idempotency (BE-8-017)' })
+  @ApiParam({ name: 'cvId', description: 'CV UUID' })
+  @ApiResponse({ status: 202, description: 'Extraction retry queued' })
+  @ApiResponse({ status: 409, description: 'CV is not retryable or attempt limit reached' })
+  async retryProcessing(
+    @Param('cvId', ParseUUIDPipe) cvId: string,
+    @Headers('idempotency-key') idempotencyKey: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ): Promise<{ cv: CvDto; operation: OperationDto }> {
+    const requestId = req.headers['x-request-id'] as string | undefined;
+    return this.cvsService.retryProcessing(user, cvId, idempotencyKey, requestId);
   }
 
   @Delete(':cvId')

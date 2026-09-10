@@ -1,17 +1,26 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import * as crypto from 'crypto';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from './company-scope.service';
 import { AuditService } from '../audit/audit.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { ERROR_CODES } from '../common/constants/error-codes';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
-import { PaginationQueryDto } from '../common/dto/response.dto';
+import { PaginationQueryDto, CollectionResponse } from '../common/dto/response.dto';
 import {
   AddCompanyMemberDto,
   CompanyDto,
   CompanyMembershipDto,
   CreateCompanyDto,
   UpdateCompanyDto,
+  CallerCompanyMembershipDto,
 } from './dto/company.dto';
+import { CompanyInvitationDto, maskEmail } from './dto/company-invitation.dto';
 
 @Injectable()
 export class CompaniesService {
@@ -19,6 +28,7 @@ export class CompaniesService {
     private readonly prisma: PrismaService,
     private readonly scopeService: CompanyScopeService,
     private readonly auditService: AuditService,
+    private readonly outboxService: OutboxService,
   ) {}
 
   private slugify(text: string): string {
@@ -145,6 +155,52 @@ export class CompaniesService {
     return this.mapToDto(updated);
   }
 
+  async listMyCompanies(
+    user: AuthenticatedUser,
+    query: PaginationQueryDto,
+    requestId?: string,
+  ): Promise<CollectionResponse<CallerCompanyMembershipDto>> {
+    const limit = query.limit || 20;
+
+    const findArgs = {
+      where: { userId: user.id },
+      include: { company: true },
+      orderBy: [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+    };
+
+    const memberships = await this.prisma.companyMembership.findMany(findArgs);
+    const hasNextPage = memberships.length > limit;
+    const items = hasNextPage ? memberships.slice(0, limit) : memberships;
+
+    let nextCursor: string | null = null;
+    if (hasNextPage && items.length > 0) {
+      nextCursor = items[items.length - 1].id;
+    }
+
+    const data: CallerCompanyMembershipDto[] = items.map((m) => ({
+      membership: {
+        id: m.id,
+        role: m.role,
+        createdAt: m.createdAt.toISOString(),
+      },
+      company: this.mapToDto(m.company),
+    }));
+
+    return {
+      data,
+      meta: {
+        requestId: requestId || '',
+        page: {
+          nextCursor,
+          hasNextPage,
+          limit,
+        },
+      },
+    };
+  }
+
   async listMembers(companyId: string, user: AuthenticatedUser, query: PaginationQueryDto) {
     await this.scopeService.assertMemberOrAdmin(companyId, user);
 
@@ -182,62 +238,159 @@ export class CompaniesService {
     companyId: string,
     user: AuthenticatedUser,
     dto: AddCompanyMemberDto,
-  ): Promise<CompanyMembershipDto> {
+  ): Promise<CompanyMembershipDto | CompanyInvitationDto> {
     await this.scopeService.assertOwnerOrAdmin(companyId, user);
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+    });
+    if (!company) {
+      throw new NotFoundException({
+        code: ERROR_CODES.RESOURCE_NOT_FOUND,
+        message: 'Company not found.',
+      });
+    }
 
     const normalizedEmail = dto.userEmail.trim().toLowerCase();
     const targetUser = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
 
-    if (!targetUser) {
-      throw new NotFoundException({
-        code: ERROR_CODES.RESOURCE_NOT_FOUND,
-        message: `No user found with email "${dto.userEmail}".`,
+    const targetRole = (dto.role as any) || 'RECRUITER';
+
+    if (targetUser) {
+      const existingMembership = await this.prisma.companyMembership.findUnique({
+        where: {
+          companyId_userId: {
+            companyId,
+            userId: targetUser.id,
+          },
+        },
       });
+
+      if (existingMembership) {
+        throw new ConflictException({
+          code: ERROR_CODES.MEMBERSHIP_ALREADY_EXISTS,
+          message: 'User is already a member of this company.',
+        });
+      }
+
+      const membership = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.companyMembership.create({
+          data: {
+            companyId,
+            userId: targetUser.id,
+            role: targetRole,
+          },
+          include: { user: true },
+        });
+
+        await this.auditService.record(
+          {
+            actorId: user.id,
+            action: 'COMPANY_MEMBER_ADDED',
+            targetType: 'CompanyMembership',
+            targetId: created.id,
+            metadata: { targetUserId: targetUser.id, role: created.role },
+          },
+          tx,
+        );
+
+        await this.outboxService.recordEvent(tx, {
+          eventName: 'CompanyMemberAdded',
+          aggregateType: 'Company',
+          aggregateId: companyId,
+          actorId: user.id,
+          payload: {
+            companyId,
+            companyName: company.name,
+            userId: targetUser.id,
+            role: created.role,
+            addedById: user.id,
+          },
+        });
+
+        return created;
+      });
+
+      return this.mapMemberToDto(membership);
     }
 
-    const existingMembership = await this.prisma.companyMembership.findUnique({
+    // User not registered: create pending CompanyInvitation
+    const existingInvitation = await this.prisma.companyInvitation.findFirst({
       where: {
-        companyId_userId: {
-          companyId,
-          userId: targetUser.id,
-        },
+        companyId,
+        email: normalizedEmail,
+        status: 'PENDING',
       },
     });
 
-    if (existingMembership) {
+    if (existingInvitation && existingInvitation.expiresAt > new Date()) {
       throw new ConflictException({
-        code: ERROR_CODES.MEMBERSHIP_ALREADY_EXISTS,
-        message: 'User is already a member of this company.',
+        code: ERROR_CODES.INVITATION_ALREADY_PENDING,
+        message: 'An active invitation already exists for this email address.',
       });
     }
 
-    const membership = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.companyMembership.create({
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const invitation = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.companyInvitation.create({
         data: {
           companyId,
-          userId: targetUser.id,
-          role: (dto.role as any) || 'RECRUITER',
+          email: normalizedEmail,
+          role: targetRole,
+          invitedById: user.id,
+          tokenHash,
+          status: 'PENDING',
+          expiresAt,
         },
-        include: { user: true },
       });
 
       await this.auditService.record(
         {
           actorId: user.id,
-          action: 'COMPANY_MEMBER_ADDED',
-          targetType: 'CompanyMembership',
+          action: 'COMPANY_INVITATION_CREATED',
+          targetType: 'CompanyInvitation',
           targetId: created.id,
-          metadata: { targetUserId: targetUser.id, role: created.role },
+          metadata: {
+            companyId,
+            maskedEmail: maskEmail(normalizedEmail),
+            role: created.role,
+          },
         },
         tx,
       );
 
+      await this.outboxService.recordEvent(tx, {
+        eventName: 'CompanyInvitationCreated',
+        aggregateType: 'CompanyInvitation',
+        aggregateId: created.id,
+        actorId: user.id,
+        payload: {
+          companyId,
+          companyName: company.name,
+          email: normalizedEmail,
+          role: created.role,
+          invitedById: user.id,
+          invitationId: created.id,
+        },
+      });
+
       return created;
     });
 
-    return this.mapMemberToDto(membership);
+    return {
+      id: invitation.id,
+      companyId: invitation.companyId,
+      email: maskEmail(invitation.email),
+      role: invitation.role,
+      status: invitation.status,
+      expiresAt: invitation.expiresAt.toISOString(),
+      createdAt: invitation.createdAt.toISOString(),
+    };
   }
 
   async removeMember(companyId: string, memberId: string, user: AuthenticatedUser): Promise<void> {
@@ -318,5 +471,135 @@ export class CompaniesService {
       role: membership.role,
       createdAt: membership.createdAt.toISOString(),
     };
+  }
+
+  async acceptInvitation(token: string, user: AuthenticatedUser): Promise<CompanyMembershipDto> {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    const invitation = await this.prisma.companyInvitation.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!invitation) {
+      throw new NotFoundException({
+        code: ERROR_CODES.INVITATION_NOT_FOUND,
+        message: 'Company invitation not found or invalid token.',
+      });
+    }
+
+    if (invitation.status === 'ACCEPTED') {
+      throw new ConflictException({
+        code: ERROR_CODES.INVITATION_ALREADY_ACCEPTED,
+        message: 'This invitation has already been accepted.',
+      });
+    }
+
+    if (invitation.status === 'REVOKED') {
+      throw new ConflictException({
+        code: ERROR_CODES.INVITATION_REVOKED,
+        message: 'This invitation has been revoked.',
+      });
+    }
+
+    const now = new Date();
+    if (invitation.status === 'EXPIRED' || invitation.expiresAt <= now) {
+      if (invitation.status !== 'EXPIRED') {
+        await this.prisma.companyInvitation.update({
+          where: { id: invitation.id },
+          data: { status: 'EXPIRED' },
+        });
+      }
+      throw new ConflictException({
+        code: ERROR_CODES.INVITATION_EXPIRED,
+        message: 'This invitation has expired.',
+      });
+    }
+
+    const userEntity = await this.prisma.user.findUnique({
+      where: { id: user.id },
+    });
+
+    if (!userEntity || userEntity.email.toLowerCase() !== invitation.email.toLowerCase()) {
+      throw new ForbiddenException({
+        code: ERROR_CODES.INVITATION_EMAIL_MISMATCH,
+        message: 'This invitation was issued to a different email address.',
+      });
+    }
+
+    const existingMembership = await this.prisma.companyMembership.findUnique({
+      where: {
+        companyId_userId: {
+          companyId: invitation.companyId,
+          userId: user.id,
+        },
+      },
+    });
+
+    if (existingMembership) {
+      await this.prisma.companyInvitation.update({
+        where: { id: invitation.id },
+        data: { status: 'ACCEPTED', acceptedAt: now },
+      });
+      throw new ConflictException({
+        code: ERROR_CODES.MEMBERSHIP_ALREADY_EXISTS,
+        message: 'User is already a member of this company.',
+      });
+    }
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: invitation.companyId },
+    });
+
+    const membership = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.companyMembership.create({
+        data: {
+          companyId: invitation.companyId,
+          userId: user.id,
+          role: invitation.role,
+        },
+        include: { user: true },
+      });
+
+      await tx.companyInvitation.update({
+        where: { id: invitation.id },
+        data: {
+          status: 'ACCEPTED',
+          acceptedAt: now,
+        },
+      });
+
+      await this.auditService.record(
+        {
+          actorId: user.id,
+          action: 'COMPANY_MEMBER_ADDED',
+          targetType: 'CompanyMembership',
+          targetId: created.id,
+          metadata: {
+            companyId: invitation.companyId,
+            invitationId: invitation.id,
+            role: created.role,
+          },
+        },
+        tx,
+      );
+
+      await this.outboxService.recordEvent(tx, {
+        eventName: 'CompanyMemberAdded',
+        aggregateType: 'Company',
+        aggregateId: invitation.companyId,
+        actorId: user.id,
+        payload: {
+          companyId: invitation.companyId,
+          companyName: company?.name || 'Company',
+          userId: user.id,
+          role: created.role,
+          addedById: invitation.invitedById || user.id,
+        },
+      });
+
+      return created;
+    });
+
+    return this.mapMemberToDto(membership);
   }
 }

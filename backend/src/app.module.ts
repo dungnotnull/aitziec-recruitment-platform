@@ -21,6 +21,7 @@ import { EmailModule } from './email/email.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AiModule } from './ai/ai.module';
 import { AdminModule } from './admin/admin.module';
+import { SkillsModule } from './skills/skills.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 
@@ -48,6 +49,7 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
     NotificationsModule,
     AiModule,
     AdminModule,
+    SkillsModule,
     MetricsModule,
   ],
 })

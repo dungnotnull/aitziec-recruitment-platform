@@ -57,4 +57,18 @@ export const EmailTemplates = {
     const html = `<h2>Interview Cancelled</h2><p>Your interview for <strong>${jobTitle}</strong> at <strong>${companyName}</strong> has been cancelled.</p><p><strong>Reason:</strong> ${reason}</p>`;
     return { subject, text, html };
   },
+
+  companyMemberAdded(companyName: string, role: string): EmailTemplateResult {
+    const subject = `[AitZiec] Added to ${companyName} as ${role}`;
+    const text = `You have been added to ${companyName} with the role of ${role}. Log in to access the recruiter workspace.`;
+    const html = `<h2>Welcome to ${companyName}</h2><p>You have been added to <strong>${companyName}</strong> with the role of <strong>${role}</strong>.</p><p>Please log in to your account to access your workspace.</p>`;
+    return { subject, text, html };
+  },
+
+  companyInvitation(companyName: string, role: string): EmailTemplateResult {
+    const subject = `[AitZiec] Invitation to join ${companyName} as ${role}`;
+    const text = `You have been invited to join ${companyName} as ${role}. Please create an account or sign in with this email to accept the invitation.`;
+    const html = `<h2>Company Invitation</h2><p>You have been invited to join <strong>${companyName}</strong> as <strong>${role}</strong>.</p><p>Please register or sign in using this email address to accept your invitation.</p>`;
+    return { subject, text, html };
+  },
 };

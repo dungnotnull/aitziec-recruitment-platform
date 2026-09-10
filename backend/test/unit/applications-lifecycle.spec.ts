@@ -62,15 +62,21 @@ describe('ApplicationsLifecycle (Unit)', () => {
   });
 
   describe('BE-4-001 & BE-4-007 State Machine Transition Policy', () => {
-    it('allows valid transitions', () => {
+    it('allows valid transitions including early rejection', () => {
       expect(() =>
         service.validateStatusTransition(ApplicationStatus.APPLIED, ApplicationStatus.REVIEWING),
+      ).not.toThrow();
+      expect(() =>
+        service.validateStatusTransition(ApplicationStatus.APPLIED, ApplicationStatus.REJECTED),
       ).not.toThrow();
       expect(() =>
         service.validateStatusTransition(
           ApplicationStatus.REVIEWING,
           ApplicationStatus.INTERVIEWING,
         ),
+      ).not.toThrow();
+      expect(() =>
+        service.validateStatusTransition(ApplicationStatus.REVIEWING, ApplicationStatus.REJECTED),
       ).not.toThrow();
       expect(() =>
         service.validateStatusTransition(ApplicationStatus.INTERVIEWING, ApplicationStatus.PASSED),
@@ -90,10 +96,6 @@ describe('ApplicationsLifecycle (Unit)', () => {
 
       expect(() =>
         service.validateStatusTransition(ApplicationStatus.APPLIED, ApplicationStatus.PASSED),
-      ).toThrow(ConflictException);
-
-      expect(() =>
-        service.validateStatusTransition(ApplicationStatus.APPLIED, ApplicationStatus.REJECTED),
       ).toThrow(ConflictException);
 
       expect(() =>

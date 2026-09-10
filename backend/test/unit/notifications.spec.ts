@@ -11,7 +11,10 @@ import { ConfigService } from '@nestjs/config';
 describe('NotificationsService (Unit)', () => {
   let service: NotificationsService;
   let inMemoryPrisma: InMemoryPrismaService;
-  let emailService: EmailService;
+
+  const mockEmailService = {
+    sendEmail: jest.fn().mockResolvedValue({ success: true, messageId: 'unit-test-message' }),
+  };
 
   const candidateUser: AuthenticatedUser = {
     id: 'cand-user-1',
@@ -29,6 +32,7 @@ describe('NotificationsService (Unit)', () => {
 
   beforeEach(async () => {
     inMemoryPrisma = new InMemoryPrismaService();
+    mockEmailService.sendEmail.mockClear();
 
     inMemoryPrisma.users.push({
       id: candidateUser.id,
@@ -41,11 +45,14 @@ describe('NotificationsService (Unit)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NotificationsService,
-        EmailService,
+        {
+          provide: EmailService,
+          useValue: mockEmailService,
+        },
         {
           provide: ConfigService,
           useValue: {
-            get: jest.fn((key: string, defaultVal: any) => {
+            get: jest.fn((key: string, defaultVal?: unknown) => {
               if (key === 'EMAIL_FROM') return 'no-reply@test.internal';
               return defaultVal;
             }),
@@ -56,12 +63,10 @@ describe('NotificationsService (Unit)', () => {
     }).compile();
 
     service = module.get<NotificationsService>(NotificationsService);
-    emailService = module.get<EmailService>(EmailService);
   });
 
   afterEach(() => {
     inMemoryPrisma.reset();
-    emailService.clearSentEmails();
   });
 
   describe('listNotifications & filtering', () => {
@@ -172,10 +177,12 @@ describe('NotificationsService (Unit)', () => {
       expect(notifs.length).toBe(1);
       expect(notifs[0].type).toBe(NotificationType.APPLICATION_SUBMITTED);
 
-      const sentEmails = emailService.getSentEmails();
-      expect(sentEmails.length).toBe(1);
-      expect(sentEmails[0].to).toBe(candidateUser.email);
-      expect(sentEmails[0].subject).toContain('Senior Backend Engineer');
+      expect(mockEmailService.sendEmail).toHaveBeenCalledTimes(1);
+      const emailArgs = mockEmailService.sendEmail.mock.calls[0][0];
+      expect(emailArgs.to).toBe(candidateUser.email);
+      expect(emailArgs.subject).toContain('Senior Backend Engineer');
+      expect(emailArgs.text).toBeDefined();
+      expect(emailArgs.idempotencyKey).toBe('email-app-sub-app-1');
     });
 
     it('should route ApplicationStatusChanged event to PASSED outcome', async () => {
@@ -193,6 +200,13 @@ describe('NotificationsService (Unit)', () => {
       expect(notifs.length).toBe(1);
       expect(notifs[0].type).toBe(NotificationType.APPLICATION_OUTCOME);
       expect(notifs[0].title).toContain('PASSED');
+
+      expect(mockEmailService.sendEmail).toHaveBeenCalledTimes(1);
+      const emailArgs = mockEmailService.sendEmail.mock.calls[0][0];
+      expect(emailArgs.to).toBe(candidateUser.email);
+      expect(emailArgs.subject).toContain('PASSED');
+      expect(emailArgs.text).toBeDefined();
+      expect(emailArgs.idempotencyKey).toBe('email-app-trans-app-1-PASSED');
     });
 
     it('should route InterviewScheduled event', async () => {
@@ -211,7 +225,13 @@ describe('NotificationsService (Unit)', () => {
       });
       expect(notifs.length).toBe(1);
       expect(notifs[0].type).toBe(NotificationType.INTERVIEW_SCHEDULED);
-      expect(emailService.getSentEmails().length).toBe(1);
+
+      expect(mockEmailService.sendEmail).toHaveBeenCalledTimes(1);
+      const emailArgs = mockEmailService.sendEmail.mock.calls[0][0];
+      expect(emailArgs.to).toBe(candidateUser.email);
+      expect(emailArgs.subject).toContain('DevOps Engineer');
+      expect(emailArgs.text).toBeDefined();
+      expect(emailArgs.idempotencyKey).toBe('email-int-sched-int-1');
     });
 
     it('should route InterviewCancelled event', async () => {
@@ -229,6 +249,53 @@ describe('NotificationsService (Unit)', () => {
       expect(notifs.length).toBe(1);
       expect(notifs[0].type).toBe(NotificationType.INTERVIEW_CANCELLED);
       expect(notifs[0].body).toContain('Position put on hold');
+
+      expect(mockEmailService.sendEmail).toHaveBeenCalledTimes(1);
+      const emailArgs = mockEmailService.sendEmail.mock.calls[0][0];
+      expect(emailArgs.to).toBe(candidateUser.email);
+      expect(emailArgs.subject).toContain('Cancelled');
+      expect(emailArgs.text).toBeDefined();
+      expect(emailArgs.idempotencyKey).toBe('email-int-cancel-int-1');
+    });
+
+    it('should route CompanyMemberAdded event: creates in-app notification and sends email', async () => {
+      await service.routeEvent('CompanyMemberAdded', {
+        companyId: 'comp-1',
+        companyName: 'Tech Corp',
+        userId: candidateUser.id,
+        role: 'RECRUITER',
+        addedById: 'owner-user-1',
+      });
+
+      const notifs = await inMemoryPrisma.notification.findMany({
+        where: { userId: candidateUser.id },
+      });
+      expect(notifs.length).toBe(1);
+      expect(notifs[0].type).toBe(NotificationType.COMPANY_MEMBER_ADDED);
+      expect(notifs[0].body).toContain('RECRUITER');
+
+      expect(mockEmailService.sendEmail).toHaveBeenCalledTimes(1);
+      const emailArgs = mockEmailService.sendEmail.mock.calls[0][0];
+      expect(emailArgs.to).toBe(candidateUser.email);
+      expect(emailArgs.subject).toContain('Added to Tech Corp');
+      expect(emailArgs.idempotencyKey).toBe('email-comp-member-comp-1-cand-user-1');
+    });
+
+    it('should route CompanyInvitationCreated event: sends email to invited guest email', async () => {
+      await service.routeEvent('CompanyInvitationCreated', {
+        companyId: 'comp-1',
+        companyName: 'Tech Corp',
+        email: 'guest.invitee@test.com',
+        role: 'RECRUITER',
+        invitedById: 'owner-user-1',
+        invitationId: 'inv-123',
+      });
+
+      expect(mockEmailService.sendEmail).toHaveBeenCalledTimes(1);
+      const emailArgs = mockEmailService.sendEmail.mock.calls[0][0];
+      expect(emailArgs.to).toBe('guest.invitee@test.com');
+      expect(emailArgs.subject).toContain('Invitation to join Tech Corp');
+      expect(emailArgs.idempotencyKey).toBe('email-comp-inv-inv-123');
     });
   });
 });

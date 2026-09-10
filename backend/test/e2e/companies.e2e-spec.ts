@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
@@ -222,5 +223,241 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
       .delete(`/api/v1/companies/${companyId}/members/${createdRecruiterMemberId}`)
       .set('Authorization', `Bearer ${hrOwnerToken}`)
       .expect(204);
+  });
+
+  describe('GET /api/v1/companies/mine (BE-8-008)', () => {
+    it('rejects unauthenticated request with 401', async () => {
+      await request(app.getHttpServer()).get('/api/v1/companies/mine').expect(401);
+    });
+
+    it('rejects CANDIDATE caller with 403 FORBIDDEN', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/companies/mine')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(403);
+    });
+
+    it('returns companies for HR owner with membership and company fields', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/companies/mine')
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .expect(200);
+
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+
+      const item = res.body.data[0];
+      expect(item.membership).toBeDefined();
+      expect(item.membership.role).toBe('OWNER');
+      expect(item.company).toBeDefined();
+      expect(item.company.id).toBe(companyId);
+      expect(item.company.status).toBe('ACTIVE');
+      expect(item.company.version).toBeDefined();
+    });
+
+    it('returns empty collection for newly registered HR without companies', async () => {
+      const freshHr = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+        email: 'fresh-hr-no-company@itziec.com',
+        password: 'Password123!@#',
+        role: 'HR',
+      });
+      const freshToken = freshHr.body.data.accessToken;
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/companies/mine')
+        .set('Authorization', `Bearer ${freshToken}`)
+        .expect(200);
+
+      expect(res.body.data).toEqual([]);
+      expect(res.body.meta.page.hasNextPage).toBe(false);
+      expect(res.body.meta.page.nextCursor).toBeNull();
+    });
+  });
+
+  describe('Company Invitations & Acceptance (BE-8-010 to BE-8-012)', () => {
+    it('POST /api/v1/companies/:companyId/members creates a pending invitation with 202 for unknown email', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/members`)
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .send({
+          userEmail: 'unregistered-guest@itziec.com',
+          role: 'RECRUITER',
+        })
+        .expect(202);
+
+      expect(res.body.data).toBeDefined();
+      expect(res.body.data.id).toBeDefined();
+      expect(res.body.data.companyId).toBe(companyId);
+      expect(res.body.data.email).toBe('u***t@itziec.com'); // masked email
+      expect(res.body.data.role).toBe('RECRUITER');
+      expect(res.body.data.status).toBe('PENDING');
+      expect(res.body.data.expiresAt).toBeDefined();
+      expect(res.body.data.createdAt).toBeDefined();
+      // Ensure neither token nor hash is leaked
+      expect(res.body.data.tokenHash).toBeUndefined();
+      expect(res.body.data.token).toBeUndefined();
+
+      // Verify audit log and outbox event
+      const audit = inMemoryPrisma.auditLogs.find(
+        (a) => a.action === 'COMPANY_INVITATION_CREATED' && a.targetId === res.body.data.id,
+      );
+      expect(audit).toBeDefined();
+      expect(audit.metadata.maskedEmail).toBe('u***t@itziec.com');
+
+      const outbox = inMemoryPrisma.outboxEvents.find(
+        (e) => e.eventName === 'CompanyInvitationCreated' && e.aggregateId === res.body.data.id,
+      );
+      expect(outbox).toBeDefined();
+      expect(outbox.payload.email).toBe('unregistered-guest@itziec.com');
+    });
+
+    it('POST /api/v1/companies/:companyId/members rejects duplicate pending invitation with 409 INVITATION_ALREADY_PENDING', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/members`)
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .send({
+          userEmail: 'unregistered-guest@itziec.com',
+          role: 'RECRUITER',
+        })
+        .expect(409);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.INVITATION_ALREADY_PENDING);
+    });
+
+    it('POST /api/v1/company-invitations/:token/accept rejects unauthenticated caller with 401', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/company-invitations/some-token-value/accept')
+        .expect(401);
+    });
+
+    it('POST /api/v1/company-invitations/:token/accept rejects non-existent token with 404 INVITATION_NOT_FOUND', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/company-invitations/non-existent-token-xyz/accept')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(404);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.INVITATION_NOT_FOUND);
+    });
+
+    it('POST /api/v1/company-invitations/:token/accept rejects email mismatch with 403 INVITATION_EMAIL_MISMATCH', async () => {
+      // Create invitation for a specific email
+      const rawToken = 'secret-raw-token-for-mismatch-test';
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+      await inMemoryPrisma.companyInvitation.create({
+        data: {
+          companyId,
+          email: 'intended-invitee@itziec.com',
+          role: 'RECRUITER',
+          tokenHash,
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 7 * 86400000),
+        },
+      });
+
+      // candidateToken belongs to candidate@itziec.com != intended-invitee@itziec.com
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/company-invitations/${rawToken}/accept`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(403);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.INVITATION_EMAIL_MISMATCH);
+    });
+
+    it('POST /api/v1/company-invitations/:token/accept rejects expired invitation with 409 INVITATION_EXPIRED', async () => {
+      const rawToken = 'secret-raw-token-expired-case';
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+      await inMemoryPrisma.companyInvitation.create({
+        data: {
+          companyId,
+          email: 'candidate@itziec.com',
+          role: 'RECRUITER',
+          tokenHash,
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() - 3600000), // 1 hour ago
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/company-invitations/${rawToken}/accept`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(409);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.INVITATION_EXPIRED);
+    });
+
+    it('POST /api/v1/company-invitations/:token/accept atomically accepts invitation and creates membership with 201', async () => {
+      // Register a brand new user
+      const registerRes = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+        email: 'new-invited-hr@itziec.com',
+        password: 'Password123!@#',
+        role: 'HR',
+      });
+      const inviteeToken = registerRes.body.data.accessToken;
+
+      const rawToken = 'secret-raw-token-successful-accept';
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+      const inv = await inMemoryPrisma.companyInvitation.create({
+        data: {
+          companyId,
+          email: 'new-invited-hr@itziec.com',
+          role: 'RECRUITER',
+          tokenHash,
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 7 * 86400000),
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/company-invitations/${rawToken}/accept`)
+        .set('Authorization', `Bearer ${inviteeToken}`)
+        .expect(201);
+
+      expect(res.body.data.role).toBe('RECRUITER');
+      expect(res.body.data.companyId).toBe(companyId);
+      expect(res.body.data.user.email).toBe('new-invited-hr@itziec.com');
+
+      // Verify invitation updated to ACCEPTED
+      const updatedInv = inMemoryPrisma.companyInvitations.find((i) => i.id === inv.id);
+      expect(updatedInv.status).toBe('ACCEPTED');
+      expect(updatedInv.acceptedAt).toBeDefined();
+
+      // Verify audit log and outbox event
+      const audit = inMemoryPrisma.auditLogs.find(
+        (a) => a.action === 'COMPANY_MEMBER_ADDED' && a.targetId === res.body.data.id,
+      );
+      expect(audit).toBeDefined();
+
+      const outbox = inMemoryPrisma.outboxEvents.find(
+        (e) => e.eventName === 'CompanyMemberAdded' && e.aggregateId === companyId,
+      );
+      expect(outbox).toBeDefined();
+    });
+
+    it('POST /api/v1/company-invitations/:token/accept rejects already accepted invitation with 409 INVITATION_ALREADY_ACCEPTED', async () => {
+      const rawToken = 'secret-raw-token-already-accepted';
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+      await inMemoryPrisma.companyInvitation.create({
+        data: {
+          companyId,
+          email: 'candidate@itziec.com',
+          role: 'RECRUITER',
+          tokenHash,
+          status: 'ACCEPTED',
+          expiresAt: new Date(Date.now() + 7 * 86400000),
+          acceptedAt: new Date(),
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/company-invitations/${rawToken}/accept`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(409);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.INVITATION_ALREADY_ACCEPTED);
+    });
   });
 });

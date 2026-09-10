@@ -158,8 +158,9 @@ traceable hiring pipeline without delegating hiring decisions to AI.
   using a CV they own.
 - **APP-002:** Submission atomically creates the application, initial event,
   audit record, and outbox event.
-- **APP-003:** Application status follows this exact baseline state machine:
-  `APPLIED -> REVIEWING -> INTERVIEWING -> PASSED | REJECTED`.
+- **APP-003:** Application status follows this pipeline:
+  `APPLIED -> REVIEWING | REJECTED`, `REVIEWING -> INTERVIEWING | REJECTED`, and
+  `INTERVIEWING -> PASSED | REJECTED`. Rejection is supported at any pre-hire review stage.
 - **APP-004:** Any transition not listed in APP-003 is rejected.
 - **APP-005:** Status updates require authorized company access, expected version,
   actor identity, timestamp, and optional reason where allowed by the contract.

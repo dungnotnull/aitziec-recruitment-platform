@@ -27,6 +27,14 @@ import { CollectionResponse } from '../common/dto/response.dto';
 import { UserSummaryDto } from '../auth/dto/auth.dto';
 import { CompanyDto } from '../companies/dto/company.dto';
 import { JobDto } from '../jobs/dto/job.dto';
+import { AdminCompanyQueryDto } from './dto/admin-company-query.dto';
+import { AdminJobQueryDto } from './dto/admin-job-query.dto';
+import {
+  AdminApplicationDetailDto,
+  AdminApplicationQueryDto,
+  AdminApplicationSummaryDto,
+  ModerateApplicationDto,
+} from './dto/admin-application.dto';
 
 @ApiTags('Admin')
 @Controller('admin')
@@ -41,6 +49,33 @@ export class AdminController {
   @ApiResponse({ status: 200, description: 'Paginated user summaries' })
   async listUsers(@Query() query: AdminUserQueryDto): Promise<CollectionResponse<UserSummaryDto>> {
     return this.adminService.listUsers(query);
+  }
+
+  @Get('companies')
+  @ApiOperation({
+    summary: 'Admin list companies with search, status filter and cursor pagination (BE-8-013)',
+  })
+  @ApiResponse({ status: 200, description: 'Paginated company collection' })
+  async listCompanies(
+    @Query() query: AdminCompanyQueryDto,
+    @Req() req: Request,
+  ): Promise<CollectionResponse<CompanyDto>> {
+    const requestId = req.headers['x-request-id'] as string | undefined;
+    return this.adminService.listCompanies(query, requestId);
+  }
+
+  @Get('jobs')
+  @ApiOperation({
+    summary:
+      'Admin list jobs across companies with search, status, experience filter and cursor pagination (BE-8-013)',
+  })
+  @ApiResponse({ status: 200, description: 'Paginated job collection' })
+  async listJobs(
+    @Query() query: AdminJobQueryDto,
+    @Req() req: Request,
+  ): Promise<CollectionResponse<JobDto>> {
+    const requestId = req.headers['x-request-id'] as string | undefined;
+    return this.adminService.listJobs(query, requestId);
   }
 
   @Patch('users/:userId/status')
@@ -99,5 +134,49 @@ export class AdminController {
   @ApiResponse({ status: 200, description: 'Paginated audit logs' })
   async queryAuditLogs(@Query() query: AuditLogQueryDto): Promise<CollectionResponse<AuditLogDto>> {
     return this.adminService.queryAuditLogs(query);
+  }
+
+  @Get('applications')
+  @ApiOperation({
+    summary:
+      'Admin list applications with search, status, company, job, and date range filters (BE-8-014)',
+  })
+  @ApiResponse({ status: 200, description: 'Paginated application collection' })
+  async listApplications(
+    @Query() query: AdminApplicationQueryDto,
+    @Req() req: Request,
+  ): Promise<CollectionResponse<AdminApplicationSummaryDto>> {
+    const requestId = req.headers['x-request-id'] as string | undefined;
+    return this.adminService.listApplications(query, requestId);
+  }
+
+  @Get('applications/:applicationId')
+  @ApiOperation({
+    summary: 'Admin get application detail with ordered status history (BE-8-014)',
+  })
+  @ApiParam({ name: 'applicationId', type: 'string', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Redacted application detail' })
+  async getApplicationDetail(
+    @Param('applicationId', ParseUUIDPipe) applicationId: string,
+  ): Promise<AdminApplicationDetailDto> {
+    return this.adminService.getApplicationDetail(applicationId);
+  }
+
+  @Post('applications/:applicationId/moderate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Audited admin application moderation with optimistic concurrency and shared state transition policy (BE-8-015)',
+  })
+  @ApiParam({ name: 'applicationId', type: 'string', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Application moderated successfully' })
+  async moderateApplication(
+    @CurrentUser() adminUser: AuthenticatedUser,
+    @Param('applicationId', ParseUUIDPipe) applicationId: string,
+    @Body() dto: ModerateApplicationDto,
+    @Req() req: Request,
+  ): Promise<AdminApplicationDetailDto> {
+    const requestId = req.headers['x-request-id'] as string | undefined;
+    return this.adminService.moderateApplication(adminUser, applicationId, dto, requestId);
   }
 }

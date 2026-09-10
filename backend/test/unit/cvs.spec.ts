@@ -13,14 +13,20 @@ import {
   UnsupportedMediaTypeException,
   UnprocessableEntityException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 
 import { ConfigService } from '@nestjs/config';
+
+import { QueueService } from '../../src/queues/queue.service';
+import { CvExtractionProcessor } from '../../src/cvs/workers/cv-extraction.processor';
 
 describe('CvsService (Unit)', () => {
   let service: CvsService;
   let inMemoryPrisma: InMemoryPrismaService;
   let storageService: StorageService;
+  let queueServiceMock: any;
+  let processor: CvExtractionProcessor;
 
   const candidateUser: AuthenticatedUser = {
     id: 'cand-user-1',
@@ -33,6 +39,20 @@ describe('CvsService (Unit)', () => {
     id: 'cand-user-2',
     email: 'cand2@test.com',
     role: 'CANDIDATE',
+    status: 'ACTIVE',
+  };
+
+  const adminUser: AuthenticatedUser = {
+    id: 'admin-user-1',
+    email: 'admin@test.com',
+    role: 'ADMIN',
+    status: 'ACTIVE',
+  };
+
+  const hrUser: AuthenticatedUser = {
+    id: 'hr-user-1',
+    email: 'hr@test.com',
+    role: 'HR',
     status: 'ACTIVE',
   };
 
@@ -49,12 +69,22 @@ describe('CvsService (Unit)', () => {
     inMemoryPrisma = new InMemoryPrismaService();
     inMemoryPrisma.candidateProfiles.push({ ...candidateProfile });
 
+    queueServiceMock = {
+      addJob: jest.fn().mockResolvedValue({ id: 'mock-bull-job-1' }),
+      registerWorker: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CvsService,
         StorageService,
         AuditService,
         CompanyScopeService,
+        CvExtractionProcessor,
+        {
+          provide: QueueService,
+          useValue: queueServiceMock,
+        },
         {
           provide: ConfigService,
           useValue: {
@@ -77,6 +107,7 @@ describe('CvsService (Unit)', () => {
 
     service = module.get<CvsService>(CvsService);
     storageService = module.get<StorageService>(StorageService);
+    processor = module.get<CvExtractionProcessor>(CvExtractionProcessor);
   });
 
   afterEach(() => {
@@ -123,7 +154,7 @@ describe('CvsService (Unit)', () => {
       );
     });
 
-    it('should successfully upload valid PDF, store in storage, and record metadata', async () => {
+    it('should successfully upload valid PDF, store in storage, and record metadata asynchronously', async () => {
       const validPdfBuffer = Buffer.concat([
         Buffer.from('%PDF-1.4\n1 0 obj\n<< /Title (My CV) >>\nendobj\n%%EOF'),
       ]);
@@ -140,14 +171,29 @@ describe('CvsService (Unit)', () => {
       expect(result.cv).toBeDefined();
       expect(result.cv.originalFileName).toBe('resume.pdf');
       expect(result.cv.mimeType).toBe('application/pdf');
-      expect(result.cv.processingStatus).toBe('READY');
+      expect(result.cv.processingStatus).toBe('UPLOADED');
       expect(result.cv.checksumSha256).toBeDefined();
+      expect(result.cv.latestOperationId).toBeDefined();
       expect(result.operation).toBeDefined();
+      expect(result.operation.status).toBe('QUEUED');
+      expect(queueServiceMock.addJob).toHaveBeenCalledWith(
+        'cv-extraction-queue',
+        'extract-cv-text',
+        expect.objectContaining({
+          cvId: result.cv.id,
+          operationId: result.operation.id,
+          actorId: candidateUser.id,
+        }),
+        expect.objectContaining({
+          jobId: `cv-extraction:${result.operation.id}`,
+        }),
+      );
 
       // Verify in DB
       const dbCv = await inMemoryPrisma.cv.findUnique({ where: { id: result.cv.id } });
       expect(dbCv).not.toBeNull();
       expect(dbCv.candidateProfileId).toBe(candidateProfile.id);
+      expect(dbCv.processingStatus).toBe('UPLOADED');
     });
   });
 
@@ -276,21 +322,402 @@ describe('CvsService (Unit)', () => {
     });
   });
 
-  describe('getSignedDownloadUrl', () => {
-    it('should generate signed URL for candidate owner', async () => {
+  describe('getSignedDownloadUrl & CV Retention Reconciliation (BE-8-020)', () => {
+    it('allows candidate to get signed download URL for their active CV', async () => {
+      const buffer = Buffer.from('%PDF-1.4 test');
+      await storageService.putObject('cvs/active.pdf', buffer, 'application/pdf');
+
       const cv = await inMemoryPrisma.cv.create({
         data: {
           candidateProfileId: candidateProfile.id,
-          originalFileName: 'cand1.pdf',
-          sizeBytes: 100,
-          checksumSha256: 'sha',
-          storageKey: 'key-1',
+          originalFileName: 'active.pdf',
+          sizeBytes: buffer.length,
+          checksumSha256: 'sha-active',
+          storageKey: 'cvs/active.pdf',
+          processingStatus: 'READY',
+          isDefault: true,
+          version: 1,
         },
       });
 
       const res = await service.getSignedDownloadUrl(candidateUser, cv.id);
       expect(res.url).toBeDefined();
       expect(res.expiresAt).toBeDefined();
+    });
+
+    it('denies candidate from downloading a soft-deleted CV', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'deleted.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-del',
+          storageKey: 'cvs/deleted.pdf',
+          processingStatus: 'DELETED',
+          isDefault: false,
+          version: 2,
+        },
+      });
+
+      await expect(service.getSignedDownloadUrl(candidateUser, cv.id)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('allows authorized HR to download a soft-deleted CV referenced by their job application', async () => {
+      const companyId = 'comp-cv-1';
+      inMemoryPrisma.companies.push({
+        id: companyId,
+        slug: 'comp-cv-1',
+        name: 'Comp CV',
+        status: 'ACTIVE',
+      });
+      inMemoryPrisma.companyMemberships.push({
+        id: 'mem-cv-1',
+        companyId,
+        userId: hrUser.id,
+        role: 'RECRUITER',
+      });
+
+      const buffer = Buffer.from('%PDF-1.4 test');
+      await storageService.putObject('cvs/soft-del.pdf', buffer, 'application/pdf');
+
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'soft-del.pdf',
+          sizeBytes: buffer.length,
+          checksumSha256: 'sha-soft',
+          storageKey: 'cvs/soft-del.pdf',
+          processingStatus: 'DELETED',
+          isDefault: false,
+          version: 2,
+        },
+      });
+
+      const job = await inMemoryPrisma.job.create({
+        data: {
+          id: 'job-cv-1',
+          companyId,
+          title: 'Dev',
+          slug: 'dev-cv',
+          description: 'd',
+          requirements: 'r',
+          location: 'Remote',
+          workplaceType: 'REMOTE',
+          experienceLevel: 'MID',
+          employmentType: 'FULL_TIME',
+          applicationDeadline: new Date(Date.now() + 86400000),
+          status: 'PUBLISHED',
+        },
+      });
+
+      await inMemoryPrisma.application.create({
+        data: {
+          id: 'app-cv-1',
+          candidateId: candidateProfile.id,
+          jobId: job.id,
+          submittedCvId: cv.id,
+          status: 'REVIEWING',
+        },
+      });
+
+      const res = await service.getSignedDownloadUrl(hrUser, cv.id);
+      expect(res.url).toBeDefined();
+      expect(res.expiresAt).toBeDefined();
+    });
+
+    it('allows ADMIN to download a soft-deleted CV', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'soft-del-admin.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-admin',
+          storageKey: 'cvs/soft-del-admin.pdf',
+          processingStatus: 'DELETED',
+          isDefault: false,
+          version: 2,
+        },
+      });
+
+      const res = await service.getSignedDownloadUrl(adminUser, cv.id);
+      expect(res.url).toBeDefined();
+      expect(res.expiresAt).toBeDefined();
+    });
+  });
+
+  describe('CvExtractionProcessor', () => {
+    it('should process job successfully and update cv to READY and operation to SUCCEEDED', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-processor-test',
+          storageKey: 'cvs/test-proc.pdf',
+          processingStatus: 'UPLOADED',
+          extractionAttempts: 0,
+        },
+      });
+
+      await storageService.uploadFile(
+        cv.storageKey,
+        Buffer.from(
+          '%PDF-1.4\n1 0 obj\n<< /Title (My CV) >>\nendobj\n%%EOF Hello World CV Text Content',
+        ),
+        'application/pdf',
+      );
+
+      const op = await inMemoryPrisma.operation.create({
+        data: {
+          type: 'CV_TEXT_EXTRACTION',
+          status: 'QUEUED',
+          resultResourceType: 'CV',
+          resultResourceId: cv.id,
+          idempotencyKey: 'op-proc-test',
+        },
+      });
+
+      await inMemoryPrisma.cv.update({
+        where: { id: cv.id },
+        data: { latestOperationId: op.id },
+      });
+
+      const job = {
+        id: `cv-extraction:${op.id}`,
+        data: {
+          cvId: cv.id,
+          operationId: op.id,
+          actorId: candidateUser.id,
+          requestId: 'req-proc-1',
+        },
+      };
+
+      await processor.processJob(job as any);
+
+      const updatedCv = await inMemoryPrisma.cv.findUnique({ where: { id: cv.id } });
+      expect(updatedCv.processingStatus).toBe('READY');
+
+      const updatedOp = await inMemoryPrisma.operation.findUnique({ where: { id: op.id } });
+      expect(updatedOp.status).toBe('SUCCEEDED');
+    });
+
+    it('should handle extraction failure, set cv to FAILED and operation to FAILED', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv-fail.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-processor-fail',
+          storageKey: 'cvs/test-fail.pdf',
+          processingStatus: 'UPLOADED',
+          extractionAttempts: 0,
+        },
+      });
+
+      const op = await inMemoryPrisma.operation.create({
+        data: {
+          type: 'CV_TEXT_EXTRACTION',
+          status: 'QUEUED',
+          resultResourceType: 'CV',
+          resultResourceId: cv.id,
+          idempotencyKey: 'op-fail-test',
+        },
+      });
+
+      // Force getFile to reject with error
+      jest
+        .spyOn(storageService, 'getFile')
+        .mockRejectedValueOnce(new Error('PDF extraction simulated crash'));
+
+      const job = {
+        id: `cv-extraction:${op.id}`,
+        data: {
+          cvId: cv.id,
+          operationId: op.id,
+          actorId: candidateUser.id,
+          requestId: 'req-proc-fail',
+        },
+      };
+
+      await processor.processJob(job as any);
+
+      const failedCv = await inMemoryPrisma.cv.findUnique({ where: { id: cv.id } });
+      expect(failedCv.processingStatus).toBe('FAILED');
+      expect(failedCv.failureCode).toBe('EXTRACTION_FAILED');
+
+      const failedOp = await inMemoryPrisma.operation.findUnique({ where: { id: op.id } });
+      expect(failedOp.status).toBe('FAILED');
+
+      jest.restoreAllMocks();
+    });
+  });
+
+  describe('retryProcessing', () => {
+    it('should reject if caller is not owner and not admin', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv-other.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-other',
+          storageKey: 'cvs/other.pdf',
+          processingStatus: 'FAILED',
+          extractionAttempts: 1,
+        },
+      });
+
+      await expect(
+        service.retryProcessing(otherCandidateUser, cv.id, 'idem-key-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should reject if cv status is not FAILED (e.g. READY)', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv-ready.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-ready',
+          storageKey: 'cvs/ready.pdf',
+          processingStatus: 'READY',
+          extractionAttempts: 1,
+        },
+      });
+
+      await expect(service.retryProcessing(candidateUser, cv.id, 'idem-key-ready')).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('should reject if cv is already processing (UPLOADED)', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv-proc.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-proc',
+          storageKey: 'cvs/proc.pdf',
+          processingStatus: 'UPLOADED',
+          extractionAttempts: 1,
+        },
+      });
+
+      await expect(service.retryProcessing(candidateUser, cv.id, 'idem-key-proc')).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('should reject if extraction attempts reached maximum (3)', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv-max.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-max',
+          storageKey: 'cvs/max.pdf',
+          processingStatus: 'FAILED',
+          extractionAttempts: 3,
+        },
+      });
+
+      await expect(service.retryProcessing(candidateUser, cv.id, 'idem-key-max')).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('should replay existing operation if same idempotencyKey is used', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv-idem.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-idem',
+          storageKey: 'cvs/idem.pdf',
+          processingStatus: 'FAILED',
+          extractionAttempts: 1,
+        },
+      });
+
+      const op = await inMemoryPrisma.operation.create({
+        data: {
+          type: 'CV_TEXT_EXTRACTION',
+          status: 'QUEUED',
+          resultResourceType: 'CV',
+          resultResourceId: cv.id,
+          idempotencyKey: 'idem-key-repeat',
+        },
+      });
+
+      await inMemoryPrisma.cv.update({
+        where: { id: cv.id },
+        data: { latestOperationId: op.id },
+      });
+
+      const res = await service.retryProcessing(candidateUser, cv.id, 'idem-key-repeat');
+      expect(res.operation.id).toBe(op.id);
+      expect(res.cv.id).toBe(cv.id);
+      expect(queueServiceMock.addJob).not.toHaveBeenCalledWith(
+        'cv-extraction-queue',
+        'extract-cv-text',
+        expect.objectContaining({ operationId: op.id }),
+        expect.anything(),
+      );
+    });
+
+    it('should successfully schedule retry, create new operation, and enqueue job', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv-valid-retry.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-valid-retry',
+          storageKey: 'cvs/valid-retry.pdf',
+          processingStatus: 'FAILED',
+          extractionAttempts: 1,
+        },
+      });
+
+      const result = await service.retryProcessing(candidateUser, cv.id, 'idem-key-fresh');
+
+      expect(result.cv.processingStatus).toBe('UPLOADED');
+      expect(result.operation.status).toBe('QUEUED');
+      expect(result.operation.idempotencyKey).toBe('idem-key-fresh');
+      expect(queueServiceMock.addJob).toHaveBeenCalledWith(
+        'cv-extraction-queue',
+        'extract-cv-text',
+        expect.objectContaining({
+          cvId: cv.id,
+          operationId: result.operation.id,
+          actorId: candidateUser.id,
+        }),
+        expect.objectContaining({
+          jobId: `cv-extraction:${result.operation.id}`,
+        }),
+      );
+
+      const dbCv = await inMemoryPrisma.cv.findUnique({ where: { id: cv.id } });
+      expect(dbCv.processingStatus).toBe('UPLOADED');
+      expect(dbCv.latestOperationId).toBe(result.operation.id);
+    });
+
+    it('should allow admin to retry processing for candidate cv', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv-admin-retry.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-admin-retry',
+          storageKey: 'cvs/admin-retry.pdf',
+          processingStatus: 'FAILED',
+          extractionAttempts: 1,
+        },
+      });
+
+      const result = await service.retryProcessing(adminUser, cv.id, 'idem-key-admin');
+      expect(result.cv.processingStatus).toBe('UPLOADED');
+      expect(result.operation.status).toBe('QUEUED');
     });
   });
 });

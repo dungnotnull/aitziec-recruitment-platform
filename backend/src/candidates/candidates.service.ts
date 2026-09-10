@@ -72,7 +72,11 @@ export class CandidatesService {
           let skill = await tx.skill.findUnique({ where: { id: s.skillId } });
           if (!skill) {
             skill = await tx.skill.create({
-              data: { id: s.skillId, name: s.skillId },
+              data: {
+                id: s.skillId,
+                name: s.skillId,
+                normalizedName: s.skillId.trim().toLowerCase(),
+              },
             });
           }
 

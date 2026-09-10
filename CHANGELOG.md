@@ -12,6 +12,27 @@ available.
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-09-10
+
+### Added
+- **Phase 8 (Frontend Integration Remediation)**:
+  - Repaired PostgreSQL migration `20260909000000_jobs_and_saved_jobs` with trigger-maintained `tsvector` and GIN index (`BE-8-002`, `BE-8-003`).
+  - Restored `ExperienceLevel` enum validation on public jobs search (`GET /jobs?experienceLevel=FRESHER`) (`BE-8-004`).
+  - Isolated notifications unit tests completely from Nodemailer and SMTP network calls (`BE-8-005`).
+  - Skill Catalog module (`GET /api/v1/skills`) with canonical/alias resolution, case-insensitive search, and cursor pagination (`BE-8-006`, `BE-8-007`).
+  - Recruiter multi-company discovery (`GET /api/v1/companies/mine`) and scoped job management collection (`GET /api/v1/companies/:companyId/jobs`) (`BE-8-008`, `BE-8-009`).
+  - Secure pending company invitations with SHA-256 token hashing, 7-day expiration, and one-time acceptance (`POST /api/v1/companies/:companyId/members`, `POST /api/v1/company-invitations/:token/accept`) (`BE-8-010`, `BE-8-011`, `BE-8-012`).
+  - Admin company, job, and application collections with optimistic concurrency versions and privacy redactions (`GET /api/v1/admin/companies`, `GET /api/v1/admin/jobs`, `GET /api/v1/admin/applications`, `GET /api/v1/admin/applications/:id`) (`BE-8-013`, `BE-8-014`).
+  - Audited admin application moderation (`POST /api/v1/admin/applications/:id/moderate`) (`BE-8-015`).
+  - Asynchronous CV text extraction worker with BullMQ and bounded idempotent extraction retry (`POST /api/v1/cvs/:cvId/retry-processing`) (`BE-8-016`, `BE-8-017`).
+  - Promoted and verified direct interview detail API (`GET /api/v1/interviews/:interviewId`) with candidate field omission (`BE-8-018`).
+  - Early rejection state machine transition alignment (`APPLIED -> REJECTED`, `REVIEWING -> REJECTED`) (`BE-8-019`, `BEI-001`).
+  - CV retention policy reconciliation: soft-deleted submitted CV access for hiring compliance audits by recruiters and admins; decoupled S3 deletion from database transaction (`BE-8-020`, `BEI-002`).
+  - Versioned candidate recommendation consent & opt-out preferences (`GET/PATCH /api/v1/recommendation-preferences`) (`BE-8-021`, `BEI-003`).
+  - Explainable job recommendations (`RecommendedJobDto` with `score`, `reasonCodes`, `evidence`, `limitations`), public eligibility enforcement, and active company checks (`BE-8-022`).
+  - Frontend-Backend Runtime Matrix & Security Handshake (`docs/frontend-backend-runtime-matrix.md`) (`BE-8-023`).
+  - Deterministic search corpus fixture and automated latency benchmark (`test/fixtures/search-corpus.json`, `docs/search-performance-handoff.md`, `test/performance/search-benchmark.spec.ts`) (`BE-8-024`, `BEI-006`).
+
 ## [1.0.0] — 2026-09-10
 
 ### Added

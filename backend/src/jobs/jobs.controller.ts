@@ -5,6 +5,8 @@ import {
   Patch,
   Param,
   Body,
+  Query,
+  Headers,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -16,6 +18,8 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-user.decorator';
+import { CollectionResponse } from '../common/dto/response.dto';
+import { CompanyJobQueryDto } from './dto/company-job-query.dto';
 import {
   CloseJobDto,
   CreateJobDto,
@@ -30,6 +34,26 @@ import {
 @Controller()
 export class JobsController {
   constructor(private readonly jobsService: JobsService) {}
+
+  @Get('companies/:companyId/jobs')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('HR', 'ADMIN')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'List company jobs (including drafts, closed, expired) for authorized recruiter/admin',
+  })
+  @ApiParam({ name: 'companyId', description: 'Company UUID' })
+  @ApiResponse({ status: 200, description: 'Company jobs collection' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden if not member/admin' })
+  async listCompanyJobs(
+    @Param('companyId') companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: CompanyJobQueryDto,
+    @Headers('x-request-id') requestId?: string,
+  ): Promise<CollectionResponse<JobDto>> {
+    return this.jobsService.listCompanyJobs(companyId, user, query, requestId);
+  }
 
   @Post('companies/:companyId/jobs')
   @UseGuards(JwtAuthGuard, RolesGuard)

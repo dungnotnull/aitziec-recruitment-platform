@@ -264,5 +264,163 @@ describe('BE-7-021: Critical End-to-End Recruitment Suite (E2E)', () => {
       .get('/api/v1/admin/users')
       .set('Authorization', `Bearer ${candidateToken}`);
     expect(forbiddenRes.status).toBe(403);
+
+    // Step 16 (BE-8-013): Admin lists companies
+    const adminCompaniesRes = await request(app.getHttpServer())
+      .get('/api/v1/admin/companies?status=ACTIVE')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(adminCompaniesRes.status).toBe(200);
+    expect(Array.isArray(adminCompaniesRes.body.data)).toBe(true);
+    expect(adminCompaniesRes.body.data.length).toBeGreaterThan(0);
+    expect(adminCompaniesRes.body.data[0].version).toBeDefined();
+    expect(adminCompaniesRes.body.data[0].status).toBe('ACTIVE');
+
+    // Step 17 (BE-8-013): Admin lists jobs across companies
+    const adminJobsRes = await request(app.getHttpServer())
+      .get('/api/v1/admin/jobs?status=PUBLISHED')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(adminJobsRes.status).toBe(200);
+    expect(Array.isArray(adminJobsRes.body.data)).toBe(true);
+    expect(adminJobsRes.body.data.length).toBeGreaterThan(0);
+    expect(adminJobsRes.body.data[0].version).toBeDefined();
+    expect(adminJobsRes.body.data[0].company).toBeDefined();
+
+    // Step 18 (BE-8-013): Non-admin callers denied (HR: 403, Guest: 401)
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/companies')
+      .set('Authorization', `Bearer ${hrToken}`)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/jobs')
+      .set('Authorization', `Bearer ${candidateToken}`)
+      .expect(403);
+
+    await request(app.getHttpServer()).get('/api/v1/admin/companies').expect(401);
+
+    // Step 19 (BE-8-013): Invalid filter values return 400 VALIDATION_ERROR
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/companies?status=INVALID_STATUS')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/jobs?experienceLevel=SUPER_SENIOR')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(400);
+
+    // Step 20 (BE-8-014): Admin lists applications with safe redaction
+    const adminAppsRes = await request(app.getHttpServer())
+      .get('/api/v1/admin/applications')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(adminAppsRes.status).toBe(200);
+    expect(Array.isArray(adminAppsRes.body.data)).toBe(true);
+    expect(adminAppsRes.body.data.length).toBeGreaterThan(0);
+    const firstApp = adminAppsRes.body.data[0];
+    expect(firstApp.id).toBeDefined();
+    expect(firstApp.version).toBeDefined();
+    expect(firstApp.candidate).toBeDefined();
+    expect(firstApp.job).toBeDefined();
+    expect(firstApp.company).toBeDefined();
+    // Verify globally banned fields are absent
+    expect(firstApp.rawCv).toBeUndefined();
+    expect(firstApp.extractedText).toBeUndefined();
+    expect(firstApp.storageKey).toBeUndefined();
+    expect(firstApp.candidateNote).toBeUndefined();
+    expect(firstApp.candidate.phone).toBeUndefined();
+    expect(firstApp.candidate.email).toBeUndefined();
+
+    // Step 21 (BE-8-014): Admin gets application detail with ordered history
+    const adminAppDetailRes = await request(app.getHttpServer())
+      .get(`/api/v1/admin/applications/${applicationId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(adminAppDetailRes.status).toBe(200);
+    expect(adminAppDetailRes.body.data.id).toBe(applicationId);
+    expect(Array.isArray(adminAppDetailRes.body.data.history)).toBe(true);
+    expect(adminAppDetailRes.body.data.history.length).toBeGreaterThan(0);
+    expect(adminAppDetailRes.body.data.candidateNote).toBeUndefined();
+
+    // Step 22 (BE-8-014): Non-admin callers denied
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/applications')
+      .set('Authorization', `Bearer ${hrToken}`)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/applications')
+      .set('Authorization', `Bearer ${candidateToken}`)
+      .expect(403);
+
+    await request(app.getHttpServer()).get('/api/v1/admin/applications').expect(401);
+
+    // Step 23 (BE-8-015): Seed a fresh application for moderation tests
+    const cand2Res = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+      email: 'cand-mod-e2e@itziec.com',
+      password: 'Password123!@#',
+      role: 'CANDIDATE',
+    });
+    const cand2Token = cand2Res.body.data.accessToken;
+
+    await request(app.getHttpServer())
+      .patch('/api/v1/candidates/me')
+      .set('Authorization', `Bearer ${cand2Token}`)
+      .send({
+        expectedVersion: 1,
+        fullName: 'Candidate Mod E2E',
+        headline: 'Frontend Engineer',
+      });
+
+    const cand2AppRes = await request(app.getHttpServer())
+      .post(`/api/v1/jobs/${jobId}/applications`)
+      .set('Authorization', `Bearer ${cand2Token}`)
+      .send({
+        cvId,
+        candidateNote: 'Excited for moderation',
+      });
+    expect(cand2AppRes.status).toBe(201);
+    const modAppId = cand2AppRes.body.data.id;
+    expect(cand2AppRes.body.data.status).toBe('APPLIED');
+    expect(cand2AppRes.body.data.version).toBe(1);
+
+    // Step 24 (BE-8-015): Stale version returns 409 VERSION_CONFLICT
+    const staleRes = await request(app.getHttpServer())
+      .post(`/api/v1/admin/applications/${modAppId}/moderate`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        targetStatus: 'REVIEWING',
+        reason: 'Stale attempt',
+        expectedVersion: 99,
+      });
+    expect(staleRes.status).toBe(409);
+    expect(staleRes.body.error.code).toBe('VERSION_CONFLICT');
+
+    // Step 25 (BE-8-015): Invalid transition returns 409 INVALID_APPLICATION_TRANSITION
+    const invalidTransRes = await request(app.getHttpServer())
+      .post(`/api/v1/admin/applications/${modAppId}/moderate`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        targetStatus: 'PASSED',
+        reason: 'Direct pass from APPLIED is invalid',
+        expectedVersion: 1,
+      });
+    expect(invalidTransRes.status).toBe(409);
+    expect(invalidTransRes.body.error.code).toBe('INVALID_APPLICATION_TRANSITION');
+
+    // Step 26 (BE-8-015): Valid admin moderation succeeds
+    const modSuccessRes = await request(app.getHttpServer())
+      .post(`/api/v1/admin/applications/${modAppId}/moderate`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        targetStatus: 'REVIEWING',
+        reason: 'Admin approved application for next stage',
+        expectedVersion: 1,
+      });
+    expect(modSuccessRes.status).toBe(200);
+    expect(modSuccessRes.body.data.status).toBe('REVIEWING');
+    expect(modSuccessRes.body.data.version).toBe(2);
+    expect(modSuccessRes.body.data.candidateNote).toBeUndefined();
+    expect(modSuccessRes.body.data.history.length).toBeGreaterThan(0);
+    const latestEvent = modSuccessRes.body.data.history[modSuccessRes.body.data.history.length - 1];
+    expect(latestEvent.toStatus).toBe('REVIEWING');
   });
 });

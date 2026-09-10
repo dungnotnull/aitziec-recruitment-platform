@@ -7,6 +7,7 @@ import {
   UnsupportedMediaTypeException,
   UnprocessableEntityException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
@@ -15,6 +16,7 @@ import { StorageService } from '../storage/storage.service';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { CompanyScopeService } from '../companies/company-scope.service';
+import { QueueService, QUEUES } from '../queues/queue.service';
 import { ERROR_CODES } from '../common/constants/error-codes';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { CvDto, CvQueryDto, OperationDto, SignedDownloadDto, UploadedCvFile } from './dto/cv.dto';
@@ -26,12 +28,15 @@ interface CursorData {
 
 @Injectable()
 export class CvsService {
+  private readonly logger = new Logger(CvsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storageService: StorageService,
     private readonly auditService: AuditService,
     private readonly outboxService: OutboxService,
     private readonly companyScopeService: CompanyScopeService,
+    private readonly queueService: QueueService,
   ) {}
 
   private toIso(date: Date | string | null | undefined): string | null {
@@ -109,11 +114,11 @@ export class CvsService {
     const checksumSha256 = crypto.createHash('sha256').update(file.buffer).digest('hex');
     const storageKey = `cvs/${candidateProfile.id}/${uuidv4()}.pdf`;
 
-    // 5. Store file
+    // 5. Store file in object storage
     await this.storageService.uploadFile(storageKey, file.buffer, 'application/pdf');
 
-    // 6. DB Record & Outbox
-    const createdCv = await this.prisma.$transaction(async (tx: any) => {
+    // 6. Atomically persist CV and QUEUED Operation
+    const { createdCv, createdOp } = await this.prisma.$transaction(async (tx: any) => {
       const existingCvs = await tx.cv.findMany({
         where: {
           candidateProfileId: candidateProfile.id,
@@ -132,9 +137,26 @@ export class CvsService {
           checksumSha256,
           storageKey,
           processingStatus: 'UPLOADED',
+          extractionAttempts: 1,
           isDefault,
           version: 1,
         },
+      });
+
+      const operation = await tx.operation.create({
+        data: {
+          userId: user.id,
+          type: 'CV_TEXT_EXTRACTION',
+          status: 'QUEUED',
+          progressPercent: 0,
+          resultResourceType: 'CV',
+          resultResourceId: cv.id,
+        },
+      });
+
+      await tx.cv.update({
+        where: { id: cv.id },
+        data: { latestOperationId: operation.id },
       });
 
       await this.auditService.record(
@@ -148,6 +170,7 @@ export class CvsService {
             originalFileName: file.originalname,
             sizeBytes: file.size,
             checksumSha256,
+            operationId: operation.id,
           },
         },
         tx,
@@ -163,35 +186,193 @@ export class CvsService {
           storageKey,
           sizeBytes: file.size,
           checksumSha256,
+          operationId: operation.id,
         },
         requestId,
         actorId: user.id,
       });
 
-      return cv;
+      return { createdCv: cv, createdOp: operation };
     });
 
-    // 7. Background text extraction
-    await this.extractCvText(createdCv.id, file.buffer, user.id, requestId);
-
-    // Reload cv to get updated processing status
-    const updatedCv = await this.prisma.cv.findUnique({ where: { id: createdCv.id } });
-
-    const operation: OperationDto = {
-      id: uuidv4(),
-      type: 'CV_TEXT_EXTRACTION',
-      status: 'SUCCEEDED',
-      progressPercent: 100,
-      resultResource: { type: 'CV', id: createdCv.id },
-      failure: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
-    };
+    // 7. Enqueue extraction job to BullMQ with deterministic operation-based job ID
+    await this.queueService.addJob(
+      QUEUES.CV_EXTRACTION,
+      'extract-cv-text',
+      {
+        cvId: createdCv.id,
+        operationId: createdOp.id,
+        actorId: user.id,
+        requestId,
+      },
+      {
+        jobId: `cv-extraction:${createdOp.id}`,
+      },
+    );
 
     return {
-      cv: this.mapToDto(updatedCv || createdCv),
-      operation,
+      cv: this.mapToDto(createdCv),
+      operation: this.mapOperationToDto(createdOp),
+    };
+  }
+
+  /**
+   * Bounded and idempotent retry for failed CV text extraction (BE-8-017).
+   */
+  async retryProcessing(
+    user: AuthenticatedUser,
+    cvId: string,
+    idempotencyKey: string,
+    requestId?: string,
+  ): Promise<{ cv: CvDto; operation: OperationDto }> {
+    if (!idempotencyKey || !idempotencyKey.trim()) {
+      throw new BadRequestException({
+        code: ERROR_CODES.IDEMPOTENCY_KEY_REQUIRED,
+        message: 'Idempotency-Key header is required for retry processing.',
+      });
+    }
+
+    const cv = await this.prisma.cv.findUnique({
+      where: { id: cvId },
+      include: { candidateProfile: true },
+    });
+
+    if (!cv || cv.processingStatus === 'DELETED') {
+      throw new NotFoundException({
+        code: ERROR_CODES.RESOURCE_NOT_FOUND,
+        message: 'CV not found.',
+      });
+    }
+
+    // 1. Authorization: Only owner or admin
+    if (user.role !== 'ADMIN' && cv.candidateProfile?.userId !== user.id) {
+      throw new ForbiddenException({
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'You can only retry extraction for your own CV.',
+      });
+    }
+
+    // 2. Idempotency replay check
+    const existingOp = await this.prisma.operation.findFirst({
+      where: { idempotencyKey },
+    });
+
+    if (existingOp) {
+      if (
+        (existingOp.resultResourceId === cvId || (existingOp as any).entityId === cvId) &&
+        (existingOp.type === 'CV_TEXT_EXTRACTION' || existingOp.type === 'CV_EXTRACTION')
+      ) {
+        return {
+          cv: this.mapToDto(cv),
+          operation: this.mapOperationToDto(existingOp),
+        };
+      }
+      throw new ConflictException({
+        code: ERROR_CODES.IDEMPOTENCY_KEY_REUSED,
+        message: 'Idempotency key has already been used for another operation.',
+      });
+    }
+
+    // 3. State verification: Only FAILED CVs can be retried
+    if (cv.processingStatus === 'UPLOADED' || cv.processingStatus === 'EXTRACTING') {
+      throw new ConflictException({
+        code: ERROR_CODES.CV_ALREADY_PROCESSING,
+        message: 'CV extraction is currently in progress.',
+      });
+    }
+
+    if (cv.processingStatus !== 'FAILED') {
+      throw new ConflictException({
+        code: ERROR_CODES.CV_EXTRACTION_NOT_RETRYABLE,
+        message: `Cannot retry CV in status ${cv.processingStatus}. Only FAILED CVs can be retried.`,
+      });
+    }
+
+    // 4. Attempt limit check (Max 3 attempts)
+    const MAX_RETRY_ATTEMPTS = 3;
+    if (cv.extractionAttempts >= MAX_RETRY_ATTEMPTS) {
+      throw new ConflictException({
+        code: ERROR_CODES.CV_RETRY_LIMIT_EXCEEDED,
+        message: `Maximum retry attempts (${MAX_RETRY_ATTEMPTS}) exceeded for this CV.`,
+      });
+    }
+
+    // 5. Transaction: create new QUEUED operation, reset CV status to UPLOADED, clear failureCode, increment attempts & version
+    const { updatedCv, newOp } = await this.prisma.$transaction(async (tx: any) => {
+      const operation = await tx.operation.create({
+        data: {
+          userId: user.id,
+          type: 'CV_TEXT_EXTRACTION',
+          status: 'QUEUED',
+          progressPercent: 0,
+          resultResourceType: 'CV',
+          resultResourceId: cv.id,
+          idempotencyKey,
+        },
+      });
+
+      const updated = await tx.cv.update({
+        where: { id: cvId },
+        data: {
+          processingStatus: 'UPLOADED',
+          failureCode: null,
+          latestOperationId: operation.id,
+          extractionAttempts: { increment: 1 },
+          version: { increment: 1 },
+        },
+      });
+
+      await this.auditService.record(
+        {
+          actorId: user.id,
+          action: 'CV_EXTRACTION_RETRIED',
+          targetType: 'CV',
+          targetId: cv.id,
+          requestId,
+          metadata: {
+            operationId: operation.id,
+            attempt: cv.extractionAttempts + 1,
+            idempotencyKey,
+          },
+        },
+        tx,
+      );
+
+      await this.outboxService.recordEvent(tx, {
+        eventName: 'CvExtractionRetryQueued',
+        aggregateType: 'Cv',
+        aggregateId: cv.id,
+        payload: {
+          cvId: cv.id,
+          candidateId: cv.candidateProfileId,
+          operationId: operation.id,
+          attempt: cv.extractionAttempts + 1,
+        },
+        requestId,
+        actorId: user.id,
+      });
+
+      return { updatedCv: updated, newOp: operation };
+    });
+
+    // 6. Enqueue BullMQ extraction job
+    await this.queueService.addJob(
+      QUEUES.CV_EXTRACTION,
+      'extract-cv-text',
+      {
+        cvId: updatedCv.id,
+        operationId: newOp.id,
+        actorId: user.id,
+        requestId,
+      },
+      {
+        jobId: `cv-extraction:${newOp.id}`,
+      },
+    );
+
+    return {
+      cv: this.mapToDto(updatedCv),
+      operation: this.mapOperationToDto(newOp),
     };
   }
 
@@ -381,14 +562,39 @@ export class CvsService {
 
   async getSignedDownloadUrl(user: AuthenticatedUser, cvId: string): Promise<SignedDownloadDto> {
     const cv = await this.prisma.cv.findUnique({ where: { id: cvId } });
-    if (!cv || cv.processingStatus === 'DELETED') {
+    if (!cv) {
       throw new NotFoundException({
         code: ERROR_CODES.RESOURCE_NOT_FOUND,
         message: 'CV not found.',
       });
     }
 
-    await this.assertCvAccess(user, cv);
+    if (cv.processingStatus === 'DELETED') {
+      // BE-8-020: For soft-deleted CVs previously submitted to applications,
+      // allow authorized HR or ADMIN to access the submitted record for hiring compliance/audit.
+      if (user.role === 'ADMIN') {
+        // ADMIN is permitted
+      } else if (user.role === 'HR') {
+        const app = await this.prisma.application.findFirst({
+          where: { submittedCvId: cv.id },
+          include: { job: true },
+        });
+        if (!app) {
+          throw new NotFoundException({
+            code: ERROR_CODES.RESOURCE_NOT_FOUND,
+            message: 'CV not found or has been deleted.',
+          });
+        }
+        await this.companyScopeService.assertMemberOrAdmin(app.job.companyId, user);
+      } else {
+        throw new NotFoundException({
+          code: ERROR_CODES.RESOURCE_NOT_FOUND,
+          message: 'CV not found or has been deleted.',
+        });
+      }
+    } else {
+      await this.assertCvAccess(user, cv);
+    }
 
     const EXPIRES_IN_SECONDS = 900; // 15 minutes
     const url = await this.storageService.getSignedDownloadUrl(
@@ -449,10 +655,9 @@ export class CvsService {
         );
       });
     } else {
-      // Hard delete
+      // Hard delete: remove DB record and audit first in transaction
       await this.prisma.$transaction(async (tx: any) => {
         await tx.cv.delete({ where: { id: cvId } });
-        await this.storageService.deleteFile(cv.storageKey);
 
         await this.auditService.record(
           {
@@ -465,6 +670,13 @@ export class CvsService {
           tx,
         );
       });
+
+      // Storage deletion executed outside DB transaction to avoid holding DB lock open
+      try {
+        await this.storageService.deleteFile(cv.storageKey);
+      } catch (storageErr) {
+        this.logger.warn(`Failed to delete storage file ${cv.storageKey}: ${storageErr}`);
+      }
     }
   }
 
@@ -524,8 +736,31 @@ export class CvsService {
       failureCode: cv.failureCode ?? null,
       isDefault: cv.isDefault,
       version: cv.version,
+      latestOperationId: cv.latestOperationId ?? null,
+      extractionAttempts: cv.extractionAttempts ?? 0,
       createdAt: this.toIso(cv.createdAt)!,
       updatedAt: this.toIso(cv.updatedAt)!,
+    };
+  }
+
+  public mapOperationToDto(op: any): OperationDto {
+    return {
+      id: op.id,
+      type: op.type,
+      status: op.status,
+      progressPercent: op.progressPercent ?? null,
+      resultResource: op.resultResourceType
+        ? { type: op.resultResourceType, id: op.resultResourceId }
+        : null,
+      failure: op.failureCode ? { code: op.failureCode, message: op.failureMessage || '' } : null,
+      idempotencyKey: op.idempotencyKey ?? null,
+      createdAt: op.createdAt instanceof Date ? op.createdAt.toISOString() : op.createdAt,
+      updatedAt: op.updatedAt instanceof Date ? op.updatedAt.toISOString() : op.updatedAt,
+      completedAt: op.completedAt
+        ? op.completedAt instanceof Date
+          ? op.completedAt.toISOString()
+          : op.completedAt
+        : null,
     };
   }
 }

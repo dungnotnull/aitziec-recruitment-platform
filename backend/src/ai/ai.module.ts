@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module';
 import { AiController } from './ai.controller';
 import { OperationsController } from './operations.controller';
 import { RecommendationsController } from './recommendations.controller';
+import { RecommendationPreferencesController } from './recommendation-preferences.controller';
 import { AiService } from './ai.service';
 import { GeminiAdapter } from './adapters/gemini.adapter';
 import { AI_PROVIDER_PORT } from './interfaces/ai-provider.port';
@@ -14,7 +15,12 @@ import { AiMetricsService } from './metrics/ai-metrics.service';
 
 @Module({
   imports: [ConfigModule, DatabaseModule, AuditModule, JobsModule, AuthModule],
-  controllers: [AiController, OperationsController, RecommendationsController],
+  controllers: [
+    AiController,
+    OperationsController,
+    RecommendationsController,
+    RecommendationPreferencesController,
+  ],
   providers: [
     AiService,
     AiMetricsService,

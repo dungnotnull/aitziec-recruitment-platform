@@ -196,6 +196,7 @@ type JobStatus = "DRAFT" | "PUBLISHED" | "UNPUBLISHED" | "CLOSED";
 
 type ExperienceLevel =
   | "INTERN"
+  | "FRESHER"
   | "JUNIOR"
   | "MID"
   | "SENIOR"
@@ -217,6 +218,12 @@ type ApplicationStatus =
   | "PASSED"
   | "REJECTED";
 
+type CompanyInvitationStatus =
+  | "PENDING"
+  | "ACCEPTED"
+  | "REVOKED"
+  | "EXPIRED";
+
 type InterviewStatus = "SCHEDULED" | "COMPLETED" | "CANCELLED";
 
 type CvProcessingStatus =
@@ -236,26 +243,29 @@ type NotificationType =
   | "INTERVIEW_SCHEDULED"
   | "INTERVIEW_RESCHEDULED"
   | "INTERVIEW_CANCELLED"
-  | "APPLICATION_OUTCOME";
+  | "APPLICATION_OUTCOME"
+  | "COMPANY_INVITATION"
+  | "COMPANY_MEMBER_ADDED";
 ```
 
 ## 7. Application State Machine
 
-The following transitions are the complete `v1` baseline:
+The following transitions are the complete `v1.1` pipeline (incorporating BEI-001 early rejection resolution):
 
 | Current | Allowed target | Actor |
 | --- | --- | --- |
 | `APPLIED` | `REVIEWING` | Authorized HR or admin |
+| `APPLIED` | `REJECTED` | Authorized HR or admin |
 | `REVIEWING` | `INTERVIEWING` | Authorized HR or admin |
+| `REVIEWING` | `REJECTED` | Authorized HR or admin |
 | `INTERVIEWING` | `PASSED` | Authorized HR or admin |
 | `INTERVIEWING` | `REJECTED` | Authorized HR or admin |
 | `PASSED` | None | Terminal |
 | `REJECTED` | None | Terminal |
 
 Self-transitions, skipped stages, reversal, reopening, and deletion are invalid.
-An invalid transition returns `409 INVALID_APPLICATION_TRANSITION`. Changing
-this matrix is a behavioral contract change and requires coordinated product,
-contract, tests, tracker, and changelog updates.
+An invalid transition returns `409 INVALID_APPLICATION_TRANSITION`.
+
 
 ## 8. Resource Schemas
 
@@ -623,6 +633,116 @@ type Notification = {
 };
 ```
 
+### 8.10 Skill Catalog
+
+```ts
+type SkillCatalogItem = {
+  id: string;
+  name: string;
+  aliases: string[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+```
+
+### 8.11 Company Invitations and Recruiter Memberships
+
+```ts
+type CompanyInvitation = {
+  id: string;
+  companyId: string;
+  maskedEmail: string;
+  role: CompanyMemberRole;
+  status: CompanyInvitationStatus;
+  expiresAt: string;
+  createdAt: string;
+};
+
+type RecruiterCompanyMembership = {
+  membership: {
+    id: string;
+    role: CompanyMemberRole;
+    createdAt: string;
+  };
+  company: Company;
+};
+```
+
+### 8.12 Recommendation Preferences and Recommendations
+
+```ts
+type RecommendationPreference = {
+  enabled: boolean;
+  consentPolicyVersion: string;
+  consentedAt: string;
+  updatedAt: string;
+  version: number;
+};
+
+type UpdateRecommendationPreferenceRequest = {
+  enabled: boolean;
+  consentPolicyVersion: string;
+  expectedVersion: number;
+};
+
+type RecommendedJob = {
+  job: Job;
+  score: number;
+  reasonCodes: string[];
+  evidence: string[];
+  limitations: string[];
+};
+```
+
+### 8.13 Admin Oversight and Moderation
+
+```ts
+type AdminCompany = Company & {
+  memberCount?: number;
+  jobCount?: number;
+};
+
+type AdminJob = Job & {
+  company: Pick<Company, "id" | "name" | "slug" | "status">;
+};
+
+type AdminApplicationSummary = {
+  id: string;
+  status: ApplicationStatus;
+  version: number;
+  submittedAt: string;
+  updatedAt: string;
+  candidate: {
+    id: string;
+    fullName: string;
+    headline: string | null;
+    skills: string[];
+  };
+  job: {
+    id: string;
+    title: string;
+    slug: string;
+  };
+  company: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+};
+
+type AdminApplicationDetail = AdminApplicationSummary & {
+  history: ApplicationStatusEvent[];
+};
+
+type ModerateApplicationRequest = {
+  targetStatus: ApplicationStatus;
+  reason: string;
+  expectedVersion: number;
+};
+```
+
+
 ## 9. Endpoint Catalog
 
 All endpoints below are `Proposed baseline`.
@@ -657,13 +777,16 @@ The candidate ID comes from the authenticated user, never from a body field.
 | Method and path | Access | Request | Success |
 | --- | --- | --- | --- |
 | `POST /companies` | HR | Company create fields | `201 SuccessResponse<Company>` |
+| `GET /companies/mine` | HR | Cursor query | `200 CollectionResponse<RecruiterCompanyMembership>` |
 | `GET /companies/:companyIdOrSlug` | Public | None | `200 SuccessResponse<Company>` |
 | `PATCH /companies/:companyId` | Owner/admin | Mutable fields + `expectedVersion` | `200 SuccessResponse<Company>` |
 | `GET /companies/:companyId/members` | Company member/admin | Cursor query | `200 CollectionResponse<CompanyMembership>` |
-| `POST /companies/:companyId/members` | Owner/admin | `{ userEmail, role }` | `201 SuccessResponse<CompanyMembership>` |
+| `POST /companies/:companyId/members` | Owner/admin | `{ userEmail, role }` | `201 SuccessResponse<CompanyMembership>` for registered user; `202 SuccessResponse<CompanyInvitation>` for unknown user |
 | `DELETE /companies/:companyId/members/:memberId` | Owner/admin | None | `204` |
+| `POST /company-invitations/:token/accept` | Authenticated invited user | Empty | `201 SuccessResponse<CompanyMembership>` |
+| `GET /companies/:companyId/jobs` | Scoped HR or admin | Status/filter/cursor query | `200 CollectionResponse<Job>` |
 
-The final active owner cannot be removed. Membership changes are audited.
+The final active owner cannot be removed. Membership changes and invitations are audited.
 
 ### 9.4 Jobs and Search
 
@@ -697,6 +820,7 @@ Save and unsave are idempotent.
 | Method and path | Access | Request | Success |
 | --- | --- | --- | --- |
 | `POST /cvs` | Candidate | `multipart/form-data` field `file` | `202 SuccessResponse<{ cv: Cv; operation: Operation }>` |
+| `POST /cvs/:cvId/retry-processing` | Owner candidate or admin; idempotent | Empty | `202 SuccessResponse<{ cv: Cv; operation: Operation }>` |
 | `GET /cvs` | Candidate | Cursor query | `200 CollectionResponse<Cv>` |
 | `GET /cvs/:cvId` | Owner or scoped recruiter/admin | None | `200 SuccessResponse<Cv>` |
 | `POST /cvs/:cvId/default` | Owner | `{ expectedVersion }` | `200 SuccessResponse<Cv>` |
@@ -727,6 +851,7 @@ on candidate + job is still authoritative. Transition requests require
 | --- | --- | --- | --- |
 | `POST /applications/:applicationId/interviews` | Scoped HR/admin; idempotent | `CreateInterviewRequest` | `201 SuccessResponse<Interview>` |
 | `GET /applications/:applicationId/interviews` | Candidate owner, scoped HR/admin | Cursor query | `200 CollectionResponse<Interview>` |
+| `GET /interviews/:interviewId` | Candidate owner, scoped HR/admin | None | `200 SuccessResponse<Interview>` |
 | `PATCH /interviews/:interviewId` | Scoped HR/admin | `UpdateInterviewRequest` | `200 SuccessResponse<Interview>` |
 | `POST /interviews/:interviewId/complete` | Scoped HR/admin | `{ expectedVersion, recruiterFeedback? }` | `200 SuccessResponse<Interview>` |
 | `POST /interviews/:interviewId/cancel` | Scoped HR/admin | `{ expectedVersion, reason }` | `200 SuccessResponse<Interview>` |
@@ -741,11 +866,15 @@ emits `InterviewRescheduled`. Candidate responses omit recruiter-private fields.
 | `POST /ai/cv-job-analyses` | CV owner or scoped HR/admin; idempotent | `CreateCvJobAnalysisRequest` | `202 SuccessResponse<Operation>` |
 | `GET /ai/analyses/:analysisId` | Input owner or scoped HR/admin | None | `200 SuccessResponse<AiAnalysis>` |
 | `GET /operations/:operationId` | Operation owner or scoped admin | None | `200 SuccessResponse<Operation>` |
-| `GET /recommendations/jobs` | Candidate | Cursor/limit query | `200 CollectionResponse<Job>` |
+| `GET /recommendation-preferences` | Candidate | None | `200 SuccessResponse<RecommendationPreference>` |
+| `PATCH /recommendation-preferences` | Candidate | `UpdateRecommendationPreferenceRequest` | `200 SuccessResponse<RecommendationPreference>` |
+| `GET /recommendations/jobs` | Candidate | Cursor/limit query | `200 CollectionResponse<RecommendedJob>` |
 
 The analysis request is rejected with `409 CV_NOT_READY` until extraction is
 ready. Provider failure is represented on the operation and does not mutate an
 application. Raw prompts, CV text, and provider credentials are never returned.
+If candidate recommendation consent is disabled, the endpoint returns an empty collection
+without triggering AI score queries.
 
 ### 9.10 Notifications
 
@@ -760,8 +889,13 @@ application. Raw prompts, CV text, and provider credentials are never returned.
 | --- | --- | --- | --- |
 | `GET /admin/users` | Admin | Filters/cursor | `200 CollectionResponse<UserSummary>` |
 | `PATCH /admin/users/:userId/status` | Admin | `{ status, reason }` | `200 SuccessResponse<UserSummary>` |
+| `GET /admin/companies` | Admin | Status/search/cursor filters | `200 CollectionResponse<AdminCompany>` |
 | `PATCH /admin/companies/:companyId/status` | Admin | `{ status, reason, expectedVersion }` | `200 SuccessResponse<Company>` |
+| `GET /admin/jobs` | Admin | Company/status/search/cursor filters | `200 CollectionResponse<AdminJob>` |
 | `POST /admin/jobs/:jobId/moderate` | Admin | `{ action: "UNPUBLISH" | "CLOSE", reason, expectedVersion }` | `200 SuccessResponse<Job>` |
+| `GET /admin/applications` | Admin | Filters/cursor | `200 CollectionResponse<AdminApplicationSummary>` |
+| `GET /admin/applications/:applicationId` | Admin | None | `200 SuccessResponse<AdminApplicationDetail>` |
+| `POST /admin/applications/:applicationId/moderate` | Admin | `ModerateApplicationRequest` | `200 SuccessResponse<AdminApplicationDetail>` |
 | `GET /admin/audit-logs` | Admin | Actor/action/target/time/cursor filters | `200 CollectionResponse<AuditLog>` |
 
 ```ts
@@ -787,6 +921,12 @@ Moderation reason is required and included in safe audit metadata.
 | `GET /health/ready` | Internal or protected in production | `200` when required dependencies are ready; otherwise `503` |
 
 Health responses expose no credentials, internal hostnames, or stack traces.
+
+### 9.13 Skill Catalog
+
+| Method and path | Access | Request | Success |
+| --- | --- | --- | --- |
+| `GET /skills` | Authenticated | Query (`search?`, `active?`, `cursor?`, `limit?`) | `200 CollectionResponse<SkillCatalogItem>` |
 
 ## 10. HTTP Status Semantics
 
@@ -839,6 +979,11 @@ type ErrorCode =
   | "FILE_TOO_LARGE"
   | "PDF_INVALID"
   | "CV_NOT_READY"
+  | "CV_RETRY_EXHAUSTED"
+  | "INVITATION_NOT_FOUND"
+  | "INVITATION_EXPIRED"
+  | "INVITATION_ALREADY_ACCEPTED"
+  | "RECOMMENDATION_OPTED_OUT"
   | "INTERVIEW_TIME_INVALID"
   | "INTERVIEW_STATUS_INVALID"
   | "AI_OUTPUT_INVALID"

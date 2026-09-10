@@ -129,3 +129,22 @@ export class CompanyMembershipDto {
   @ApiProperty({ example: '2026-09-08T09:30:00.000Z' })
   createdAt: string;
 }
+
+export class CallerMembershipSummaryDto {
+  @ApiProperty({ example: 'membership-uuid-1' })
+  id: string;
+
+  @ApiProperty({ enum: ['OWNER', 'RECRUITER'], example: 'OWNER' })
+  role: string;
+
+  @ApiProperty({ example: '2026-09-08T09:30:00.000Z' })
+  createdAt: string;
+}
+
+export class CallerCompanyMembershipDto {
+  @ApiProperty({ type: CallerMembershipSummaryDto })
+  membership: CallerMembershipSummaryDto;
+
+  @ApiProperty({ type: CompanyDto })
+  company: CompanyDto;
+}

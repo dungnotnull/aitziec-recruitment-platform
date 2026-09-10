@@ -289,8 +289,8 @@ export class ApplicationsService {
     }
 
     const allowedTransitions: Record<ApplicationStatus, ApplicationStatus[]> = {
-      APPLIED: [ApplicationStatus.REVIEWING],
-      REVIEWING: [ApplicationStatus.INTERVIEWING],
+      APPLIED: [ApplicationStatus.REVIEWING, ApplicationStatus.REJECTED],
+      REVIEWING: [ApplicationStatus.INTERVIEWING, ApplicationStatus.REJECTED],
       INTERVIEWING: [ApplicationStatus.PASSED, ApplicationStatus.REJECTED],
       PASSED: [],
       REJECTED: [],

@@ -44,6 +44,8 @@ export interface CvDto {
   failureCode: string | null;
   isDefault: boolean;
   version: number;
+  latestOperationId?: string | null;
+  extractionAttempts?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -55,6 +57,7 @@ export interface OperationDto {
   progressPercent: number | null;
   resultResource: { type: string; id: string } | null;
   failure: { code: string; message: string } | null;
+  idempotencyKey?: string | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;

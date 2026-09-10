@@ -5,11 +5,14 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../companies/company-scope.service';
 import { AuditService } from '../audit/audit.service';
 import { ERROR_CODES } from '../common/constants/error-codes';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
+import { CollectionResponse } from '../common/dto/response.dto';
+import { CompanyJobQueryDto } from './dto/company-job-query.dto';
 import {
   CloseJobDto,
   CreateJobDto,
@@ -73,6 +76,84 @@ export class JobsService {
       version: job.version,
       createdAt: this.toIso(job.createdAt) ?? new Date().toISOString(),
       updatedAt: this.toIso(job.updatedAt) ?? new Date().toISOString(),
+    };
+  }
+
+  async listCompanyJobs(
+    companyId: string,
+    user: AuthenticatedUser,
+    query: CompanyJobQueryDto,
+    requestId?: string,
+  ): Promise<CollectionResponse<JobDto>> {
+    const company = await this.companyScopeService.assertMemberOrAdminReadOnly(companyId, user);
+
+    const limit = query.limit ?? 20;
+    const where: Prisma.JobWhereInput = { companyId: company.id };
+
+    if (query.status && query.status.length > 0) {
+      where.status = { in: query.status };
+    }
+
+    if (query.experienceLevel && query.experienceLevel.length > 0) {
+      where.experienceLevel = { in: query.experienceLevel };
+    }
+
+    if (query.employmentType && query.employmentType.length > 0) {
+      where.employmentType = { in: query.employmentType };
+    }
+
+    if (query.workplaceType && query.workplaceType.length > 0) {
+      where.workplaceType = { in: query.workplaceType };
+    }
+
+    if (query.search && query.search.trim()) {
+      const term = query.search.trim();
+      where.OR = [
+        { title: { contains: term, mode: 'insensitive' } },
+        { description: { contains: term, mode: 'insensitive' } },
+        { requirements: { contains: term, mode: 'insensitive' } },
+      ];
+    }
+
+    type OrderDirection = 'asc' | 'desc';
+    const orderBy: Array<Record<string, OrderDirection>> = [{ createdAt: 'desc' }, { id: 'desc' }];
+    if (query.sort) {
+      const [field, dir] = query.sort.split(':');
+      const direction: OrderDirection = dir?.toLowerCase() === 'asc' ? 'asc' : 'desc';
+      if (field === 'title') {
+        orderBy.unshift({ title: direction });
+      } else if (field === 'createdAt') {
+        orderBy.unshift({ createdAt: direction });
+      }
+    }
+
+    const findArgs: Prisma.JobFindManyArgs = {
+      where,
+      include: { company: true },
+      orderBy,
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+    };
+
+    const jobs = await this.prisma.job.findMany(findArgs);
+    const hasNextPage = jobs.length > limit;
+    const items = hasNextPage ? jobs.slice(0, limit) : jobs;
+
+    let nextCursor: string | null = null;
+    if (hasNextPage && items.length > 0) {
+      nextCursor = items[items.length - 1].id;
+    }
+
+    return {
+      data: items.map((j) => this.mapToDto(j)),
+      meta: {
+        requestId: requestId || '',
+        page: {
+          nextCursor,
+          hasNextPage,
+          limit,
+        },
+      },
     };
   }
 

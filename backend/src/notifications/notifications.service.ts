@@ -285,6 +285,54 @@ export class NotificationsService {
           break;
         }
 
+        case 'CompanyMemberAdded': {
+          if (payload.userId) {
+            await this.createNotification({
+              userId: payload.userId,
+              type: NotificationType.COMPANY_MEMBER_ADDED,
+              title: 'Joined Company Workspace',
+              body: `You have been added as ${payload.role || 'a member'} to ${payload.companyName || 'the company'}.`,
+              resourceType: 'COMPANY',
+              resourceId: payload.companyId,
+            });
+
+            const targetUser = await this.prisma.user.findUnique({
+              where: { id: payload.userId },
+            });
+            if (targetUser?.email) {
+              const tmpl = EmailTemplates.companyMemberAdded(
+                payload.companyName || 'Company',
+                payload.role || 'RECRUITER',
+              );
+              await this.emailService.sendEmail({
+                to: targetUser.email,
+                subject: tmpl.subject,
+                text: tmpl.text,
+                html: tmpl.html,
+                idempotencyKey: `email-comp-member-${payload.companyId}-${payload.userId}`,
+              });
+            }
+          }
+          break;
+        }
+
+        case 'CompanyInvitationCreated': {
+          if (payload.email) {
+            const tmpl = EmailTemplates.companyInvitation(
+              payload.companyName || 'Company',
+              payload.role || 'RECRUITER',
+            );
+            await this.emailService.sendEmail({
+              to: payload.email,
+              subject: tmpl.subject,
+              text: tmpl.text,
+              html: tmpl.html,
+              idempotencyKey: `email-comp-inv-${payload.invitationId}`,
+            });
+          }
+          break;
+        }
+
         default:
           this.logger.debug(`Unhandled event type in NotificationsService: ${eventType}`);
       }

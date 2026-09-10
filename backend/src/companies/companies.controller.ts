@@ -7,10 +7,13 @@ import {
   Param,
   Body,
   Query,
+  Headers,
   UseGuards,
   HttpCode,
   HttpStatus,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { CompaniesService } from './companies.service';
 import {
@@ -19,8 +22,10 @@ import {
   UpdateCompanyDto,
   AddCompanyMemberDto,
   CompanyMembershipDto,
+  CallerCompanyMembershipDto,
 } from './dto/company.dto';
-import { PaginationQueryDto } from '../common/dto/response.dto';
+import { CompanyInvitationDto } from './dto/company-invitation.dto';
+import { PaginationQueryDto, CollectionResponse } from '../common/dto/response.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -45,6 +50,23 @@ export class CompaniesController {
     @Body() dto: CreateCompanyDto,
   ): Promise<CompanyDto> {
     return this.companiesService.createCompany(user, dto);
+  }
+
+  @ApiBearerAuth('bearer')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('HR')
+  @Get('mine')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'List companies the authenticated recruiter belongs to' })
+  @ApiResponse({ status: 200, description: 'Recruiter companies collection' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  async listMyCompanies(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: PaginationQueryDto,
+    @Headers('x-request-id') requestId?: string,
+  ): Promise<CollectionResponse<CallerCompanyMembershipDto>> {
+    return this.companiesService.listMyCompanies(user, query, requestId);
   }
 
   @Public()
@@ -91,17 +113,27 @@ export class CompaniesController {
   @ApiBearerAuth('bearer')
   @UseGuards(JwtAuthGuard)
   @Post(':companyId/members')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Add a recruiter to company by email' })
-  @ApiResponse({ status: 201, type: CompanyMembershipDto, description: 'Member added' })
-  @ApiResponse({ status: 404, description: 'User not found' })
-  @ApiResponse({ status: 409, description: 'User already a member' })
+  @ApiOperation({ summary: 'Add a recruiter to company directly or create pending invitation' })
+  @ApiResponse({ status: 201, type: CompanyMembershipDto, description: 'Member added directly' })
+  @ApiResponse({
+    status: 202,
+    type: CompanyInvitationDto,
+    description: 'Pending invitation created',
+  })
+  @ApiResponse({ status: 409, description: 'User already a member or invitation already pending' })
   async addMember(
     @Param('companyId') companyId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: AddCompanyMemberDto,
-  ): Promise<CompanyMembershipDto> {
-    return this.companiesService.addMember(companyId, user, dto);
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<CompanyMembershipDto | CompanyInvitationDto> {
+    const result = await this.companiesService.addMember(companyId, user, dto);
+    if ('status' in result && result.status === 'PENDING') {
+      res.status(HttpStatus.ACCEPTED);
+    } else {
+      res.status(HttpStatus.CREATED);
+    }
+    return result;
   }
 
   @ApiBearerAuth('bearer')

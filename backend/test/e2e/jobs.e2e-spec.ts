@@ -206,6 +206,47 @@ describe('Jobs, Search & Saved Jobs E2E (BE-3-001 to BE-3-022)', () => {
     expect(resNoMatch.body.data.some((j: any) => j.id === jobId)).toBe(false);
   });
 
+  it('9b. Public search filters by experienceLevel=FRESHER regression (BE-8-004)', async () => {
+    const createRes = await request(app.getHttpServer())
+      .post(`/api/v1/companies/${companyId}/jobs`)
+      .set('Authorization', `Bearer ${hrToken}`)
+      .send({
+        title: 'Fresher Backend Engineer',
+        description: 'Great fresher opportunity',
+        requirements: 'Knowledge of TypeScript and Git',
+        technologyNames: ['TypeScript'],
+        location: 'Ho Chi Minh City',
+        workplaceType: 'ONSITE',
+        experienceLevel: 'FRESHER',
+        employmentType: 'FULL_TIME',
+        currency: 'VND',
+        applicationDeadline: futureDeadline,
+      });
+    expect(createRes.status).toBe(201);
+    const fresherJobId = createRes.body.data.id;
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/jobs/${fresherJobId}/publish`)
+      .set('Authorization', `Bearer ${hrToken}`)
+      .send({ expectedVersion: 1 });
+
+    const res = await request(app.getHttpServer()).get('/api/v1/jobs?experienceLevel=FRESHER');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toBeDefined();
+    expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.data.every((j: any) => j.experienceLevel === 'FRESHER')).toBe(true);
+    expect(res.body.meta.page).toBeDefined();
+  });
+
+  it('9c. Rejects invalid experienceLevel query value with 400 VALIDATION_ERROR (BE-8-004)', async () => {
+    const res = await request(app.getHttpServer()).get(
+      '/api/v1/jobs?experienceLevel=INVALID_LEVEL',
+    );
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+    expect(res.body.error.details).toBeDefined();
+  });
+
   it('10. Parses natural language search query (BE-3-014, API-JOB-008)', async () => {
     const res = await request(app.getHttpServer()).post('/api/v1/jobs/search/parse').send({
       query: 'Senior backend remote NestJS lương 30 triệu tại HCM',
@@ -285,5 +326,116 @@ describe('Jobs, Search & Saved Jobs E2E (BE-3-001 to BE-3-022)', () => {
     expect(res.body.data.status).toBe('CLOSED');
     expect(res.body.data.closedAt).toBeDefined();
     expect(res.body.data.version).toBe(5);
+  });
+
+  describe('16. Recruiter Company Jobs Collection (BE-8-009)', () => {
+    it('rejects unauthenticated request with 401', async () => {
+      await request(app.getHttpServer()).get(`/api/v1/companies/${companyId}/jobs`).expect(401);
+    });
+
+    it('rejects CANDIDATE with 403 FORBIDDEN', async () => {
+      await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(403);
+    });
+
+    it('rejects outsider HR with 403 FORBIDDEN', async () => {
+      const outsider = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+        email: 'outsider-hr-jobs@itziec.com',
+        password: 'Password123!@#',
+        role: 'HR',
+      });
+      await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${outsider.body.data.accessToken}`)
+        .expect(403);
+    });
+
+    it('returns all company jobs including CLOSED and DRAFT for company member', async () => {
+      // Create a second draft job for this company
+      const draftRes = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          title: 'Draft React Frontend Engineer',
+          description: 'Working with React and modern web apps',
+          requirements: 'React, TypeScript, CSS',
+          technologyNames: ['React', 'TypeScript'],
+          location: 'Da Nang, Vietnam',
+          workplaceType: 'HYBRID',
+          experienceLevel: 'JUNIOR',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: new Date(Date.now() + 86400000 * 30).toISOString(),
+        })
+        .expect(201);
+      expect(draftRes.body.data.status).toBe('DRAFT');
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(200);
+
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(2);
+
+      // Verify both CLOSED and DRAFT jobs are present
+      const statuses = res.body.data.map((j: { status: string }) => j.status);
+      expect(statuses).toContain('CLOSED');
+      expect(statuses).toContain('DRAFT');
+    });
+
+    it('filters company jobs by status properly', async () => {
+      const resDraft = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/jobs?status=DRAFT`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(200);
+
+      expect(resDraft.body.data.length).toBe(1);
+      expect(resDraft.body.data[0].status).toBe('DRAFT');
+
+      const resClosed = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/jobs?status=CLOSED`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(200);
+
+      expect(resClosed.body.data.length).toBe(1);
+      expect(resClosed.body.data[0].status).toBe('CLOSED');
+    });
+
+    it('allows company member to inspect jobs even if company is SUSPENDED, but rejects mutation', async () => {
+      // Suspend company in inMemoryPrisma
+      const comp = inMemoryPrisma.companies.find((c) => c.id === companyId);
+      if (comp) comp.status = 'SUSPENDED';
+
+      // Member can still read jobs
+      const readRes = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(200);
+      expect(readRes.body.data.length).toBeGreaterThanOrEqual(1);
+
+      // Mutation is rejected with 403
+      await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          title: 'Should fail on suspended company',
+          description: 'desc',
+          requirements: 'reqs',
+          technologyNames: ['Node.js'],
+          location: 'HN',
+          workplaceType: 'ONSITE',
+          experienceLevel: 'MID',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: new Date(Date.now() + 86400000).toISOString(),
+        })
+        .expect(403);
+
+      // Restore company status
+      if (comp) comp.status = 'ACTIVE';
+    });
   });
 });
