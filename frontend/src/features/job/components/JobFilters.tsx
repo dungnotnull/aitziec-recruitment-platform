@@ -39,6 +39,25 @@ export const JobFilters: React.FC<JobFiltersProps> = ({ initialFilters, onFilter
       </div>
 
       <div className="space-y-2">
+        <Label htmlFor="experience-level">Experience level</Label>
+        <select
+          id="experience-level"
+          className="min-h-11 w-full rounded-md border border-border bg-surface px-3"
+          value={filters.experienceLevel?.[0] || ''}
+          onChange={(event) => setFilters({ ...filters, experienceLevel: event.target.value ? [event.target.value as NonNullable<JobSearchFilters['experienceLevel']>[number]] : undefined })}
+        >
+          <option value="">All levels</option>
+          <option value="INTERN">Intern</option>
+          <option value="FRESHER">Fresher</option>
+          <option value="JUNIOR">Junior</option>
+          <option value="MID">Mid-level</option>
+          <option value="SENIOR">Senior</option>
+          <option value="LEAD">Lead</option>
+          <option value="MANAGER">Manager</option>
+        </select>
+      </div>
+
+      <div className="space-y-2">
         <Label htmlFor="location">Location</Label>
         <Input
           id="location"

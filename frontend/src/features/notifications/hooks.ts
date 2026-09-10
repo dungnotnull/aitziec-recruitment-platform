@@ -1,14 +1,15 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { InfiniteData } from '@tanstack/react-query'
-import type { Notification, NotificationFilters, PaginatedResponse } from '@/api/types'
+import type { Notification, NotificationFilters, NotificationPageResponse } from '@/api/types'
 import { notificationApi } from './api'
 
-type NotificationPages = InfiniteData<PaginatedResponse<Notification>, string | undefined>
+type NotificationPages = InfiniteData<NotificationPageResponse, string | undefined>
 
 export const notificationKeys = {
   all: ['notifications'] as const,
   lists: () => [...notificationKeys.all, 'list'] as const,
   list: (filters: Omit<NotificationFilters, 'cursor'>) => [...notificationKeys.lists(), filters] as const,
+  unreadSummary: () => [...notificationKeys.all, 'unread-summary'] as const,
 }
 
 function replaceNotification(
@@ -39,18 +40,17 @@ export function useNotifications(filters: Omit<NotificationFilters, 'cursor'>) {
   })
 }
 
-export function useSetNotificationRead() {
+export function useMarkNotificationRead() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ notificationId, read }: { notificationId: string; read: boolean }) =>
-      notificationApi.setRead(notificationId, read),
-    onMutate: async ({ notificationId, read }) => {
+    mutationFn: (notificationId: string) => notificationApi.markRead(notificationId),
+    onMutate: async (notificationId) => {
       await queryClient.cancelQueries({ queryKey: notificationKeys.lists() })
       const snapshots = queryClient.getQueriesData<NotificationPages>({ queryKey: notificationKeys.lists() })
       queryClient.setQueriesData<NotificationPages>({ queryKey: notificationKeys.lists() }, (current) =>
         replaceNotification(current, notificationId, (notification) => ({
           ...notification,
-          readAt: read ? new Date().toISOString() : null,
+          readAt: new Date().toISOString(),
         })),
       )
       return { snapshots }
@@ -63,6 +63,6 @@ export function useSetNotificationRead() {
         replaceNotification(current, data.id, () => data),
       )
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: notificationKeys.lists() }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: notificationKeys.all }),
   })
 }

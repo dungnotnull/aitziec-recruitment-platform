@@ -5,7 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { formatUtcDate, formatUtcDateTime } from '@/shared/lib/date-time'
 import { getApiErrorDetails } from '@/shared/lib/api-error'
-import { useNotifications, useSetNotificationRead } from './hooks'
+import { useMarkNotificationRead, useNotifications } from './hooks'
 import { notificationResourceHref } from './resource-link'
 
 type ReadFilter = 'all' | 'unread' | 'read'
@@ -23,7 +23,7 @@ export function NotificationCenter() {
   const [filter, setFilter] = React.useState<ReadFilter>('all')
   const read = filter === 'all' ? undefined : filter === 'read'
   const query = useNotifications({ read, limit: 20 })
-  const setRead = useSetNotificationRead()
+  const markRead = useMarkNotificationRead()
   const notifications = query.data?.pages.flatMap((page) => page.data) ?? []
   const error = query.error ? getApiErrorDetails(query.error) : null
 
@@ -93,17 +93,17 @@ export function NotificationCenter() {
                     <time className="mt-2 block font-mono text-xs text-slate" dateTime={notification.createdAt}>{formatUtcDateTime(notification.createdAt)}</time>
                     {href ? <a className="mt-3 inline-flex min-h-11 items-center gap-1 font-semibold text-action underline-offset-4 hover:underline" href={href}>Open related item <ChevronRight className="h-4 w-4" aria-hidden="true" /></a> : null}
                   </div>
-                  <Button
+                  {!isRead ? <Button
                     className="min-h-11 bg-surface-raised text-ink hover:bg-border"
-                    aria-label={`Mark ${notification.title} as ${isRead ? 'unread' : 'read'}`}
-                    disabled={setRead.isPending && setRead.variables?.notificationId === notification.id}
-                    onClick={() => setRead.mutate({ notificationId: notification.id, read: !isRead })}
+                    aria-label={`Mark ${notification.title} as read`}
+                    disabled={markRead.isPending && markRead.variables === notification.id}
+                    onClick={() => markRead.mutate(notification.id)}
                   >
-                    {setRead.isPending && setRead.variables?.notificationId === notification.id
+                    {markRead.isPending && markRead.variables === notification.id
                       ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
                       : <CheckCheck className="h-4 w-4" aria-hidden="true" />}
-                    <span className="ml-2">{isRead ? 'Mark unread' : 'Mark read'}</span>
-                  </Button>
+                    <span className="ml-2">Mark read</span>
+                  </Button> : null}
                 </article>
               )
             })}
@@ -119,7 +119,7 @@ export function NotificationCenter() {
         </div>
       ) : null}
       <p className="sr-only" role="status" aria-live="polite">
-        {setRead.isSuccess ? `${setRead.data.data.title} updated.` : ''}
+        {markRead.isSuccess ? `${markRead.data.data.title} marked as read.` : ''}
       </p>
     </section>
   )

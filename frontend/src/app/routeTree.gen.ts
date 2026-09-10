@@ -25,6 +25,7 @@ import { Route as AuthenticatedCandidateApplicationsRouteImport } from './routes
 import { Route as AuthenticatedCandidateCvsRouteImport } from './routes/_authenticated/candidate/cvs'
 import { Route as AuthenticatedCandidateRecommendationsRouteImport } from './routes/_authenticated/candidate/recommendations'
 import { Route as AuthenticatedCandidateSavedJobsRouteImport } from './routes/_authenticated/candidate/saved-jobs'
+import { Route as AuthenticatedInterviewsInterviewIdRouteImport } from './routes/_authenticated/interviews/$interviewId'
 import { Route as AuthenticatedRecruiterWorkspaceRouteImport } from './routes/_authenticated/recruiter/workspace'
 import { Route as AuthenticatedRecruiterJobsJobIdApplicantsRouteImport } from './routes/_authenticated/recruiter/jobs.$jobId.applicants'
 
@@ -161,6 +162,12 @@ const AuthenticatedCompanyEditLazyRoute =
   } as any).lazy(() =>
     import('./routes/_authenticated/company/edit.lazy').then((d) => d.Route),
   )
+const AuthenticatedInterviewsInterviewIdRoute =
+  AuthenticatedInterviewsInterviewIdRouteImport.update({
+    id: '/interviews/$interviewId',
+    path: '/interviews/$interviewId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedRecruiterWorkspaceRoute =
   AuthenticatedRecruiterWorkspaceRouteImport.update({
     id: '/recruiter/workspace',
@@ -191,6 +198,7 @@ export interface FileRoutesByFullPath {
   '/candidate/cvs': typeof AuthenticatedCandidateCvsRoute
   '/candidate/recommendations': typeof AuthenticatedCandidateRecommendationsRoute
   '/candidate/saved-jobs': typeof AuthenticatedCandidateSavedJobsRoute
+  '/interviews/$interviewId': typeof AuthenticatedInterviewsInterviewIdRoute
   '/recruiter/workspace': typeof AuthenticatedRecruiterWorkspaceRoute
   '/company/edit': typeof AuthenticatedCompanyEditLazyRoute
   '/admin/': typeof AuthenticatedAdminIndexLazyRoute
@@ -212,6 +220,7 @@ export interface FileRoutesByTo {
   '/candidate/cvs': typeof AuthenticatedCandidateCvsRoute
   '/candidate/recommendations': typeof AuthenticatedCandidateRecommendationsRoute
   '/candidate/saved-jobs': typeof AuthenticatedCandidateSavedJobsRoute
+  '/interviews/$interviewId': typeof AuthenticatedInterviewsInterviewIdRoute
   '/recruiter/workspace': typeof AuthenticatedRecruiterWorkspaceRoute
   '/company/edit': typeof AuthenticatedCompanyEditLazyRoute
   '/admin': typeof AuthenticatedAdminIndexLazyRoute
@@ -237,6 +246,7 @@ export interface FileRoutesById {
   '/_authenticated/candidate/cvs': typeof AuthenticatedCandidateCvsRoute
   '/_authenticated/candidate/recommendations': typeof AuthenticatedCandidateRecommendationsRoute
   '/_authenticated/candidate/saved-jobs': typeof AuthenticatedCandidateSavedJobsRoute
+  '/_authenticated/interviews/$interviewId': typeof AuthenticatedInterviewsInterviewIdRoute
   '/_authenticated/recruiter/workspace': typeof AuthenticatedRecruiterWorkspaceRoute
   '/_authenticated/company/edit': typeof AuthenticatedCompanyEditLazyRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexLazyRoute
@@ -262,6 +272,7 @@ export interface FileRouteTypes {
     | '/candidate/cvs'
     | '/candidate/recommendations'
     | '/candidate/saved-jobs'
+    | '/interviews/$interviewId'
     | '/recruiter/workspace'
     | '/company/edit'
     | '/admin/'
@@ -283,6 +294,7 @@ export interface FileRouteTypes {
     | '/candidate/cvs'
     | '/candidate/recommendations'
     | '/candidate/saved-jobs'
+    | '/interviews/$interviewId'
     | '/recruiter/workspace'
     | '/company/edit'
     | '/admin'
@@ -307,6 +319,7 @@ export interface FileRouteTypes {
     | '/_authenticated/candidate/cvs'
     | '/_authenticated/candidate/recommendations'
     | '/_authenticated/candidate/saved-jobs'
+    | '/_authenticated/interviews/$interviewId'
     | '/_authenticated/recruiter/workspace'
     | '/_authenticated/company/edit'
     | '/_authenticated/admin/'
@@ -463,6 +476,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCompanyEditLazyRouteImport
       parentRoute: typeof AuthenticatedCompanyRouteRoute
     }
+    '/_authenticated/interviews/$interviewId': {
+      id: '/_authenticated/interviews/$interviewId'
+      path: '/interviews/$interviewId'
+      fullPath: '/interviews/$interviewId'
+      preLoaderRoute: typeof AuthenticatedInterviewsInterviewIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/recruiter/workspace': {
       id: '/_authenticated/recruiter/workspace'
       path: '/recruiter/workspace'
@@ -537,6 +557,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedCandidateCvsRoute: typeof AuthenticatedCandidateCvsRoute
   AuthenticatedCandidateRecommendationsRoute: typeof AuthenticatedCandidateRecommendationsRoute
   AuthenticatedCandidateSavedJobsRoute: typeof AuthenticatedCandidateSavedJobsRoute
+  AuthenticatedInterviewsInterviewIdRoute: typeof AuthenticatedInterviewsInterviewIdRoute
   AuthenticatedRecruiterWorkspaceRoute: typeof AuthenticatedRecruiterWorkspaceRoute
   AuthenticatedRecruiterJobsJobIdApplicantsRoute: typeof AuthenticatedRecruiterJobsJobIdApplicantsRoute
 }
@@ -554,6 +575,8 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedCandidateRecommendationsRoute:
     AuthenticatedCandidateRecommendationsRoute,
   AuthenticatedCandidateSavedJobsRoute: AuthenticatedCandidateSavedJobsRoute,
+  AuthenticatedInterviewsInterviewIdRoute:
+    AuthenticatedInterviewsInterviewIdRoute,
   AuthenticatedRecruiterWorkspaceRoute: AuthenticatedRecruiterWorkspaceRoute,
   AuthenticatedRecruiterJobsJobIdApplicantsRoute:
     AuthenticatedRecruiterJobsJobIdApplicantsRoute,

@@ -143,6 +143,7 @@ export const JobEditor: React.FC<JobEditorProps> = ({ companyId, initialJob, onS
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
             >
               <option value="INTERN">Intern</option>
+              <option value="FRESHER">Fresher</option>
               <option value="JUNIOR">Junior</option>
               <option value="MID">Mid-level</option>
               <option value="SENIOR">Senior</option>

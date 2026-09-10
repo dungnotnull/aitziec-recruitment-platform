@@ -11,4 +11,10 @@ describe('normalizeJobSearch', () => {
       cursor: '../unsafe',
     })).toEqual({ q: 'platform engineer', workplaceType: ['REMOTE'], salaryMin: 1000 })
   })
+
+  it('keeps the FRESHER level exposed by the backend contract', () => {
+    expect(normalizeJobSearch({ experienceLevel: ['FRESHER'] })).toEqual({
+      experienceLevel: ['FRESHER'],
+    })
+  })
 })

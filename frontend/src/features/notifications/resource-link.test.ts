@@ -9,8 +9,8 @@ describe('notificationResourceHref', () => {
     expect(notificationResourceHref({ type: 'CV', id: 'cv-1' })).toBe('/candidate/cvs?cvId=cv-1')
   })
 
-  it('does not create unsafe links for unknown or unsupported resources', () => {
-    expect(notificationResourceHref({ type: 'INTERVIEW', id: 'int-1' })).toBeNull()
+  it('supports interview resources and rejects unknown or unsafe links', () => {
+    expect(notificationResourceHref({ type: 'INTERVIEW', id: 'int-1' })).toBe('/interviews/int-1')
     expect(notificationResourceHref({ type: 'UNKNOWN', id: 'private' })).toBeNull()
     expect(notificationResourceHref({ type: 'JOB', id: '../admin' })).toBeNull()
   })

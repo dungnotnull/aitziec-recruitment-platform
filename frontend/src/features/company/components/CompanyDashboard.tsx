@@ -1,6 +1,6 @@
 import { useAuth } from "@/features/auth/context"
 import { useQuery } from "@tanstack/react-query"
-import { getMyCompanies } from "../api"
+import { getCompany } from "../api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { Button } from "@/shared/ui/button"
 import { Building, Users, Briefcase, Edit, Globe, MapPin } from "lucide-react"
@@ -9,17 +9,15 @@ import { StateBoundary } from "@/shared/ui/state-boundary"
 import { Link } from "@tanstack/react-router"
 import { useJobs } from "@/features/job/hooks/useJobs"
 
-export function CompanyDashboard() {
+export function CompanyDashboard({ companyId }: { companyId?: string }) {
   const { session } = useAuth()
 
-  const { data: companies, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['my-companies'],
-    queryFn: getMyCompanies,
-    enabled: !!session && session.user.role === 'HR',
+  const { data: company, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['company', companyId],
+    queryFn: () => getCompany(companyId!),
+    enabled: !!session && session.user.role === 'HR' && Boolean(companyId),
     retry: false
   })
-
-  const company = companies && companies.length > 0 ? companies[0] : null;
   const jobsQuery = useJobs(
     company ? { companyId: company.id } : undefined,
     { enabled: Boolean(company) },
@@ -34,10 +32,6 @@ export function CompanyDashboard() {
     )
   }
 
-  // If it's a 404, we don't treat it as a general unexpected error for the StateBoundary
-  const isNotFound = (error as any)?.response?.status === 404;
-  const shouldShowError = isError && !isNotFound;
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -47,23 +41,18 @@ export function CompanyDashboard() {
         </div>
         <div className="flex gap-2">
           {company && (
-            <Link to="/company/edit">
+            <Link to="/company/edit" search={{ companyId }}>
               <Button variant="outline">
                 <Edit className="mr-2 h-4 w-4" />
                 Edit Profile
               </Button>
             </Link>
           )}
-          <Button
-            disabled
-            title="Posting jobs is not yet available (Phase 3)"
-          >
-            Post New Job
-          </Button>
+          {company ? <Button asChild><Link to="/recruiter/workspace" search={{ companyId: company.id }}>Manage jobs</Link></Button> : null}
         </div>
       </div>
 
-      <StateBoundary isLoading={isLoading} isError={shouldShowError} error={error} onRetry={() => refetch()}>
+      <StateBoundary isLoading={Boolean(companyId) && isLoading} isError={isError} error={error} onRetry={() => refetch()}>
         {company ? (
           <>
             {/* Scoped Company Profile View */}
@@ -153,7 +142,8 @@ export function CompanyDashboard() {
            <div className="text-center p-8 border border-dashed border-border rounded-md">
             <h3 className="text-lg font-medium text-ink mb-2">No Company Profile Found</h3>
             <p className="text-slate mb-6">You haven't set up a company profile yet.</p>
-            <Link to="/company/edit">
+            <p className="text-slate mb-6">The backend does not expose company membership discovery. Create a company or open this workspace from a server-returned company link.</p>
+            <Link to="/company/edit" search={{ companyId: undefined }}>
               <Button>Create Company Profile</Button>
             </Link>
           </div>

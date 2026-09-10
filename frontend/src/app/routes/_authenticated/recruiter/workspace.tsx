@@ -6,20 +6,26 @@ import { Badge } from '@/shared/ui/badge';
 import { JobEditor } from '@/features/job/components/JobEditor';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getMyCompanies } from '@/features/company/api';
+import { getCompany } from '@/features/company/api';
 import { StateBoundary } from '@/shared/ui/state-boundary';
+import { normalizeCompanyTarget } from '@/features/company/company-context';
 
 export const Route = createFileRoute('/_authenticated/recruiter/workspace')({
+  validateSearch: (search: Record<string, unknown>) => ({
+    companyId: normalizeCompanyTarget(search.companyId),
+  }),
   component: RecruiterWorkspacePage,
 });
 
 function RecruiterWorkspacePage() {
-  const companiesQuery = useQuery({
-    queryKey: ['my-companies'],
-    queryFn: getMyCompanies,
+  const { companyId } = Route.useSearch();
+  const companyQuery = useQuery({
+    queryKey: ['company', companyId],
+    queryFn: () => getCompany(companyId!),
+    enabled: Boolean(companyId),
     retry: false,
   });
-  const company = companiesQuery.data?.[0];
+  const company = companyQuery.data;
   const jobsQuery = useJobs(
     company ? { companyId: company.id } : undefined,
     { enabled: Boolean(company) },
@@ -35,8 +41,8 @@ function RecruiterWorkspacePage() {
   }
 
   const jobs = jobsQuery.data?.data ?? [];
-  const hasError = companiesQuery.isError || jobsQuery.isError;
-  const error = companiesQuery.error ?? jobsQuery.error;
+  const hasError = companyQuery.isError || jobsQuery.isError;
+  const error = companyQuery.error ?? jobsQuery.error;
 
   return (
     <div className="container mx-auto py-8 px-4 max-w-5xl space-y-6">
@@ -46,11 +52,11 @@ function RecruiterWorkspacePage() {
       </div>
 
       <StateBoundary
-        isLoading={companiesQuery.isLoading || (Boolean(company) && jobsQuery.isLoading)}
+        isLoading={(Boolean(companyId) && companyQuery.isLoading) || (Boolean(company) && jobsQuery.isLoading)}
         isError={hasError}
         error={error}
         onRetry={() => {
-          void companiesQuery.refetch();
+          if (companyId) void companyQuery.refetch();
           if (company) void jobsQuery.refetch();
         }}
       >

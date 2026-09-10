@@ -196,7 +196,7 @@ export type PaginatedResponse<T> = {
 // --- Job Module Types ---
 
 export type JobStatus = "DRAFT" | "PUBLISHED" | "UNPUBLISHED" | "CLOSED";
-export type ExperienceLevel = "INTERN" | "JUNIOR" | "MID" | "SENIOR" | "LEAD" | "MANAGER";
+export type ExperienceLevel = "INTERN" | "FRESHER" | "JUNIOR" | "MID" | "SENIOR" | "LEAD" | "MANAGER";
 export type EmploymentType = "FULL_TIME" | "PART_TIME" | "CONTRACT" | "INTERNSHIP";
 export type WorkplaceType = "ONSITE" | "HYBRID" | "REMOTE";
 
@@ -383,7 +383,7 @@ export type Operation = {
 
 export type CompanyStatus = "ACTIVE" | "SUSPENDED";
 export type CompanyMemberRole = "OWNER" | "RECRUITER";
-export type AiAnalysisType = "CV_PROFILE" | "CV_JOB_MATCH" | "CV_GAP_ANALYSIS";
+export type AiAnalysisType = "CV_JOB_MATCH" | "CV_GAP_ANALYSIS" | "CV_JOB_ANALYSIS";
 export type NotificationType =
   | "APPLICATION_SUBMITTED"
   | "APPLICATION_STATUS_CHANGED"
@@ -435,13 +435,26 @@ export type Notification = {
   createdAt: string;
 };
 
+export type NotificationTransport = Omit<Notification, "resource"> & {
+  userId: string;
+  resourceType: string | null;
+  resourceId: string | null;
+};
+
+export type NotificationPageResponse = PaginatedResponse<Notification> & {
+  meta: PaginatedResponse<Notification>["meta"] & {
+    total: number;
+    unreadCount: number;
+  };
+};
+
 export type AuditLog = {
   id: string;
-  actorId: string;
+  actorId: string | null;
   action: string;
   targetType: string;
   targetId: string;
-  requestId: string;
+  requestId: string | null;
   metadata: Record<string, unknown>;
   occurredAt: string;
 };

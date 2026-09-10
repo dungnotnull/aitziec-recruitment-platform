@@ -32,11 +32,12 @@ export function AiAnalysisResult({ analysis }: { analysis: AiAnalysis }) {
       <div className="space-y-3" aria-label="Score components">
         {analysis.components.map((component) => {
           const componentScore = Math.max(0, Math.min(100, component.score))
+          const componentWeight = Math.round(Math.max(0, Math.min(1, component.weight)) * 100)
           return (
             <details key={component.name} className="group rounded-lg border border-border bg-surface p-4">
               <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 font-semibold text-ink focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-action">
                 <span>{component.name.toLowerCase().replace('_', ' ')}</span>
-                <span className="font-mono">{componentScore}/100 · weight {component.weight}%</span>
+                <span className="font-mono">{componentScore}/100 · weight {componentWeight}%</span>
               </summary>
               <ul className="mt-3 space-y-2 border-l-2 border-action/30 pl-4 text-ink-muted">{component.evidence.map((item) => <li key={item}>{item}</li>)}</ul>
             </details>

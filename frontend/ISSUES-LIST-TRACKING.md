@@ -7,8 +7,8 @@ accessibility or enterprise UI risks, and unresolved decisions that block or
 materially change frontend delivery. Feature work belongs in
 `DEVELOPMENT-TASK-BY-PHASES-TRACKING-LOGS.md`.
 
-No frontend runtime exists yet, so the active records below are planning
-decisions and backend/contract dependencies rather than observed UI defects.
+The frontend runtime now exists. Records below distinguish implemented contract
+resolutions from product, privacy, deployment, and backend blockers.
 
 ## Status Vocabulary
 
@@ -39,7 +39,7 @@ resolution criteria, affected frontend tasks, owner, and activity. Do not close
 an issue because a choice was discussed; attach the contract, implementation,
 test, design review, or environment evidence required by its criteria.
 
-## Active Issues
+## Issue Register
 
 ### FEI-001 — Exact frontend runtime and package versions are not pinned
 
@@ -225,9 +225,9 @@ test, design review, or environment evidence required by its criteria.
 - Owner: Product/privacy/backend owners
 - Next action: Resolve with `BEI-002` before CV deletion implementation.
 
-### FEI-010 — Direct interview-detail endpoint is not contracted
+### FEI-010 — Direct interview-detail endpoint is implemented
 
-- Status: Open
+- Status: Fixed
 - Severity: Medium
 - Found: 2026-09-08
 - Area/route: Interview deep links and notification destinations
@@ -235,18 +235,19 @@ test, design review, or environment evidence required by its criteria.
 - Related backend API: `API-INT-006` proposed
 - Impact: A notification cannot reliably deep-link to one interview without
   loading and searching the application interview collection.
-- Current planning assumption: Link to the parent application and focus the
-  matching interview when it is present. Do not call the proposed endpoint.
+- Current implementation: Notifications deep-link to the implemented
+  `GET /interviews/:interviewId` route; the backend remains responsible for
+  candidate/recruiter projection and authorization.
 - Resolution criteria: Approve direct-detail authorization/projection and
   not-found behavior, or explicitly standardize parent-collection navigation;
   update notification link fixtures accordingly.
 - Affected tasks: FE-4-016–021, FE-5-001
 - Owner: Product/backend contract owners
-- Next action: Decide whether `API-INT-006` is required before notification E2E.
+- Next action: Exercise candidate and recruiter deep links when real role credentials and a migrated backend database are available.
 
-### FEI-011 — Global notification unread summary has no contract
+### FEI-011 — Global notification unread summary is supplied in collection metadata
 
-- Status: Open
+- Status: Fixed
 - Severity: Medium
 - Found: 2026-09-08
 - Area/route: Global application shell and notification center
@@ -254,15 +255,14 @@ test, design review, or environment evidence required by its criteria.
 - Related backend APIs: `API-NOTIF-001–002`
 - Impact: A persistent unread badge may require fetching collection pages,
   polling too aggressively, or presenting an inaccurate count.
-- Current planning assumption: Notification center supports list/read state from
-  the approved contract; the global shell shows no numeric badge until an
-  unread count/summary or efficient bounded behavior is agreed.
+- Current implementation: The shell consumes backend `meta.unreadCount` with a
+  shared query, a 60-second interval, `99+` visual cap, and polite accessible copy.
 - Resolution criteria: Approve summary/count field or endpoint, cache/polling or
   push behavior, maximum displayed count, read synchronization, and accessible
   announcement rules.
 - Affected tasks: FE-1-024, FE-5-001–003, FE-5-016–018
 - Owner: Product/backend/frontend leads
-- Next action: Decide during notification contract refinement.
+- Next action: Verify live count changes after the backend notification timeout and migration blockers are fixed.
 
 ### FEI-012 — Launch locales and copy ownership are unselected
 
@@ -304,9 +304,9 @@ test, design review, or environment evidence required by its criteria.
 - Owner: Product/privacy/backend owners
 - Next action: Resolve with `BEI-003` before Phase 5 live integration.
 
-### FEI-014 — Admin discovery and application-moderation APIs are incomplete
+### FEI-014 — Admin collection discovery and application-moderation APIs are incomplete
 
-- Status: Open
+- Status: In progress
 - Severity: High
 - Found: 2026-09-08
 - Area/route: Admin users, companies, jobs, and applications
@@ -315,9 +315,10 @@ test, design review, or environment evidence required by its criteria.
 - Impact: User listing is contracted, but efficient company/job discovery and
   the product requirement to administer applications do not have a complete,
   explicit frontend-consumable contract.
-- Current planning assumption: Implement only contracted moderation commands
-  once a target can be reached through an approved scoped read. Keep application
-  administration blocked and never reuse public search to expose private state.
+- Current implementation: Company/job moderation accepts a known ID or slug,
+  loads the approved scoped detail, then submits the backend-returned ID/version.
+  Collection discovery and application administration remain blocked; public
+  search is not used to expose private job states.
 - Resolution criteria: Define which resources are listable/searchable by admin,
   projections, filters, pagination, application actions, reasons, audit effects,
   and denial/redaction behavior in the contract.
@@ -387,7 +388,8 @@ test, design review, or environment evidence required by its criteria.
 
 ## Fixed and Verified Issues
 
-None.
+FEI-010 and FEI-011 are fixed in place above so their original context and
+resolution evidence remain together; live role/data verification is still recorded as the next action.
 
 ## Issue Template
 
@@ -427,5 +429,6 @@ None.
 
 | Date | Issue | Change | Evidence / next action |
 | --- | --- | --- | --- |
+| 2026-09-10 | FEI-010–011, FEI-014 | Reconciled with merged backend implementation | Direct interview detail and unread-count metadata are fixed against live Swagger and frontend contract tests. Known-target company/job moderation is implemented; role/data verification, collection discovery, and application administration remain open. |
 | 2026-09-08 | FEI-001–017 | Registered | Derived from product requirements, API contract gaps, backend inventory/issues, and frontend enterprise delivery needs. |
 | 2026-09-08 | FEI-003, FEI-009, FEI-013, FEI-015 | Marked release-critical dependencies | Coordinate with BEI-005, BEI-002, BEI-003, and BEI-004 before live integration or release. |

@@ -9,11 +9,10 @@ export const cvApi = {
     const formData = new FormData();
     formData.append('file', file);
 
-    // For multipart uploads, the default Content-Type is 'application/json' in apiClient.
-    // We need to override it to undefined so the browser sets the correct boundary.
     const response = await apiClient.post<SuccessResponse<{ cv: Cv; operation: Operation }>>('/cvs', formData, {
       headers: {
-        'Content-Type': 'multipart/form-data',
+        // Axios/browser must generate the multipart boundary.
+        'Content-Type': undefined,
       },
     });
     return response.data;

@@ -35,9 +35,30 @@ export const interviewApi = {
     applicationId: string,
     cursor?: string
   ): Promise<PaginatedResponse<Interview>> => {
-    const response = await apiClient.get<PaginatedResponse<Interview>>(
+    const response = await apiClient.get<{
+      data: Interview[]
+      meta: { hasMore: boolean; nextCursor: string | null; total: number; requestId?: string }
+    }>(
       `/applications/${applicationId}/interviews`,
       { params: { cursor } }
+    );
+    return {
+      data: response.data.data,
+      meta: {
+        ...(response.data.meta.requestId ? { requestId: response.data.meta.requestId } : {}),
+        page: {
+          hasNextPage: response.data.meta.hasMore,
+          nextCursor: response.data.meta.nextCursor,
+          limit: 20,
+        },
+      },
+    };
+  },
+
+  /** Candidate or scoped HR: Get a single authorized interview. */
+  getInterview: async (interviewId: string): Promise<SuccessResponse<Interview>> => {
+    const response = await apiClient.get<SuccessResponse<Interview>>(
+      `/interviews/${encodeURIComponent(interviewId)}`
     );
     return response.data;
   },

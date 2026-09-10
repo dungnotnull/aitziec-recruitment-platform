@@ -7,6 +7,10 @@ export const apiClient = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: true, // for HttpOnly refresh cookie
+  paramsSerializer: {
+    // Nest DTOs expect repeated keys (`location=A&location=B`), not `location[]=...`.
+    indexes: null,
+  },
 });
 
 // Request interceptor to attach access token
@@ -77,7 +81,9 @@ apiClient.interceptors.response.use(
       } catch (err) {
         processQueue(err as Error, null);
         setAccessToken(null);
-        // Dispatch event or clear identity here
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('auth:session-expired'));
+        }
         return Promise.reject(err);
       } finally {
         isRefreshing = false;

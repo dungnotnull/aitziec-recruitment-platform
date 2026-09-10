@@ -19,12 +19,6 @@ export async function getCompany(idOrSlug: string): Promise<Company> {
   return response.data.data;
 }
 
-export async function getMyCompanies(): Promise<Company[]> {
-  // This API is proposed as API-COMP-007 in Phase 3
-  const response = await apiClient.get<{ data: Company[] }>('/companies/mine');
-  return response.data.data;
-};
-
 export const updateCompany = async (id: string, data: UpdateCompanyInput): Promise<Company> => {
   const response = await apiClient.patch<SuccessResponse<Company>>(`/companies/${id}`, data);
   return response.data.data;

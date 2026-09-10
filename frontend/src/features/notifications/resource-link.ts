@@ -10,6 +10,8 @@ export function notificationResourceHref(resource: { type: string; id: string } 
       return `/jobs/${encodeURIComponent(resource.id)}`
     case 'CV':
       return `/candidate/cvs?cvId=${encodeURIComponent(resource.id)}`
+    case 'INTERVIEW':
+      return `/interviews/${encodeURIComponent(resource.id)}`
     default:
       return null
   }

@@ -32,4 +32,22 @@ describe('AuditExplorer', () => {
     expect(screen.queryByText('secret-token')).not.toBeInTheDocument()
     expect(screen.queryByText('hidden')).not.toBeInTheDocument()
   })
+
+  it('renders nullable backend accountability fields safely', async () => {
+    const log = {
+      id: 'audit-system', actorId: null, action: 'SYSTEM_EVENT', targetType: 'JOB', targetId: 'job-1',
+      requestId: null, occurredAt: '2026-09-09T01:00:00.000Z', metadata: {},
+    } satisfies AuditLog
+    apiClient.defaults.adapter = (async (config) => ({
+      data: { data: [log], meta: { page: { nextCursor: null, hasNextPage: false, limit: 25 } } },
+      status: 200, statusText: 'OK', headers: {}, config,
+    }) as AxiosResponse<PaginatedResponse<AuditLog>>) satisfies AxiosAdapter
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><AuditExplorer filters={{ limit: 25 }} onFiltersChange={() => undefined} /></QueryClientProvider>)
+
+    const [viewButton] = await screen.findAllByRole('button', { name: 'View audit SYSTEM_EVENT for job-1' })
+    expect(screen.getAllByText('System').length).toBeGreaterThan(0)
+    await userEvent.click(viewButton)
+    expect(screen.getByText('Not provided')).toBeVisible()
+  })
 })

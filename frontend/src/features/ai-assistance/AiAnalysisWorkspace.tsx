@@ -10,6 +10,7 @@ import { hasOperationTimedOut } from '@/features/operations/polling'
 import { useOperation } from '@/features/operations/hooks'
 import { useAiAnalysis, useCreateCvJobAnalysis } from './hooks'
 import { AiAnalysisResult } from './AiAnalysisResult'
+import { aiFailureMessage } from './ai-error'
 
 export function AiAnalysisWorkspace() {
   const [cvId, setCvId] = React.useState('')
@@ -61,7 +62,7 @@ export function AiAnalysisWorkspace() {
         <div className="md:col-span-2 rounded-lg bg-surface-raised p-4 text-sm text-ink-muted">
           The server receives the identifiers of your selected CV and job. Provider retention and recommendation consent controls remain unavailable until the privacy policy is approved.
         </div>
-        {error ? <Alert variant="destructive" className="md:col-span-2"><AlertTitle>Analysis could not start</AlertTitle><AlertDescription>{error.message}{error.requestId ? <span className="mt-1 block font-mono text-xs">Request {error.requestId}</span> : null}</AlertDescription></Alert> : null}
+        {error ? <Alert variant="destructive" className="md:col-span-2"><AlertTitle>Analysis could not start</AlertTitle><AlertDescription>{aiFailureMessage(error)}{error.requestId ? <span className="mt-1 block font-mono text-xs">Request {error.requestId}</span> : null}</AlertDescription></Alert> : null}
         <Button type="submit" className="md:col-span-2 md:w-fit" disabled={!cvId || !jobId || createAnalysis.isPending}>{createAnalysis.isPending ? 'Starting analysis…' : 'Analyze selected CV'}</Button>
       </form>
 

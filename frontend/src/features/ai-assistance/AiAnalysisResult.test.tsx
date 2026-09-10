@@ -7,7 +7,7 @@ import { AiAnalysisResult } from './AiAnalysisResult'
 const analysis: AiAnalysis = {
   id: 'analysis-1', type: 'CV_JOB_MATCH', candidateId: 'candidate-1', cvId: 'cv-1', jobId: 'job-1',
   status: 'SUCCEEDED', overallScore: 82,
-  components: [{ name: 'SKILLS', score: 90, weight: 50, evidence: ['TypeScript projects'] }],
+  components: [{ name: 'SKILLS', score: 90, weight: 0.4, evidence: ['TypeScript projects'] }],
   matchedSkills: ['TypeScript'], missingSkills: ['Kubernetes'], unmetRequirements: ['Five years leadership'],
   suggestions: ['Add measurable leadership examples.'], limitations: ['Only the selected CV and job were evaluated.'],
   model: 'gemini-model', promptVersion: 'prompt-v1', schemaVersion: 'schema-v1',
@@ -19,6 +19,7 @@ describe('AiAnalysisResult', () => {
     render(<AiAnalysisResult analysis={analysis} />)
 
     expect(screen.getByText('82 / 100')).toBeVisible()
+    expect(screen.getByText(/weight 40%/i)).toBeVisible()
     await userEvent.click(screen.getByText('skills'))
     expect(screen.getByText('TypeScript projects')).toBeVisible()
     expect(screen.getByRole('heading', { name: 'Missing skills' })).toBeVisible()

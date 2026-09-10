@@ -5,6 +5,7 @@ import { Button } from "./button"
 import { LogOut, User, Building2, Shield, Zap, Bell, BrainCircuit, Sparkles, ScrollText, Menu, X } from "lucide-react"
 import { logoutFn } from "@/features/auth/api"
 import { getNavigationItems } from "./navigation-items"
+import { NotificationUnreadBadge } from "@/features/notifications/NotificationUnreadBadge"
 
 const navigationIcons = {
   bell: Bell,
@@ -55,9 +56,12 @@ export function AppShell() {
 
   const handleLogout = async () => {
     setLoggingOut(true)
-    await logoutFn()
-    setSession(null)
-    navigate({ to: "/auth/login" })
+    try {
+      await logoutFn()
+    } finally {
+      setSession(null)
+      navigate({ to: "/auth/login" })
+    }
   }
 
   const userInitials = session?.user.email
@@ -91,7 +95,7 @@ export function AppShell() {
               <div className="h-5 w-px bg-border/60 hidden md:block" />
 
               <nav className="hidden md:flex items-center gap-1">
-                {navigationItems.map((item) => <NavLink key={item.href} to={item.href} icon={navigationIcons[item.icon]}>{item.label}</NavLink>)}
+                {navigationItems.map((item) => <NavLink key={item.href} to={item.href} icon={navigationIcons[item.icon]}>{item.label}{item.href === '/notifications' ? <NotificationUnreadBadge /> : null}</NavLink>)}
               </nav>
             </div>
 
@@ -123,7 +127,7 @@ export function AppShell() {
             </div>
           </div>
           <nav id="mobile-navigation" aria-label="Mobile navigation" className={`${menuOpen ? 'grid' : 'hidden'} gap-1 border-t border-border px-4 py-3 md:hidden`}>
-            {navigationItems.map((item) => <NavLink key={item.href} to={item.href} icon={navigationIcons[item.icon]} onNavigate={() => setMenuOpen(false)}>{item.label}</NavLink>)}
+            {navigationItems.map((item) => <NavLink key={item.href} to={item.href} icon={navigationIcons[item.icon]} onNavigate={() => setMenuOpen(false)}>{item.label}{item.href === '/notifications' ? <NotificationUnreadBadge /> : null}</NavLink>)}
           </nav>
         </div>
       </header>

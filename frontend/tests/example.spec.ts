@@ -11,10 +11,12 @@ test('keeps guest search filters in the URL', async ({ page }) => {
   await page.goto('/jobs');
   await page.getByLabel('Keywords').fill('TypeScript');
   await page.getByLabel('Location').fill('Da Nang');
+  await page.getByLabel('Experience level').selectOption('FRESHER');
   await page.getByRole('button', { name: 'Apply Filters' }).click();
 
   await expect(page).toHaveURL(/q=TypeScript/);
   expect(JSON.parse(new URL(page.url()).searchParams.get('location') ?? '[]')).toEqual(['Da Nang']);
+  expect(JSON.parse(new URL(page.url()).searchParams.get('experienceLevel') ?? '[]')).toEqual(['FRESHER']);
 });
 
 test('redirects a guest away from authenticated routes', async ({ page }) => {

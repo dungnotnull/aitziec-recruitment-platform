@@ -1,4 +1,4 @@
 import { createLazyFileRoute } from '@tanstack/react-router'
-import { UserAdministration } from '@/features/admin/UserAdministration'
+import { AdminDashboard } from '@/features/admin/AdminDashboard'
 
-export const Route = createLazyFileRoute('/_authenticated/admin/')({ component: UserAdministration })
+export const Route = createLazyFileRoute('/_authenticated/admin/')({ component: AdminDashboard })

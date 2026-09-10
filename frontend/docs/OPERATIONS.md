@@ -15,6 +15,14 @@ npm run build
 npm run security:frontend
 ```
 
+With the real backend running, verify every endpoint consumed by the frontend against its Swagger document:
+
+```text
+BACKEND_OPENAPI_URL=http://127.0.0.1:4000/api/docs-json npm run contract:backend
+```
+
+The command reports a missing controller route as a failure. It never supplies a fallback response.
+
 Run browser journeys against a real environment; the suite does not install runtime request mocks:
 
 ```text

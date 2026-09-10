@@ -6,6 +6,8 @@ export const interviewKeys = {
   all: ['interviews'] as const,
   lists: () => [...interviewKeys.all, 'list'] as const,
   list: (applicationId: string, cursor?: string) => [...interviewKeys.lists(), applicationId, { cursor }] as const,
+  details: () => [...interviewKeys.all, 'detail'] as const,
+  detail: (interviewId: string) => [...interviewKeys.details(), interviewId] as const,
 };
 
 export const useInterviews = (applicationId: string, cursor?: string) => {
@@ -13,6 +15,14 @@ export const useInterviews = (applicationId: string, cursor?: string) => {
     queryKey: interviewKeys.list(applicationId, cursor),
     queryFn: () => interviewApi.getInterviews(applicationId, cursor),
     enabled: !!applicationId,
+  });
+};
+
+export const useInterview = (interviewId: string) => {
+  return useQuery({
+    queryKey: interviewKeys.detail(interviewId),
+    queryFn: () => interviewApi.getInterview(interviewId),
+    enabled: !!interviewId,
   });
 };
 
@@ -28,8 +38,9 @@ export const useCreateInterview = () => {
       data: CreateInterviewRequest;
       idempotencyKey?: string;
     }) => interviewApi.createInterview(applicationId, data, idempotencyKey),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: interviewKeys.lists() });
+      queryClient.setQueryData(interviewKeys.detail(response.data.id), response);
     },
   });
 };
@@ -39,8 +50,9 @@ export const useUpdateInterview = () => {
   return useMutation({
     mutationFn: ({ interviewId, data }: { interviewId: string; data: UpdateInterviewRequest }) =>
       interviewApi.updateInterview(interviewId, data),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: interviewKeys.lists() });
+      queryClient.setQueryData(interviewKeys.detail(response.data.id), response);
     },
   });
 };
@@ -57,8 +69,9 @@ export const useCompleteInterview = () => {
       expectedVersion: number;
       recruiterFeedback?: string;
     }) => interviewApi.completeInterview(interviewId, expectedVersion, recruiterFeedback),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: interviewKeys.lists() });
+      queryClient.setQueryData(interviewKeys.detail(response.data.id), response);
     },
   });
 };
@@ -75,8 +88,9 @@ export const useCancelInterview = () => {
       expectedVersion: number;
       reason: string;
     }) => interviewApi.cancelInterview(interviewId, expectedVersion, reason),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: interviewKeys.lists() });
+      queryClient.setQueryData(interviewKeys.detail(response.data.id), response);
     },
   });
 };

@@ -15,6 +15,7 @@
     "test:storybook": "vitest run --project storybook",
     "test:e2e": "playwright test",
     "security:frontend": "node scripts/check-sensitive-data.mjs dist",
+    "contract:backend": "node scripts/verify-backend-contract.mjs",
     "lint": "oxlint",
     "preview": "vite preview",
     "storybook": "storybook dev -p 6006",

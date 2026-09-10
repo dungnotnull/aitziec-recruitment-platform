@@ -14,6 +14,9 @@ interface MyRouterContext {
     session: AuthSession | null
     isAuthenticated: boolean
     setSession: (session: AuthSession | null) => void
+    status: 'loading' | 'authenticated' | 'anonymous'
+    ready: Promise<void>
+    getSession: () => AuthSession | null
   }
 }
 

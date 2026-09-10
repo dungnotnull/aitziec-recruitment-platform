@@ -25,7 +25,7 @@ function JobsPage() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
         <div className="md:col-span-1">
-          <JobFilters onFilterChange={applyFilters} initialFilters={filters} />
+          <JobFilters key={JSON.stringify(filters)} onFilterChange={applyFilters} initialFilters={filters} />
         </div>
         <div className="md:col-span-3">
           <JobList filters={filters} />

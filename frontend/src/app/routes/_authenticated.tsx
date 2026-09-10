@@ -5,8 +5,9 @@ import { AppShell } from '@/shared/ui/AppShell'
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
   id: '_authenticated',
-  beforeLoad: ({ context, location }) => {
-    if (!context.auth.isAuthenticated) {
+  beforeLoad: async ({ context, location }) => {
+    await context.auth.ready
+    if (!context.auth.getSession()) {
       throw redirect({
         to: '/auth/login',
         search: {

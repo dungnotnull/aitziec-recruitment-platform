@@ -94,7 +94,7 @@ export const jobApi = {
   ): Promise<SuccessResponse<Job>> => {
     const response = await apiClient.post<SuccessResponse<Job>>(`/jobs/${jobId}/close`, {
       expectedVersion,
-      reason,
+      ...(reason ? { reason } : {}),
     });
     return response.data;
   },

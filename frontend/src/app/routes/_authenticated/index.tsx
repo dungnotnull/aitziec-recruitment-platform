@@ -5,8 +5,8 @@ export const Route = createRoute({
   getParentRoute: () => authRoute,
   path: '/',
   beforeLoad: ({ context }) => {
-    if (context.auth.session?.user.role === 'HR') {
-      throw redirect({ to: '/company' })
+    if (context.auth.getSession()?.user.role === 'HR') {
+      throw redirect({ to: '/company', search: { companyId: undefined } })
     } else {
       throw redirect({ to: '/profile' })
     }

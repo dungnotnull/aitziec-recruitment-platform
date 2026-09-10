@@ -4,7 +4,7 @@ import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
 import { apiClient } from '@/api/client'
-import type { Notification, PaginatedResponse, SuccessResponse } from '@/api/types'
+import type { NotificationTransport, SuccessResponse } from '@/api/types'
 import { NotificationCenter } from './NotificationCenter'
 
 const originalAdapter = apiClient.defaults.adapter
@@ -15,27 +15,29 @@ afterEach(() => {
 
 describe('NotificationCenter', () => {
   it('renders real API data and synchronizes an optimistic read action', async () => {
-    let notification: Notification = {
+    let notification: NotificationTransport = {
       id: 'notification-1',
+      userId: 'user-1',
       type: 'INTERVIEW_SCHEDULED',
       title: 'Interview scheduled',
       body: 'Review the time and location.',
-      resource: null,
+      resourceType: null,
+      resourceId: null,
       readAt: null,
       createdAt: '2026-09-09T01:00:00.000Z',
     }
     apiClient.defaults.adapter = (async (config) => {
       if (config.method === 'patch') {
         notification = { ...notification, readAt: '2026-09-09T02:00:00.000Z' }
-        return { data: { data: notification }, status: 200, statusText: 'OK', headers: {}, config } as AxiosResponse<SuccessResponse<Notification>>
+        return { data: { data: notification }, status: 200, statusText: 'OK', headers: {}, config } as AxiosResponse<SuccessResponse<NotificationTransport>>
       }
       return {
-        data: { data: [notification], meta: { page: { nextCursor: null, hasNextPage: false, limit: 20 } } },
+        data: { data: [notification], meta: { hasMore: false, nextCursor: null, total: 1, unreadCount: notification.readAt ? 0 : 1 } },
         status: 200,
         statusText: 'OK',
         headers: {},
         config,
-      } as AxiosResponse<PaginatedResponse<Notification>>
+      } as AxiosResponse
     }) satisfies AxiosAdapter
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -48,13 +50,13 @@ describe('NotificationCenter', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Mark Interview scheduled as read' }))
     })
 
-    expect(await screen.findByRole('button', { name: 'Mark Interview scheduled as unread' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /Mark Interview scheduled/ })).not.toBeInTheDocument()
   })
 
   it('rolls an optimistic read change back when the real API rejects it', async () => {
-    const notification: Notification = {
+    const notification: NotificationTransport = {
       id: 'notification-2', type: 'APPLICATION_STATUS_CHANGED', title: 'Application updated',
-      body: 'The status changed.', resource: null, readAt: null,
+      userId: 'user-1', body: 'The status changed.', resourceType: null, resourceId: null, readAt: null,
       createdAt: '2026-09-09T01:00:00.000Z',
     }
     let rejectPatch: ((reason: Error) => void) | undefined
@@ -63,15 +65,15 @@ describe('NotificationCenter', () => {
         return new Promise((_resolve, reject) => { rejectPatch = reject })
       }
       return {
-        data: { data: [notification], meta: { page: { nextCursor: null, hasNextPage: false, limit: 20 } } },
+        data: { data: [notification], meta: { hasMore: false, nextCursor: null, total: 1, unreadCount: 1 } },
         status: 200, statusText: 'OK', headers: {}, config,
-      } as AxiosResponse<PaginatedResponse<Notification>>
+      } as AxiosResponse
     }) satisfies AxiosAdapter
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><NotificationCenter /></QueryClientProvider>)
 
     await userEvent.click(await screen.findByRole('button', { name: 'Mark Application updated as read' }))
-    expect(await screen.findByRole('button', { name: 'Mark Application updated as unread' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /Mark Application updated/ })).not.toBeInTheDocument()
     rejectPatch?.(new Error('denied'))
 
     expect(await screen.findByRole('button', { name: 'Mark Application updated as read' })).toBeVisible()

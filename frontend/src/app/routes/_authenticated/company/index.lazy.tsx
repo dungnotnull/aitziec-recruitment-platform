@@ -6,5 +6,6 @@ export const Route = createLazyFileRoute('/_authenticated/company/')({
 })
 
 function CompanyDashboardRoute() {
-  return <CompanyDashboard />
+  const { companyId } = Route.useSearch()
+  return <CompanyDashboard companyId={companyId} />
 }

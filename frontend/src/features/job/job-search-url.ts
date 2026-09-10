@@ -1,6 +1,6 @@
 import type { EmploymentType, ExperienceLevel, JobSearchFilters, WorkplaceType } from '@/api/types'
 
-const experienceLevels = new Set<ExperienceLevel>(['INTERN', 'JUNIOR', 'MID', 'SENIOR', 'LEAD', 'MANAGER'])
+const experienceLevels = new Set<ExperienceLevel>(['INTERN', 'FRESHER', 'JUNIOR', 'MID', 'SENIOR', 'LEAD', 'MANAGER'])
 const employmentTypes = new Set<EmploymentType>(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP'])
 const workplaceTypes = new Set<WorkplaceType>(['ONSITE', 'HYBRID', 'REMOTE'])
 const sorts = new Set<NonNullable<JobSearchFilters['sort']>>(['RELEVANCE', 'NEWEST', 'SALARY_ASC', 'SALARY_DESC'])

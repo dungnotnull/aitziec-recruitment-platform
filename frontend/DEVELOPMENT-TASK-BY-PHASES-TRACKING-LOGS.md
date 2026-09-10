@@ -226,13 +226,13 @@ privacy-safe projections, concurrency recovery, and usable recruiter density.
 
 ## Phase 5 — Notifications, Operations, and AI Assistance
 
-**Phase status:** In progress — 12 of 18 tasks complete on 2026-09-10; unread-summary, consent, async acceptance, and live-integration gates remain open.
+**Phase status:** In progress — 14 of 18 tasks complete on 2026-09-10; consent, full async acceptance, and live-integration gates remain open.
 **Goal:** expose asynchronous work and AI assistance transparently without
 leaking sensitive data or implying autonomous hiring decisions.
 
 - [x] **FE-5-001 Build notification center route and list** — Refs: NOTIF-001, API-NOTIF-001; Depends: FE-2-004, FE-1-026; Backend: BE-5-020; Evidence: read filter, cursor, grouping, empty/error, resource link, and owner-only fixtures pass.
-- [x] **FE-5-002 Build notification read/unread control** — Refs: NOTIF-001, API-NOTIF-002; Depends: FE-5-001; Evidence: accessible name, optimistic rollback, repeated action, and list/detail synchronization pass.
-- [ ] **FE-5-003 Define global unread-summary behavior** — Refs: NOTIF-001; Depends: FEI-011; Evidence: badge polling/count behavior uses an approved contract and announces changes without interruption.
+- [x] **FE-5-002 Build notification read control** — Refs: NOTIF-001, API-NOTIF-002; Depends: FE-5-001; Evidence: accessible name, bodyless `PATCH`, optimistic rollback, repeated action, list/badge synchronization, and tests pass. The backend exposes mark-read only, so no fabricated mark-unread action is shown.
+- [x] **FE-5-003 Define global unread-summary behavior** — Refs: NOTIF-001; Depends: FEI-011; Evidence: the global badge consumes backend `meta.unreadCount`, caps visual text at `99+`, polls every 60 seconds, shares the notification query cache, and exposes a polite accessible count.
 - [x] **FE-5-004 Build generic asynchronous-operation tracker** — Refs: AI-007, API-AI-003; Depends: FE-1-025–026; Backend: BE-6-011; Evidence: queued/running/succeeded/failed states, bounded polling, cancellation cleanup, timeout, and retry guidance pass.
 - [x] **FE-5-005 Integrate CV processing with operation feedback** — Refs: CV-004, AI-007; Depends: FE-2-022, FE-5-004; Evidence: upload-to-processing transition remains understandable after navigation and page refresh.
 - [x] **FE-5-006 Build CV-to-job analysis request flow** — Refs: AI-002–004, API-AI-001; Depends: FE-2-020, FE-3-009, FE-5-004; Backend: BE-6-008–011; Evidence: owned/authorized inputs, idempotency, privacy notice, 202 result, and denial states pass.
@@ -243,7 +243,7 @@ leaking sensitive data or implying autonomous hiring decisions.
 - [x] **FE-5-011 Build natural-language search input** — Refs: AI-005, API-JOB-008; Depends: FE-3-002–006; Backend: BE-6-014; Evidence: parsed filters are previewed, editable, validated, URL-applied, and provider/rate-limit errors preserve the query.
 - [x] **FE-5-012 Build job recommendations surface** — Refs: AI-006, API-AI-004; Depends: FE-3-007–012; Backend: BE-6-017; Evidence: reason codes, exclusions, cursor, cold start, empty, save action, and privacy controls pass. Contract projection currently supplies jobs without reason codes, so the UI renders only server-owned data and does not fabricate reasons.
 - [ ] **FE-5-013 Implement recommendation consent/opt-out UX** — Refs: AI-006, NFR-SEC-003–004; Depends: FEI-013, FE-5-012; Evidence: approved data-source explanation, control state, deletion/retention effect, and non-dark-pattern review pass.
-- [ ] **FE-5-014 Implement AI privacy and failure messaging** — Refs: AI-001, AI-007–009; Depends: FEI-013, FE-5-006–012; Evidence: timeout, rate limit, invalid output, permanent failure, retryability, and privacy copy map to classified errors.
+- [x] **FE-5-014 Implement AI privacy and failure messaging** — Refs: AI-001, AI-007–009; Depends: FEI-013, FE-5-006–012; Evidence: timeout, rate-limit, upstream-unavailable, invalid-output, permanent-failure, retryability, and data-transmission copy are classified and covered by unit tests; consent/retention policy remains FE-5-013.
 - [x] **FE-5-015 Exclude AI controls from pipeline decisions** — Refs: AI-009, APP-003–005; Depends: FE-4-011, FE-5-007; Evidence: architecture and component tests prove analysis components expose no application transition actions.
 - [ ] **FE-5-016 Verify asynchronous accessibility** — Refs: frontend CLAUDE “Accessibility Requirements”; Depends: FE-5-001–015; Evidence: live regions announce meaningful transitions once, polling remains quiet, focus persists, and reduced motion passes.
 - [ ] **FE-5-017 Verify Phase 5 mock journeys** — Refs: NOTIF, AI; Depends: FE-5-001–016; Evidence: notification, operation, analysis, natural-language search, and recommendation journeys pass across success/failure/privacy variants.
@@ -251,17 +251,17 @@ leaking sensitive data or implying autonomous hiring decisions.
 
 ## Phase 6 — Administration and Audit
 
-**Phase status:** In progress — 5 of 13 tasks verified on 2026-09-10; discovery contracts and live authorization evidence remain open.
+**Phase status:** In progress — 9 of 13 tasks verified on 2026-09-10; application administration, full accessibility journeys, and live authorization evidence remain open.
 **Goal:** provide explicit, high-accountability moderation and audit interfaces
 without exposing private data or hiding consequences.
 
 - [x] **FE-6-001 Build admin route boundary and workspace shell** — Refs: ADMIN-001–002; Depends: FE-2-004–005, FE-1-024; Backend: BE-7-001; Evidence: admin-only navigation, direct denial, session role change, and responsive shell pass.
 - [x] **FE-6-002 Build user administration table** — Refs: ADMIN-001, API-ADMIN-001; Depends: FE-6-001; Evidence: typed filters, cursor, dense rows, mobile detail cards, loading/empty/error, and non-sensitive projection pass.
 - [x] **FE-6-003 Build user status moderation** — Refs: ADMIN-001–002, API-ADMIN-002; Depends: FE-6-002; Backend: BE-7-002; Evidence: target/status/consequence, required reason, pending lock, session impact, and audit expectation pass.
-- [ ] **FE-6-004 Build company moderation lookup and detail** — Refs: COMP-004, ADMIN-001–002; Depends: FE-6-001, FEI-014; Evidence: admin company discovery uses an approved contract before implementation.
-- [ ] **FE-6-005 Build company status moderation** — Refs: API-ADMIN-003; Depends: FE-6-004; Backend: BE-7-003; Evidence: target/status/reason/version, conflict, downstream publication impact, and confirmation pass.
-- [ ] **FE-6-006 Build job moderation lookup and detail** — Refs: ADMIN-001–002; Depends: FE-6-001, FEI-014; Evidence: admin job discovery uses an approved contract or an explicitly reusable scoped endpoint.
-- [ ] **FE-6-007 Build job moderation action** — Refs: API-ADMIN-004; Depends: FE-6-006; Backend: BE-7-004; Evidence: unpublish/close reason, expected version, consequence, conflict, and updated lifecycle pass.
+- [x] **FE-6-004 Build company moderation lookup and detail** — Refs: COMP-004, ADMIN-001–002; Depends: FE-6-001, FEI-014; Evidence: admins look up a known real ID/slug through approved `GET /companies/:companyIdOrSlug`; the UI explicitly states that no admin collection discovery endpoint exists.
+- [x] **FE-6-005 Build company status moderation** — Refs: API-ADMIN-003; Depends: FE-6-004; Backend: BE-7-003; Evidence: target, current status/version, required reason, consequence copy, pending lock, server conflict display, and exact `status/reason/expectedVersion` payload are implemented and unit-tested.
+- [x] **FE-6-006 Build job moderation lookup and detail** — Refs: ADMIN-001–002; Depends: FE-6-001, FEI-014; Evidence: admins reuse scoped `GET /jobs/:jobIdOrSlug` with their real bearer session and retain only the returned server ID/version for moderation.
+- [x] **FE-6-007 Build job moderation action** — Refs: API-ADMIN-004; Depends: FE-6-006; Backend: BE-7-004; Evidence: unpublish/close selection, required reason, expected version, public/terminal consequence copy, pending lock, conflict display, and exact command payload are implemented and unit-tested.
 - [ ] **FE-6-008 Define application administration surface** — Refs: ADMIN-001; Depends: FEI-014; Evidence: list/detail/moderation behavior remains blocked until product scope and contract operations are explicit.
 - [x] **FE-6-009 Build audit-log explorer** — Refs: AUDIT-001–003, API-ADMIN-005; Depends: FE-6-001; Backend: BE-7-006; Evidence: actor/action/target/time filters, cursor, URL restoration, dense/mobile views, and empty/error states pass.
 - [x] **FE-6-010 Build redacted audit detail drawer** — Refs: AUDIT-002–003; Depends: FE-6-009; Evidence: request ID, actor, target, action, timestamp, and safe metadata render while prohibited fields fail fixture scans.
@@ -312,6 +312,8 @@ changes, or verification events; routine edits belong in Git history.
 
 | Date | Task or phase | Change | Evidence / next action |
 | --- | --- | --- | --- |
+| 2026-09-10 | Backend contract remapping | Reconciled all frontend consumers with the merged backend controllers/DTOs and removed invented runtime data/routes | Live Swagger exposes 53/53 required endpoints; live register/me/refresh returned 201/200/200; 60 frontend unit tests, typecheck, production build, sensitive-data scan, and production dependency audit pass. Full authenticated journeys remain blocked by backend migration `P3018` and four backend notification test timeouts. |
+| 2026-09-10 | FE-5-003, FE-5-014, FE-6-004–007 | Added real unread summary, classified AI failure/privacy messaging, and ID/slug-based admin company/job moderation | Notification/interview custom pagination envelopes are adapted at the API boundary; admin writes use backend-returned IDs and versions. No company/job/application admin collection API was invented. |
 | 2026-09-10 | Tracker correction | Corrected phase-status lines and marked completed frontend build tasks FE-5-006, FE-5-009–010, FE-5-012, and FE-5-015 | Root cause was a previous broad status replacement that updated Phase 1 instead of Phase 5; release-only and live-integration gates remain unchecked. |
 | 2026-09-10 | Phase 7 hardening | Added real-environment Playwright projects, axe light/dark checks, 320px reflow/target checks, responsive role navigation, reduced motion/dark tokens, production bundle scanning, changelog, and operations runbook | 37 unit tests, build, typecheck, lint, Chromium/WebKit/mobile guest journeys, 12 axe checks, and production dependency audit pass; Firefox runner hangs in this host and authenticated journeys require real role credentials. |
 | 2026-09-10 | FE-7-018, FE-7-021–023 | Blocked by production decisions | FEI-003/012/015 must approve origin/cookie/CSP, localization, telemetry, and deployment topology before these tasks can be verified. |

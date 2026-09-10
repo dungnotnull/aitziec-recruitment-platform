@@ -64,9 +64,9 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
         })
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['my-companies'] })
-      navigate({ to: '/company' })
+    onSuccess: (savedCompany) => {
+      queryClient.setQueryData(['company', savedCompany.id], savedCompany)
+      navigate({ to: '/company', search: { companyId: savedCompany.id } })
     },
     onError: (error: any) => {
       setError("root", { type: "server", message: error.response?.data?.error?.message || "Failed to save company profile" })
@@ -166,7 +166,7 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
           <Button
             type="button"
             variant="outline"
-            onClick={() => navigate({ to: '/company' })}
+            onClick={() => navigate({ to: '/company', search: { companyId: company?.id } })}
             disabled={mutation.isPending}
           >
             Cancel
