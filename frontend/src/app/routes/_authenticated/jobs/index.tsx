@@ -5,7 +5,7 @@ import { NaturalLanguageSearch } from '@/features/job/components/NaturalLanguage
 import type { JobSearchFilters } from '@/api/types';
 import { normalizeJobSearch } from '@/features/job/job-search-url';
 
-export const Route = createFileRoute('/jobs/')({
+export const Route = createFileRoute('/_authenticated/jobs/')({
   validateSearch: normalizeJobSearch,
   component: JobsPage,
 });

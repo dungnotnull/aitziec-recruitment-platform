@@ -8,7 +8,7 @@ import { Building, Users, Briefcase, Edit, Globe, MapPin } from "lucide-react"
 import { MemberDirectory } from "./MemberDirectory"
 import { StateBoundary } from "@/shared/ui/state-boundary"
 import { Link } from "@tanstack/react-router"
-import { useJobs } from "@/features/job/hooks/useJobs"
+import { useCompanyJobs } from "@/features/job/hooks/useJobs"
 
 export function CompanyDashboard({ companyId }: { companyId?: string }) {
   const { session } = useAuth()
@@ -23,8 +23,9 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
     retry: false
   })
 
-  const jobsQuery = useJobs(
-    company ? { companyId: company.id } : undefined,
+  const jobsQuery = useCompanyJobs(
+    company?.id,
+    undefined,
     { enabled: Boolean(company) },
   )
 

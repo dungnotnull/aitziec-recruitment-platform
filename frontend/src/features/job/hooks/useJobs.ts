@@ -18,6 +18,14 @@ export const useJobs = (filters?: JobSearchFilters, options?: { enabled?: boolea
   });
 };
 
+export const useCompanyJobs = (companyId: string | undefined, filters?: JobSearchFilters, options?: { enabled?: boolean }) => {
+  return useQuery({
+    queryKey: jobKeys.list({ ...filters, companyId }),
+    queryFn: () => jobApi.getCompanyJobs(companyId!, filters),
+    enabled: !!companyId && (options?.enabled !== false),
+  });
+};
+
 export const useJobDetail = (idOrSlug: string, enabled = true) => {
   return useQuery({
     queryKey: jobKeys.detail(idOrSlug),

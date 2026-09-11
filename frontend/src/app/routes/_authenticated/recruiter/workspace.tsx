@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useJobs } from '@/features/job/hooks/useJobs';
+import { useCompanyJobs, usePublishJob, useUnpublishJob } from '@/features/job/hooks/useJobs';
 import { Button } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
 import { Badge } from '@/shared/ui/badge';
@@ -26,10 +26,35 @@ function RecruiterWorkspacePage() {
     retry: false,
   });
   const company = companyQuery.data;
-  const jobsQuery = useJobs(
-    company ? { companyId: company.id } : undefined,
+  const jobsQuery = useCompanyJobs(
+    company?.id,
+    undefined,
     { enabled: Boolean(company) },
   );
+  
+  const publishMutation = usePublishJob();
+  const unpublishMutation = useUnpublishJob();
+
+  const handlePublish = (jobId: string, version: number) => {
+    publishMutation.mutate(
+      { jobId, expectedVersion: version },
+      {
+        onSuccess: () => alert('Job published successfully'),
+        onError: (err) => alert(`Failed to publish job: ${err.message}`),
+      }
+    );
+  };
+
+  const handleUnpublish = (jobId: string, version: number) => {
+    unpublishMutation.mutate(
+      { jobId, expectedVersion: version },
+      {
+        onSuccess: () => alert('Job unpublished successfully'),
+        onError: (err) => alert(`Failed to unpublish job: ${err.message}`),
+      }
+    );
+  };
+
   const [isCreating, setIsCreating] = useState(false);
 
   if (isCreating && company) {
@@ -82,9 +107,33 @@ function RecruiterWorkspacePage() {
                         <span className="text-sm text-muted-foreground">{job.location}</span>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" asChild>
-                        <Link to="/jobs/$jobIdOrSlug" params={{ jobIdOrSlug: job.slug }}>View Public</Link>
+                    <div className="flex flex-wrap gap-2">
+                      {job.status === 'DRAFT' || job.status === 'UNPUBLISHED' ? (
+                        <Button 
+                          variant="default" 
+                          onClick={() => handlePublish(job.id, job.version)}
+                          disabled={publishMutation.isPending}
+                        >
+                          Publish
+                        </Button>
+                      ) : null}
+                      
+                      {job.status === 'PUBLISHED' ? (
+                        <Button 
+                          variant="secondary" 
+                          onClick={() => handleUnpublish(job.id, job.version)}
+                          disabled={unpublishMutation.isPending}
+                        >
+                          Unpublish
+                        </Button>
+                      ) : null}
+
+                      <Button variant="outline" asChild disabled={job.status !== 'PUBLISHED'}>
+                        {job.status === 'PUBLISHED' ? (
+                          <Link to="/jobs/$jobIdOrSlug" params={{ jobIdOrSlug: job.slug }}>View Public</Link>
+                        ) : (
+                          <span>View Public</span>
+                        )}
                       </Button>
                       <Button asChild>
                         <Link to="/recruiter/jobs/$jobId/applicants" params={{ jobId: job.id }}>Manage Applicants</Link>

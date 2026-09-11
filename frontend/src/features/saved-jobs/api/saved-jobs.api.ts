@@ -25,4 +25,12 @@ export const savedJobsApi = {
   unsaveJob: async (jobId: string): Promise<void> => {
     await apiClient.delete(`/saved-jobs/${jobId}`);
   },
+
+  /**
+   * Candidate: Check if a job is saved
+   */
+  checkSaved: async (jobId: string): Promise<{ isSaved: boolean }> => {
+    const response = await apiClient.get<{ isSaved: boolean }>(`/saved-jobs/${jobId}/check`);
+    return response.data;
+  },
 };

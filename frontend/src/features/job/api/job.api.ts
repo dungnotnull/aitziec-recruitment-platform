@@ -20,6 +20,16 @@ export const jobApi = {
   },
 
   /**
+   * HR: Get all company jobs (including drafts)
+   */
+  getCompanyJobs: async (companyId: string, filters?: JobSearchFilters): Promise<PaginatedResponse<Job>> => {
+    const response = await apiClient.get<PaginatedResponse<Job>>(`/companies/${companyId}/jobs`, {
+      params: filters,
+    });
+    return response.data;
+  },
+
+  /**
    * Public or Scoped HR: Get job by ID or slug
    */
   getJob: async (jobIdOrSlug: string): Promise<SuccessResponse<Job>> => {

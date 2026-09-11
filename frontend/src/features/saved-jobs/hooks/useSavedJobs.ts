@@ -33,3 +33,11 @@ export const useUnsaveJob = () => {
     },
   });
 };
+
+export const useIsJobSaved = (jobId: string) => {
+  return useQuery({
+    queryKey: [...savedJobKeys.all, 'check', jobId],
+    queryFn: () => savedJobsApi.checkSaved(jobId),
+    retry: false, // Don't retry if it fails (e.g. 401/403 when not logged in)
+  });
+};
