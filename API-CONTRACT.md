@@ -453,6 +453,10 @@ type JobSearchFilters = {
   cursor?: string;
   limit?: number;
 };
+
+type SavedJobCheck = {
+  isSaved: boolean;
+};
 ```
 
 ### 8.5 CV
@@ -810,10 +814,11 @@ may retrieve their non-public jobs.
 | Method and path | Access | Request | Success |
 | --- | --- | --- | --- |
 | `GET /saved-jobs` | Candidate | Cursor query | `200 CollectionResponse<Job>` |
+| `GET /saved-jobs/:jobId/check` | Candidate | None | `200 SuccessResponse<SavedJobCheck>` |
 | `PUT /saved-jobs/:jobId` | Candidate | Empty | `204` |
 | `DELETE /saved-jobs/:jobId` | Candidate | None | `204` |
 
-Save and unsave are idempotent.
+Save and unsave are idempotent. The check endpoint requires a valid UUID `jobId`. If no bookmark exists (including when the job itself does not exist), it returns `200` with `isSaved: false`. A candidate without a profile receives `403 FORBIDDEN`. Invalid UUIDs return `400 VALIDATION_ERROR`. The check endpoint is read-only, emits no audit event, and performs no database mutation.
 
 ### 9.6 CVs
 

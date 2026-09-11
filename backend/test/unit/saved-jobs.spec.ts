@@ -105,4 +105,50 @@ describe('SavedJobsService (BE-3-018, BE-3-019, BE-3-020)', () => {
       expect(result.meta.page.limit).toBe(10);
     });
   });
+
+  describe('check saved job (BE-9-003)', () => {
+    it('returns { isSaved: true } when bookmark exists', async () => {
+      mockPrisma.savedJob.findUnique.mockResolvedValue({ id: 'saved-1' });
+
+      const result = await service.checkSavedJob('job-1', candidateUser);
+
+      expect(result).toEqual({ isSaved: true });
+      expect(mockPrisma.savedJob.findUnique).toHaveBeenCalledWith({
+        where: {
+          candidateProfileId_jobId: {
+            candidateProfileId: 'profile-1',
+            jobId: 'job-1',
+          },
+        },
+        select: { id: true },
+      });
+      expect(mockPrisma.job.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('returns { isSaved: false } when bookmark does not exist', async () => {
+      mockPrisma.savedJob.findUnique.mockResolvedValue(null);
+
+      const result = await service.checkSavedJob('job-non-saved', candidateUser);
+
+      expect(result).toEqual({ isSaved: false });
+      expect(mockPrisma.savedJob.findUnique).toHaveBeenCalledWith({
+        where: {
+          candidateProfileId_jobId: {
+            candidateProfileId: 'profile-1',
+            jobId: 'job-non-saved',
+          },
+        },
+        select: { id: true },
+      });
+      expect(mockPrisma.job.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('throws 403 ForbiddenException if candidate profile does not exist', async () => {
+      mockPrisma.candidateProfile.findUnique.mockResolvedValue(null);
+
+      await expect(service.checkSavedJob('job-1', candidateUser)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+  });
 });

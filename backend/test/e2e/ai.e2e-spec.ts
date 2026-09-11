@@ -9,6 +9,7 @@ import { InMemoryPrismaService } from './in-memory-prisma';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import { ContractValidationPipe } from '../../src/common/pipes/contract-validation.pipe';
 import { ResponseTransformInterceptor } from '../../src/common/interceptors/response-transform.interceptor';
+import { ERROR_CODES } from '../../src/common/constants/error-codes';
 
 describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
   let app: INestApplication;
@@ -305,6 +306,40 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
         .set('Authorization', `Bearer ${hrToken}`);
 
       expect(res.status).toBe(403);
+    });
+
+    it('BE-9-001 & BE-9-004: accepts ?limit=20 and returns 200 with meta.page', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/recommendations/jobs?limit=20')
+        .set('Authorization', `Bearer ${otherCandidateToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toBeDefined();
+      expect(res.body.meta.page.limit).toBe(20);
+      expect(res.body.meta.requestId).toBeDefined();
+    });
+
+    it('BE-9-001 & BE-9-004: rejects ?limit=0 and ?limit=51 with 400 VALIDATION_ERROR', async () => {
+      const resMin = await request(app.getHttpServer())
+        .get('/api/v1/recommendations/jobs?limit=0')
+        .set('Authorization', `Bearer ${otherCandidateToken}`);
+      expect(resMin.status).toBe(400);
+      expect(resMin.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+
+      const resMax = await request(app.getHttpServer())
+        .get('/api/v1/recommendations/jobs?limit=51')
+        .set('Authorization', `Bearer ${otherCandidateToken}`);
+      expect(resMax.status).toBe(400);
+      expect(resMax.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+    });
+
+    it('BE-9-001 & BE-9-004: rejects malformed cursor with 400 INVALID_CURSOR', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/recommendations/jobs?cursor=invalid-cursor-payload')
+        .set('Authorization', `Bearer ${otherCandidateToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe(ERROR_CODES.INVALID_CURSOR);
     });
   });
 

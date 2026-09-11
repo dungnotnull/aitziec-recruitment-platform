@@ -300,6 +300,81 @@ describe('Jobs, Search & Saved Jobs E2E (BE-3-001 to BE-3-022)', () => {
     expect(listRes.body.data).toHaveLength(0);
   });
 
+  describe('13b. Check saved job state endpoint (BE-9-003, API-SAVE-004)', () => {
+    it('returns { isSaved: false } when candidate has not saved the job', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/saved-jobs/${jobId}/check`)
+        .set('Authorization', `Bearer ${candidateToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ isSaved: false });
+      expect(res.body.meta.requestId).toBeDefined();
+    });
+
+    it('returns { isSaved: true } after candidate saves the job', async () => {
+      // Save job
+      await request(app.getHttpServer())
+        .put(`/api/v1/saved-jobs/${jobId}`)
+        .set('Authorization', `Bearer ${candidateToken}`);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/saved-jobs/${jobId}/check`)
+        .set('Authorization', `Bearer ${candidateToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ isSaved: true });
+      expect(res.body.meta.requestId).toBeDefined();
+    });
+
+    it('returns { isSaved: false } after candidate unsaves the job', async () => {
+      // Unsave job
+      await request(app.getHttpServer())
+        .delete(`/api/v1/saved-jobs/${jobId}`)
+        .set('Authorization', `Bearer ${candidateToken}`);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/saved-jobs/${jobId}/check`)
+        .set('Authorization', `Bearer ${candidateToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ isSaved: false });
+      expect(res.body.meta.requestId).toBeDefined();
+    });
+
+    it('returns { isSaved: false } for valid non-existent job UUID', async () => {
+      const nonExistentJobId = '11111111-2222-4333-8444-555555555555';
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/saved-jobs/${nonExistentJobId}/check`)
+        .set('Authorization', `Bearer ${candidateToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ isSaved: false });
+    });
+
+    it('returns 401 when request lacks authorization token', async () => {
+      const res = await request(app.getHttpServer()).get(`/api/v1/saved-jobs/${jobId}/check`);
+
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 403 when called by non-candidate role (HR)', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/saved-jobs/${jobId}/check`)
+        .set('Authorization', `Bearer ${hrToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 400 VALIDATION_ERROR when jobId is not a valid UUID', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/saved-jobs/not-a-valid-uuid/check')
+        .set('Authorization', `Bearer ${candidateToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+    });
+  });
+
   it('14. HR unpublishes job (BE-3-007)', async () => {
     const res = await request(app.getHttpServer())
       .post(`/api/v1/jobs/${jobId}/unpublish`)

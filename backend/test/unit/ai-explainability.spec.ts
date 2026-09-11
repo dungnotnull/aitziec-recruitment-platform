@@ -246,5 +246,113 @@ describe('AiExplainabilityAndConsent (Unit - BE-8-021 & BE-8-022)', () => {
         }),
       ).rejects.toThrow(BadRequestException);
     });
+
+    describe('BE-9-001: Comprehensive stability, pagination, and edge-case investigation', () => {
+      it('handles 0 jobs dataset gracefully with empty array and null nextCursor', async () => {
+        // Clear all jobs
+        inMemoryPrisma.jobs = [];
+
+        const res = await service.getJobRecommendations(candidateUser, { limit: 20 });
+        expect(res.data).toHaveLength(0);
+        expect(res.meta.page.nextCursor).toBeNull();
+        expect(res.meta.page.hasNextPage).toBe(false);
+      });
+
+      it('handles >20 jobs dataset (e.g. 25 jobs) with limit=20 deterministically across 20 iterations', async () => {
+        // Clear existing jobs and seed 25 published jobs
+        inMemoryPrisma.jobs = [];
+        for (let i = 1; i <= 25; i++) {
+          await inMemoryPrisma.job.create({
+            data: {
+              id: `job-bulk-${String(i).padStart(3, '0')}`,
+              companyId: activeCompany.id,
+              title: `Engineer Role ${i}`,
+              slug: `engineer-role-${i}`,
+              description: `Description ${i}`,
+              requirements: 'TypeScript',
+              technologyNames: ['TypeScript', 'Node.js'],
+              location: 'Remote',
+              workplaceType: 'REMOTE',
+              experienceLevel: 'MID',
+              employmentType: 'FULL_TIME',
+              applicationDeadline: new Date(Date.now() + 86400000),
+              publishedAt: new Date(Date.now() - i * 1000),
+              status: 'PUBLISHED',
+              company: activeCompany,
+            },
+          });
+        }
+
+        // Loop 20 times to detect any intermittent failure or instability
+        for (let iter = 0; iter < 20; iter++) {
+          const res = await service.getJobRecommendations(candidateUser, { limit: 20 });
+          expect(res.data).toHaveLength(20);
+          expect(res.meta.page.hasNextPage).toBe(true);
+          expect(res.meta.page.nextCursor).toBeDefined();
+
+          // Fetch page 2 using cursor
+          const page2 = await service.getJobRecommendations(candidateUser, {
+            limit: 20,
+            cursor: res.meta.page.nextCursor!,
+          });
+          expect(page2.data).toHaveLength(5);
+          expect(page2.meta.page.hasNextPage).toBe(false);
+          expect(page2.meta.page.nextCursor).toBeNull();
+
+          // Ensure no duplicate IDs between page 1 and page 2
+          const page1Ids = new Set(res.data.map((j: any) => j.job.id));
+          for (const item of page2.data as any[]) {
+            expect(page1Ids.has(item.job.id)).toBe(false);
+          }
+        }
+      });
+
+      it('rejects cursor with non-numeric score with 400 INVALID_CURSOR', async () => {
+        const invalidCursor = Buffer.from('notanumber:job-id-1').toString('base64');
+        await expect(
+          service.getJobRecommendations(candidateUser, { cursor: invalidCursor }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects cursor with missing jobId with 400 INVALID_CURSOR', async () => {
+        const invalidCursor = Buffer.from('50:').toString('base64');
+        await expect(
+          service.getJobRecommendations(candidateUser, { cursor: invalidCursor }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects cursor with extra components (length > 2) with 400 INVALID_CURSOR', async () => {
+        const invalidCursor = Buffer.from('50:job-id-1:extra').toString('base64');
+        await expect(
+          service.getJobRecommendations(candidateUser, { cursor: invalidCursor }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('handles job technologyNames containing null safely without throwing 500 / TypeError', async () => {
+        inMemoryPrisma.jobs = [];
+        await inMemoryPrisma.job.create({
+          data: {
+            id: 'job-null-tech',
+            companyId: activeCompany.id,
+            title: 'Engineer with Dirty Data',
+            slug: 'engineer-dirty-data',
+            description: 'Description',
+            requirements: 'TypeScript',
+            technologyNames: ['TypeScript', null as any, 'Node.js'],
+            location: 'Remote',
+            workplaceType: 'REMOTE',
+            experienceLevel: 'MID',
+            employmentType: 'FULL_TIME',
+            applicationDeadline: new Date(Date.now() + 86400000),
+            status: 'PUBLISHED',
+            company: activeCompany,
+          },
+        });
+
+        const res = await service.getJobRecommendations(candidateUser, { limit: 20 });
+        expect(res.data).toHaveLength(1);
+        expect((res.data[0] as any).job.id).toBe('job-null-tech');
+      });
+    });
   });
 });

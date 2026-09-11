@@ -6,6 +6,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Buffer } from 'node:buffer';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
@@ -260,13 +261,54 @@ export class AiService {
   }
 
   /**
-   * Explainable Job Recommendations for Candidates (BE-6-015, BE-6-016, BE-6-017, BE-8-022).
+   * Giải mã con trỏ phân trang nghiêm ngặt (BE-9-004).
+   * Bắt mọi ngoại lệ và quăng BadRequestException(INVALID_CURSOR) với thông báo tiếng Việt.
+   */
+  private decodeCursor(cursor: string): { score: number; jobId: string } {
+    try {
+      const decoded = Buffer.from(cursor, 'base64').toString('utf8');
+      const parts = decoded.split(':');
+      if (parts.length !== 2) {
+        throw new BadRequestException({
+          code: ERROR_CODES.INVALID_CURSOR,
+          message: 'Định dạng con trỏ phân trang không hợp lệ.',
+        });
+      }
+      const score = parseInt(parts[0], 10);
+      const jobId = parts[1];
+      if (isNaN(score) || score < 0 || score > 100 || !jobId || jobId.trim().length === 0) {
+        throw new BadRequestException({
+          code: ERROR_CODES.INVALID_CURSOR,
+          message: 'Dữ liệu con trỏ phân trang không hợp lệ.',
+        });
+      }
+      return { score, jobId };
+    } catch (err: any) {
+      if (err instanceof BadRequestException) throw err;
+      throw new BadRequestException({
+        code: ERROR_CODES.INVALID_CURSOR,
+        message: 'Định dạng con trỏ phân trang không hợp lệ.',
+      });
+    }
+  }
+
+  /**
+   * Mã hóa con trỏ phân trang an toàn (BE-9-004).
+   */
+  private encodeCursor(score: number, jobId: string): string {
+    return Buffer.from(`${score}:${jobId}`).toString('base64');
+  }
+
+  /**
+   * Gợi ý việc làm giải thích được dành cho ứng viên (BE-6-015, BE-6-016, BE-6-017, BE-8-022, BE-9-004).
    */
   async getJobRecommendations(
     user: AuthenticatedUser,
     query: RecommendationQueryDto,
   ): Promise<CollectionResponse<JobDto>> {
-    // 0. Check candidate recommendation preference / opt-out status (BE-8-021)
+    const limit = query.limit ?? 20;
+
+    // 0. Kiểm tra tùy chọn gợi ý / trạng thái từ chối của ứng viên (BE-8-021)
     const preference = await this.prisma.recommendationPreference.findUnique({
       where: { userId: user.id },
     });
@@ -279,7 +321,7 @@ export class AiService {
           page: {
             nextCursor: null,
             hasNextPage: false,
-            limit: query.limit || 20,
+            limit,
           },
         } as any,
       };
@@ -299,14 +341,14 @@ export class AiService {
       });
     }
 
-    // 1. Exclusion: Exclude jobs candidate has already applied to
+    // 1. Loại trừ các công việc ứng viên đã nộp hồ sơ
     const existingApplications = await this.prisma.application.findMany({
       where: { candidateId: candidateProfile.id },
       select: { jobId: true },
     });
     const appliedJobIds = new Set(existingApplications.map((a: any) => a.jobId));
 
-    // 2. Query active published jobs belonging to ACTIVE companies (BE-8-022 public eligibility)
+    // 2. Truy vấn các công việc PUBLISHED thuộc các công ty ACTIVE (BE-8-022)
     const publishedJobs = await this.prisma.job.findMany({
       where: {
         status: 'PUBLISHED',
@@ -316,14 +358,14 @@ export class AiService {
       include: { company: true },
     });
 
-    // 3. Filter out applied jobs and non-active companies
+    // 3. Lọc bỏ các công việc đã nộp hoặc công ty không ACTIVE
     const eligibleJobs = publishedJobs.filter((j: any) => {
       if (appliedJobIds.has(j.id)) return false;
       if (j.company && j.company.status !== 'ACTIVE') return false;
       return true;
     });
 
-    // 4. Candidate skills set
+    // 4. Tập hợp kỹ năng của ứng viên
     const candidateSkills = new Set<string>();
     if (candidateProfile.skills) {
       for (const cs of candidateProfile.skills) {
@@ -331,18 +373,18 @@ export class AiService {
       }
     }
 
-    // 5. Score jobs based on skill overlap & headline, with transparent explainability (BE-8-022)
+    // 5. Tính điểm công việc với cơ chế phòng thủ dữ liệu null-safe (BE-8-022, BE-9-004)
     const scoredJobs = eligibleJobs.map((job: any) => {
-      let score = 50; // base score for active jobs
+      let score = 50; // Điểm cơ bản cho công việc hợp lệ
       const reasonCodes: string[] = ['ACTIVE_ELIGIBLE_JOB'];
       const evidence: string[] = ['Job is currently published and open for applications'];
 
-      const jobTechs = job.technologyNames || [];
+      const jobTechs = Array.isArray(job.technologyNames) ? job.technologyNames : [];
       const matchedSkillsList: string[] = [];
       if (jobTechs.length > 0) {
         let matchedCount = 0;
         for (const tech of jobTechs) {
-          if (candidateSkills.has(tech.toLowerCase())) {
+          if (typeof tech === 'string' && candidateSkills.has(tech.toLowerCase())) {
             matchedCount++;
             matchedSkillsList.push(tech);
           }
@@ -355,9 +397,10 @@ export class AiService {
         }
       }
 
-      // Title relevance with headline
+      // Đối chiếu tiêu đề với headline (an toàn khi headline/title null hoặc không phải string)
       if (
         candidateProfile.headline &&
+        typeof job.title === 'string' &&
         job.title.toLowerCase().includes(candidateProfile.headline.toLowerCase())
       ) {
         score += 10;
@@ -375,48 +418,31 @@ export class AiService {
       return { job, score, reasonCodes, evidence, limitations };
     });
 
-    // 6. Sort deterministically by score desc, then publishedAt desc, then id
+    // 6. Sắp xếp đơn định theo score desc, publishedAt desc, id (an toàn khi null)
     scoredJobs.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
-      const dateA = new Date(a.job.publishedAt || a.job.createdAt).getTime();
-      const dateB = new Date(b.job.publishedAt || b.job.createdAt).getTime();
+      const dateA = new Date(a.job?.publishedAt || a.job?.createdAt || 0).getTime();
+      const dateB = new Date(b.job?.publishedAt || b.job?.createdAt || 0).getTime();
       if (dateB !== dateA) return dateB - dateA;
-      return a.job.id.localeCompare(b.job.id);
+      const idA = a.job?.id || '';
+      const idB = b.job?.id || '';
+      return idA.localeCompare(idB);
     });
 
-    // 7. Cursor pagination with strict validation (BE-8-022)
-    const limit = query.limit || 20;
+    // 7. Phân trang con trỏ nghiêm ngặt (BE-8-022, BE-9-004)
     let startIndex = 0;
 
     if (query.cursor) {
-      try {
-        const decoded = Buffer.from(query.cursor, 'base64').toString('utf8');
-        const parts = decoded.split(':');
-        if (parts.length !== 2 || isNaN(parseInt(parts[0], 10)) || !parts[1]) {
-          throw new BadRequestException({
-            code: ERROR_CODES.INVALID_CURSOR,
-            message: 'Invalid pagination cursor format.',
-          });
-        }
-        const cursorScore = parseInt(parts[0], 10);
-        const cursorId = parts[1];
-
-        const foundIdx = scoredJobs.findIndex(
-          (item) => item.score === cursorScore && item.job.id === cursorId,
-        );
-        if (foundIdx !== -1) {
-          startIndex = foundIdx + 1;
-        } else {
-          throw new BadRequestException({
-            code: ERROR_CODES.INVALID_CURSOR,
-            message: 'Cursor is stale or not found in current results.',
-          });
-        }
-      } catch (err: any) {
-        if (err instanceof BadRequestException) throw err;
+      const { score: cursorScore, jobId: cursorId } = this.decodeCursor(query.cursor);
+      const foundIdx = scoredJobs.findIndex(
+        (item) => item.score === cursorScore && item.job?.id === cursorId,
+      );
+      if (foundIdx !== -1) {
+        startIndex = foundIdx + 1;
+      } else {
         throw new BadRequestException({
           code: ERROR_CODES.INVALID_CURSOR,
-          message: 'Invalid pagination cursor format.',
+          message: 'Con trỏ phân trang đã hết hạn hoặc không tồn tại trong tập kết quả.',
         });
       }
     }
@@ -427,7 +453,9 @@ export class AiService {
     let nextCursor: string | null = null;
     if (hasMore && pageItems.length > 0) {
       const lastItem = pageItems[pageItems.length - 1];
-      nextCursor = Buffer.from(`${lastItem.score}:${lastItem.job.id}`).toString('base64');
+      if (lastItem?.job?.id) {
+        nextCursor = this.encodeCursor(lastItem.score, lastItem.job.id);
+      }
     }
 
     return {
