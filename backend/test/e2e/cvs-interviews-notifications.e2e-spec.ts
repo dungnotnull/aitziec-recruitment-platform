@@ -11,6 +11,7 @@ import { ContractValidationPipe } from '../../src/common/pipes/contract-validati
 import { ResponseTransformInterceptor } from '../../src/common/interceptors/response-transform.interceptor';
 import { ApplicationStatus } from '@prisma/client';
 import { NotificationsService } from '../../src/notifications/notifications.service';
+import { ERROR_CODES } from '../../src/common/constants/error-codes';
 
 describe('Phase 5: CVs, Interviews, and Notifications (E2E)', () => {
   let app: INestApplication;
@@ -131,6 +132,10 @@ describe('Phase 5: CVs, Interviews, and Notifications (E2E)', () => {
       expect(res.body.data.operation).toBeDefined();
 
       cvId = res.body.data.cv.id;
+      const cvRecord = inMemoryPrisma.cvs.find((c) => c.id === cvId);
+      if (cvRecord) {
+        cvRecord.processingStatus = 'READY';
+      }
     });
 
     it('GET /api/v1/cvs — candidate should list uploaded CVs', async () => {
@@ -153,7 +158,35 @@ describe('Phase 5: CVs, Interviews, and Notifications (E2E)', () => {
       expect(res.body.data.expiresAt).toBeDefined();
     });
 
-    it('POST /api/v1/cvs/:cvId/default — should set CV as default', async () => {
+    it('POST /api/v1/cvs/:cvId/default — should reject setting unready CV as default', async () => {
+      // Create an unready CV in memory
+      const unreadyCv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: inMemoryPrisma.candidateProfiles.find(
+            (p) =>
+              p.userId ===
+              inMemoryPrisma.users.find((u) => u.email === 'candidate-phase5@itziec.com').id,
+          ).id,
+          originalFileName: 'unready.pdf',
+          sizeBytes: 1000,
+          checksumSha256: 'sha-unready',
+          storageKey: 'cvs/unready.pdf',
+          processingStatus: 'UPLOADED',
+          isDefault: false,
+          version: 1,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/cvs/${unreadyCv.id}/default`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ expectedVersion: 1 });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error?.code).toBe('CV_NOT_READY');
+    });
+
+    it('POST /api/v1/cvs/:cvId/default — should set CV as default and synchronize CandidateProfile.defaultCvId', async () => {
       const res = await request(app.getHttpServer())
         .post(`/api/v1/cvs/${cvId}/default`)
         .set('Authorization', `Bearer ${candidateToken}`)
@@ -161,6 +194,13 @@ describe('Phase 5: CVs, Interviews, and Notifications (E2E)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.isDefault).toBe(true);
+
+      const profileRes = await request(app.getHttpServer())
+        .get('/api/v1/candidates/me')
+        .set('Authorization', `Bearer ${candidateToken}`);
+
+      expect(profileRes.status).toBe(200);
+      expect(profileRes.body.data.defaultCvId).toBe(cvId);
     });
   });
 
@@ -276,8 +316,8 @@ describe('Phase 5: CVs, Interviews, and Notifications (E2E)', () => {
     });
   });
 
-  describe('Notifications and Read State', () => {
-    it('GET /api/v1/notifications — candidate views in-app notifications', async () => {
+  describe('Notifications and Read State (BE-10-013)', () => {
+    it('GET /api/v1/notifications — candidate views in-app notifications with canonical projection', async () => {
       // First create a notification to test API contract
       const notificationService = app.get(NotificationsService);
       await notificationService.createNotification({
@@ -285,6 +325,8 @@ describe('Phase 5: CVs, Interviews, and Notifications (E2E)', () => {
         type: 'APPLICATION_SUBMITTED',
         title: 'Application Received',
         body: 'Your application has been received.',
+        resourceType: 'APPLICATION',
+        resourceId: 'app-test-phase5',
       });
 
       const res = await request(app.getHttpServer())
@@ -294,16 +336,88 @@ describe('Phase 5: CVs, Interviews, and Notifications (E2E)', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBeGreaterThanOrEqual(1);
       expect(res.body.meta.unreadCount).toBeGreaterThanOrEqual(1);
+      expect(res.body.meta.page).toBeDefined();
+      expect(res.body.meta.page.limit).toBe(20);
 
-      const notifId = res.body.data[0].id;
+      const notif = res.body.data[0];
+      // Exact-key verification: only body, createdAt, id, readAt, resource, title, type
+      expect(Object.keys(notif).sort()).toEqual(
+        ['body', 'createdAt', 'id', 'readAt', 'resource', 'title', 'type'].sort(),
+      );
+      expect(notif.userId).toBeUndefined();
+      expect(notif.resourceType).toBeUndefined();
+      expect(notif.resourceId).toBeUndefined();
+      expect(notif.resource).toEqual({ type: 'APPLICATION', id: 'app-test-phase5' });
 
-      // Mark as read
+      const notifId = notif.id;
+
+      // Reject PATCH without body or invalid body
+      const emptyBodyRes = await request(app.getHttpServer())
+        .patch(`/api/v1/notifications/${notifId}/read`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({});
+      expect(emptyBodyRes.status).toBe(400);
+
+      const badBodyRes = await request(app.getHttpServer())
+        .patch(`/api/v1/notifications/${notifId}/read`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ read: 'not-a-boolean' });
+      expect(badBodyRes.status).toBe(400);
+
+      // Mark as read with { read: true }
       const readRes = await request(app.getHttpServer())
         .patch(`/api/v1/notifications/${notifId}/read`)
-        .set('Authorization', `Bearer ${candidateToken}`);
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ read: true });
 
       expect(readRes.status).toBe(200);
       expect(readRes.body.data.readAt).not.toBeNull();
+      expect(readRes.body.data.userId).toBeUndefined();
+
+      // Deterministic replay with { read: true }
+      const replayRes = await request(app.getHttpServer())
+        .patch(`/api/v1/notifications/${notifId}/read`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ read: true });
+      expect(replayRes.status).toBe(200);
+      expect(replayRes.body.data.readAt).toBe(readRes.body.data.readAt);
+
+      // Mark unread with { read: false }
+      const unreadRes = await request(app.getHttpServer())
+        .patch(`/api/v1/notifications/${notifId}/read`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ read: false });
+      expect(unreadRes.status).toBe(200);
+      expect(unreadRes.body.data.readAt).toBeNull();
+
+      // Deterministic replay with { read: false }
+      const replayUnreadRes = await request(app.getHttpServer())
+        .patch(`/api/v1/notifications/${notifId}/read`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ read: false });
+      expect(replayUnreadRes.status).toBe(200);
+      expect(replayUnreadRes.body.data.readAt).toBeNull();
+
+      // Reject malformed cursor on GET
+      const badCursorRes = await request(app.getHttpServer())
+        .get('/api/v1/notifications?cursor=malformed-cursor@@!')
+        .set('Authorization', `Bearer ${candidateToken}`);
+      expect(badCursorRes.status).toBe(400);
+      expect(badCursorRes.body.error.code).toBe(ERROR_CODES.INVALID_CURSOR);
+
+      // Reject invalid boolean query parameter
+      const badBoolRes = await request(app.getHttpServer())
+        .get('/api/v1/notifications?read=invalid-bool')
+        .set('Authorization', `Bearer ${candidateToken}`);
+      expect(badBoolRes.status).toBe(400);
+      expect(badBoolRes.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+
+      // Reject invalid limit query parameter
+      const badLimitRes = await request(app.getHttpServer())
+        .get('/api/v1/notifications?limit=0')
+        .set('Authorization', `Bearer ${candidateToken}`);
+      expect(badLimitRes.status).toBe(400);
+      expect(badLimitRes.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
     });
   });
 
@@ -320,6 +434,13 @@ describe('Phase 5: CVs, Interviews, and Notifications (E2E)', () => {
       expect(cvInDb).toBeDefined();
       expect(cvInDb.processingStatus).toBe('DELETED');
       expect(cvInDb.isDefault).toBe(false);
+
+      // Verify CandidateProfile.defaultCvId is cleared because no other READY CV exists
+      const profileRes = await request(app.getHttpServer())
+        .get('/api/v1/candidates/me')
+        .set('Authorization', `Bearer ${candidateToken}`);
+      expect(profileRes.status).toBe(200);
+      expect(profileRes.body.data.defaultCvId).toBeNull();
     });
   });
 });

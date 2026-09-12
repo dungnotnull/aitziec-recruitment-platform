@@ -15,7 +15,7 @@ const SENSITIVE_KEYS = new Set([
   'apikey',
 ]);
 
-export function redactSensitiveData(obj: any): any {
+export function redactSensitiveData<T = unknown>(obj: T): T {
   if (obj === null || obj === undefined) {
     return obj;
   }
@@ -24,11 +24,11 @@ export function redactSensitiveData(obj: any): any {
   }
 
   if (Array.isArray(obj)) {
-    return obj.map((item) => redactSensitiveData(item));
+    return obj.map((item) => redactSensitiveData(item)) as unknown as T;
   }
 
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
     const lowerKey = key.toLowerCase();
     if (SENSITIVE_KEYS.has(lowerKey)) {
       result[key] = '[REDACTED]';
@@ -38,36 +38,36 @@ export function redactSensitiveData(obj: any): any {
       result[key] = value;
     }
   }
-  return result;
+  return result as T;
 }
 
 @Injectable()
 export class StructuredLogger implements LoggerService {
   private serviceName = 'itziec-api';
 
-  log(message: any, ...optionalParams: any[]) {
+  log(message: unknown, ...optionalParams: unknown[]) {
     this.print('info', message, optionalParams);
   }
 
-  error(message: any, ...optionalParams: any[]) {
+  error(message: unknown, ...optionalParams: unknown[]) {
     this.print('error', message, optionalParams);
   }
 
-  warn(message: any, ...optionalParams: any[]) {
+  warn(message: unknown, ...optionalParams: unknown[]) {
     this.print('warn', message, optionalParams);
   }
 
-  debug(message: any, ...optionalParams: any[]) {
+  debug(message: unknown, ...optionalParams: unknown[]) {
     this.print('debug', message, optionalParams);
   }
 
-  verbose(message: any, ...optionalParams: any[]) {
+  verbose(message: unknown, ...optionalParams: unknown[]) {
     this.print('verbose', message, optionalParams);
   }
 
-  private print(level: string, message: any, optionalParams: any[]) {
+  private print(level: string, message: unknown, optionalParams: unknown[]) {
     let context = 'App';
-    let meta: Record<string, any> = {};
+    let meta: Record<string, unknown> = {};
 
     if (optionalParams.length > 0) {
       const lastParam = optionalParams[optionalParams.length - 1];
@@ -75,7 +75,7 @@ export class StructuredLogger implements LoggerService {
         context = lastParam;
       }
       if (typeof optionalParams[0] === 'object' && optionalParams[0] !== null) {
-        meta = redactSensitiveData(optionalParams[0]);
+        meta = redactSensitiveData(optionalParams[0]) as Record<string, unknown>;
       }
     }
 

@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Buffer } from 'node:buffer';
@@ -16,28 +17,46 @@ import { CvNotReadyException } from './errors/ai.errors';
 import { CreateCvJobAnalysisDto } from './dto/create-analysis.dto';
 import { AiAnalysisDto, ScoreComponentDto } from './dto/ai-analysis.dto';
 import { OperationDto } from './dto/operation.dto';
-import { RecommendationQueryDto } from './dto/recommendation.dto';
+import { RecommendationQueryDto, RecommendedJobDto } from './dto/recommendation.dto';
 import {
   RecommendationPreferenceDto,
   UpdateRecommendationPreferenceDto,
 } from './dto/recommendation-preference.dto';
 import { CollectionResponse } from '../common/dto/response.dto';
-import { JobDto } from '../jobs/dto/job.dto';
 import { JobsService } from '../jobs/jobs.service';
 import { AiMetricsService } from './metrics/ai-metrics.service';
+import { QueueService, QUEUES } from '../queues/queue.service';
+import { OutboxService } from '../outbox/outbox.service';
+import {
+  Prisma,
+  AiAnalysis,
+  CandidateProfile,
+  Company,
+  Cv,
+  Job,
+  Operation,
+  RecommendationPreference,
+} from '@prisma/client';
+import { IdempotencyService, ClaimResult } from '../idempotency';
 
 @Injectable()
 export class AiService {
+  private readonly logger = new Logger(AiService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly jobsService: JobsService,
     private readonly metricsService: AiMetricsService,
+    private readonly queueService: QueueService,
+    private readonly outboxService: OutboxService,
+    private readonly idempotencyService: IdempotencyService,
     @Inject(AI_PROVIDER_PORT) private readonly aiProvider: IAiProviderPort,
   ) {}
 
   /**
-   * Request an asynchronous CV-Job evaluation (BE-6-008, BE-6-011).
+   * Request an asynchronous CV-Job evaluation (BE-6-008, BE-6-011, BE-10-010).
+   * Returns 202 immediately with QUEUED operation; analysis executes via BullMQ worker.
    * Advisory only: does NOT modify application status (BE-6-012).
    */
   async createCvJobAnalysis(
@@ -46,167 +65,128 @@ export class AiService {
     requestId?: string,
     idempotencyKey?: string,
   ): Promise<OperationDto> {
-    // 1. Check idempotency if key provided
+    const sortedAnalyses = [...dto.analyses].sort();
+
+    // 1. Idempotency claim / replay
+    let claim: ClaimResult | null = null;
     if (idempotencyKey) {
-      const existingOp = await this.prisma.operation.findFirst({
-        where: { userId: user.id, idempotencyKey },
+      claim = await this.idempotencyService.claimOrReplay({
+        actorId: user.id,
+        method: 'POST',
+        route: '/api/v1/ai/cv-job-analyses',
+        key: idempotencyKey,
+        params: {
+          cvId: dto.cvId,
+          jobId: dto.jobId,
+          analyses: sortedAnalyses,
+        },
       });
-      if (existingOp) {
-        return this.mapOperationToDto(existingOp);
+
+      if (claim.type === 'REPLAY') {
+        return claim.responseBody as OperationDto;
       }
     }
 
-    // 2. Fetch CV and verify readiness
-    const cv = await this.prisma.cv.findUnique({
-      where: { id: dto.cvId },
-      include: { candidateProfile: true },
-    });
-
-    if (!cv || cv.processingStatus === 'DELETED') {
-      throw new NotFoundException({
-        code: ERROR_CODES.RESOURCE_NOT_FOUND,
-        message: 'CV not found.',
-      });
-    }
-
-    if (cv.processingStatus !== 'READY') {
-      throw new CvNotReadyException();
-    }
-
-    // 3. Fetch Job
-    const job = await this.prisma.job.findUnique({
-      where: { id: dto.jobId },
-      include: { company: true },
-    });
-
-    if (!job) {
-      throw new NotFoundException({
-        code: ERROR_CODES.RESOURCE_NOT_FOUND,
-        message: 'Job not found.',
-      });
-    }
-
-    // 4. Authorization Matrix (BE-6-010)
-    await this.authorizeAnalysisCreation(user, cv, job);
-
-    // 5. Create Operation record
-    const operation = await this.prisma.operation.create({
-      data: {
-        userId: user.id,
-        type: 'CV_JOB_ANALYSIS',
-        status: 'PROCESSING',
-        progressPercent: 25,
-        idempotencyKey,
-      },
-    });
-
-    this.metricsService.acquireSlot(user.id);
-    const startTime = Date.now();
-
     try {
-      const cvText = cv.extractedText || '';
-      const matchResult = await this.aiProvider.matchCvJob(
-        cvText,
-        job.title,
-        job.description,
-        job.requirements,
-        job.technologyNames || [],
-      );
+      // 2. Load CV and verify READY status
+      const cv = await this.prisma.cv.findUnique({
+        where: { id: dto.cvId },
+        include: { candidateProfile: true },
+      });
 
-      let gapResult: any = null;
-      if (dto.analyses.includes('CV_GAP_ANALYSIS')) {
-        gapResult = await this.aiProvider.gapAnalysisCvJob(
-          cvText,
-          job.title,
-          job.description,
-          job.requirements,
-          job.technologyNames || [],
+      if (!cv || cv.processingStatus === 'DELETED') {
+        throw new NotFoundException({
+          code: ERROR_CODES.RESOURCE_NOT_FOUND,
+          message: 'CV not found.',
+        });
+      }
+
+      if (cv.processingStatus !== 'READY') {
+        throw new CvNotReadyException();
+      }
+
+      // 3. Load Job
+      const job = await this.prisma.job.findUnique({
+        where: { id: dto.jobId },
+        include: { company: true },
+      });
+
+      if (!job) {
+        throw new NotFoundException({
+          code: ERROR_CODES.RESOURCE_NOT_FOUND,
+          message: 'Job not found.',
+        });
+      }
+
+      // 4. Authorization Matrix (BE-6-010)
+      await this.authorizeAnalysisCreation(user, cv, job);
+
+      // 5. Atomically persist QUEUED Operation and Outbox event
+      const operation = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const op = await tx.operation.create({
+          data: {
+            userId: user.id,
+            type: 'CV_JOB_ANALYSIS',
+            status: 'QUEUED',
+            progressPercent: 0,
+            idempotencyKey,
+          },
+        });
+
+        await this.outboxService.recordEvent(tx, {
+          eventName: 'CvJobAnalysisQueued',
+          aggregateType: 'Operation',
+          aggregateId: op.id,
+          payload: {
+            operationId: op.id,
+            cvId: cv.id,
+            jobId: job.id,
+            analyses: sortedAnalyses,
+          },
+          requestId,
+          actorId: user.id,
+        });
+
+        return op;
+      });
+
+      // 6. Direct queue enqueue attempt with outbox fallback
+      try {
+        await this.queueService.addJob(
+          QUEUES.AI_ANALYSIS,
+          'cv-job-analysis',
+          {
+            operationId: operation.id,
+            cvId: cv.id,
+            jobId: job.id,
+            analyses: sortedAnalyses,
+            actorId: user.id,
+            requestId,
+          },
+          {
+            jobId: `ai-analysis:${operation.id}`,
+          },
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Immediate BullMQ enqueue failed for analysis operation ${operation.id}: ${msg}. Outbox dispatcher will deliver job when queue is restored.`,
         );
       }
 
-      // Determine analysis primary type
-      let analysisType: 'CV_JOB_MATCH' | 'CV_GAP_ANALYSIS' | 'CV_JOB_ANALYSIS' = 'CV_JOB_ANALYSIS';
-      if (dto.analyses.length === 1) {
-        analysisType = dto.analyses[0];
+      const responseDto = this.mapOperationToDto(operation);
+
+      // 7. Complete idempotency claim
+      if (claim) {
+        await this.idempotencyService.complete(claim.recordId, 202, responseDto);
       }
 
-      const createdAnalysis = await this.prisma.aiAnalysis.create({
-        data: {
-          type: analysisType,
-          candidateId: cv.candidateProfileId,
-          cvId: cv.id,
-          jobId: job.id,
-          status: 'SUCCEEDED',
-          overallScore: matchResult.overallScore,
-          components: matchResult.components as any,
-          matchedSkills: matchResult.matchedSkills,
-          missingSkills: gapResult ? gapResult.missingSkills : matchResult.missingSkills,
-          unmetRequirements: gapResult ? gapResult.unmetRequirements : [],
-          suggestions: gapResult ? gapResult.suggestions : [],
-          limitations: gapResult ? gapResult.limitations : [],
-          model: matchResult.model,
-          promptVersion: matchResult.promptVersion,
-          schemaVersion: matchResult.schemaVersion,
-        },
-      });
-
-      // Update operation as completed
-      const updatedOp = await this.prisma.operation.update({
-        where: { id: operation.id },
-        data: {
-          status: 'SUCCEEDED',
-          progressPercent: 100,
-          resultResourceType: 'AI_ANALYSIS',
-          resultResourceId: createdAnalysis.id,
-          completedAt: new Date(),
-        },
-      });
-
-      this.metricsService.recordMetric({
-        model: matchResult.model,
-        operation: 'CV_JOB_ANALYSIS',
-        durationMs: Date.now() - startTime,
-        status: 'SUCCESS',
-        estimatedTokens: Math.round(cvText.length / 4) + 500,
-      });
-
-      await this.auditService.record({
-        actorId: user.id,
-        action: 'AI_ANALYSIS_COMPLETED',
-        targetType: 'AiAnalysis',
-        targetId: createdAnalysis.id,
-        requestId,
-        metadata: {
-          cvId: cv.id,
-          jobId: job.id,
-          overallScore: createdAnalysis.overallScore,
-        },
-      });
-
-      return this.mapOperationToDto(updatedOp);
-    } catch (err: any) {
-      this.metricsService.recordMetric({
-        model: 'unknown',
-        operation: 'CV_JOB_ANALYSIS',
-        durationMs: Date.now() - startTime,
-        status: 'FAILURE',
-        estimatedTokens: 0,
-      });
-
-      const failedOp = await this.prisma.operation.update({
-        where: { id: operation.id },
-        data: {
-          status: 'FAILED',
-          progressPercent: 100,
-          failureCode: err.response?.code || 'AI_PROCESSING_FAILED',
-          failureMessage: err.message || 'AI processing encountered an error',
-          completedAt: new Date(),
-        },
-      });
-
-      return this.mapOperationToDto(failedOp);
-    } finally {
-      this.metricsService.releaseSlot();
+      return responseDto;
+    } catch (err: unknown) {
+      if (claim) {
+        await this.idempotencyService.fail(claim.recordId).catch(() => {});
+      }
+      throw err;
     }
   }
 
@@ -283,7 +263,7 @@ export class AiService {
         });
       }
       return { score, jobId };
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof BadRequestException) throw err;
       throw new BadRequestException({
         code: ERROR_CODES.INVALID_CURSOR,
@@ -305,7 +285,7 @@ export class AiService {
   async getJobRecommendations(
     user: AuthenticatedUser,
     query: RecommendationQueryDto,
-  ): Promise<CollectionResponse<JobDto>> {
+  ): Promise<CollectionResponse<RecommendedJobDto>> {
     const limit = query.limit ?? 20;
 
     // 0. Kiểm tra tùy chọn gợi ý / trạng thái từ chối của ứng viên (BE-8-021)
@@ -323,7 +303,7 @@ export class AiService {
             hasNextPage: false,
             limit,
           },
-        } as any,
+        },
       };
     }
 
@@ -346,7 +326,7 @@ export class AiService {
       where: { candidateId: candidateProfile.id },
       select: { jobId: true },
     });
-    const appliedJobIds = new Set(existingApplications.map((a: any) => a.jobId));
+    const appliedJobIds = new Set(existingApplications.map((a: { jobId: string }) => a.jobId));
 
     // 2. Truy vấn các công việc PUBLISHED thuộc các công ty ACTIVE (BE-8-022)
     const publishedJobs = await this.prisma.job.findMany({
@@ -359,7 +339,7 @@ export class AiService {
     });
 
     // 3. Lọc bỏ các công việc đã nộp hoặc công ty không ACTIVE
-    const eligibleJobs = publishedJobs.filter((j: any) => {
+    const eligibleJobs = publishedJobs.filter((j) => {
       if (appliedJobIds.has(j.id)) return false;
       if (j.company && j.company.status !== 'ACTIVE') return false;
       return true;
@@ -374,7 +354,7 @@ export class AiService {
     }
 
     // 5. Tính điểm công việc với cơ chế phòng thủ dữ liệu null-safe (BE-8-022, BE-9-004)
-    const scoredJobs = eligibleJobs.map((job: any) => {
+    const scoredJobs = eligibleJobs.map((job) => {
       let score = 50; // Điểm cơ bản cho công việc hợp lệ
       const reasonCodes: string[] = ['ACTIVE_ELIGIBLE_JOB'];
       const evidence: string[] = ['Job is currently published and open for applications'];
@@ -462,21 +442,20 @@ export class AiService {
       data: pageItems.map((item) => {
         const jobDto = this.jobsService.mapToDto(item.job);
         return {
-          ...jobDto,
           job: jobDto,
           score: item.score,
           reasonCodes: item.reasonCodes,
           evidence: item.evidence,
           limitations: item.limitations,
         };
-      }) as any,
+      }),
       meta: {
         page: {
           nextCursor,
           hasNextPage: hasMore,
           limit,
         },
-      } as any,
+      },
     };
   }
 
@@ -557,7 +536,7 @@ export class AiService {
     return this.mapPreferenceToDto(updated);
   }
 
-  private mapPreferenceToDto(pref: any): RecommendationPreferenceDto {
+  private mapPreferenceToDto(pref: RecommendationPreference): RecommendationPreferenceDto {
     return {
       id: pref.id,
       userId: pref.userId,
@@ -574,8 +553,8 @@ export class AiService {
 
   private async authorizeAnalysisCreation(
     user: AuthenticatedUser,
-    cv: any,
-    job: any,
+    cv: Cv & { candidateProfile?: CandidateProfile | null },
+    job: Job & { company?: Company | null },
   ): Promise<void> {
     if (user.role === 'ADMIN') return;
 
@@ -612,7 +591,10 @@ export class AiService {
     });
   }
 
-  private async authorizeAnalysisRead(user: AuthenticatedUser, analysis: any): Promise<void> {
+  private async authorizeAnalysisRead(
+    user: AuthenticatedUser,
+    analysis: AiAnalysis & { candidate?: CandidateProfile | null; job?: Job | null },
+  ): Promise<void> {
     if (user.role === 'ADMIN') return;
 
     if (user.role === 'CANDIDATE') {
@@ -649,15 +631,16 @@ export class AiService {
 
   // --- DTO MAPPERS ---
 
-  public mapOperationToDto(op: any): OperationDto {
+  public mapOperationToDto(op: Operation): OperationDto {
     return {
       id: op.id,
       type: op.type,
       status: op.status,
       progressPercent: op.progressPercent ?? null,
-      resultResource: op.resultResourceType
-        ? { type: op.resultResourceType, id: op.resultResourceId }
-        : null,
+      resultResource:
+        op.resultResourceType && op.resultResourceId
+          ? { type: op.resultResourceType, id: op.resultResourceId }
+          : null,
       failure: op.failureCode ? { code: op.failureCode, message: op.failureMessage || '' } : null,
       createdAt: op.createdAt.toISOString(),
       updatedAt: op.updatedAt.toISOString(),
@@ -665,14 +648,24 @@ export class AiService {
     };
   }
 
-  public mapAnalysisToDto(analysis: any): AiAnalysisDto {
+  public mapAnalysisToDto(analysis: AiAnalysis): AiAnalysisDto {
     const rawComponents = Array.isArray(analysis.components)
-      ? analysis.components
+      ? (analysis.components as unknown as Array<{
+          name: 'SKILLS' | 'EXPERIENCE' | 'REQUIREMENTS' | 'KEYWORDS';
+          score: number;
+          weight: number;
+          evidence?: string[];
+        }>)
       : typeof analysis.components === 'string'
-        ? JSON.parse(analysis.components)
+        ? (JSON.parse(analysis.components) as Array<{
+            name: 'SKILLS' | 'EXPERIENCE' | 'REQUIREMENTS' | 'KEYWORDS';
+            score: number;
+            weight: number;
+            evidence?: string[];
+          }>)
         : [];
 
-    const components: ScoreComponentDto[] = rawComponents.map((c: any) => ({
+    const components: ScoreComponentDto[] = rawComponents.map((c) => ({
       name: c.name,
       score: c.score,
       weight: c.weight,

@@ -121,8 +121,8 @@ export class SavedJobsService {
     const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].id : null;
 
     const mappedJobs: JobDto[] = items
-      .filter((s: any) => s.job)
-      .map((s: any) => this.jobsService.mapToDto(s.job));
+      .filter((s) => s.job)
+      .map((s) => this.jobsService.mapToDto(s.job));
 
     return {
       data: mappedJobs,
@@ -132,7 +132,7 @@ export class SavedJobsService {
           hasNextPage: hasMore,
           limit,
         },
-      } as any,
+      },
     };
   }
 }

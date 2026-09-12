@@ -10,6 +10,7 @@ import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.fil
 import { ContractValidationPipe } from '../../src/common/pipes/contract-validation.pipe';
 import { ResponseTransformInterceptor } from '../../src/common/interceptors/response-transform.interceptor';
 import { ERROR_CODES } from '../../src/common/constants/error-codes';
+import { CvJobAnalysisProcessor } from '../../src/ai/workers/cv-job-analysis.processor';
 
 describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
   let app: INestApplication;
@@ -183,12 +184,28 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
       expect(res.status).toBe(202);
       expect(res.body.data).toBeDefined();
       expect(res.body.data.type).toBe('CV_JOB_ANALYSIS');
-      expect(['QUEUED', 'PROCESSING', 'SUCCEEDED']).toContain(res.body.data.status);
-      expect(res.body.data.resultResource).toBeDefined();
-      expect(res.body.data.resultResource.type).toBe('AI_ANALYSIS');
+      expect(res.body.data.status).toBe('QUEUED');
+      expect(res.body.data.progressPercent).toBe(0);
 
       operationId = res.body.data.id;
-      analysisId = res.body.data.resultResource.id;
+
+      // Asynchronous BullMQ worker processes the job (BE-10-010)
+      const processor = app.get(CvJobAnalysisProcessor);
+      await processor.processJob({
+        id: `ai-analysis:${operationId}`,
+        data: {
+          operationId,
+          cvId: readyCvId,
+          jobId,
+          analyses: ['CV_JOB_MATCH', 'CV_GAP_ANALYSIS'],
+        },
+      } as any);
+
+      const opRecord = await inMemoryPrisma.operation.findUnique({
+        where: { id: operationId },
+      });
+      expect(opRecord?.status).toBe('SUCCEEDED');
+      analysisId = opRecord?.resultResourceId ?? '';
     });
 
     it('handles idempotency key replay safely', async () => {
@@ -280,7 +297,17 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
       expect(res.body.data).toBeDefined();
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.meta.page).toBeDefined();
-      expect(res.body.data.some((j: any) => j.id === jobId)).toBe(true);
+      expect(res.body.data.some((j: any) => j.job?.id === jobId)).toBe(true);
+
+      // Exact-key verification: only job, score, reasonCodes, evidence, limitations
+      const firstItem = res.body.data[0];
+      expect(Object.keys(firstItem).sort()).toEqual(
+        ['evidence', 'job', 'limitations', 'reasonCodes', 'score'].sort(),
+      );
+      expect(firstItem.id).toBeUndefined();
+      expect(firstItem.title).toBeUndefined();
+      expect(firstItem.slug).toBeUndefined();
+      expect(firstItem.companyId).toBeUndefined();
     });
 
     it('excludes jobs that candidate has already applied to', async () => {
@@ -297,7 +324,7 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
         .set('Authorization', `Bearer ${candidateToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.data.some((j: any) => j.id === jobId)).toBe(false);
+      expect(res.body.data.some((j: any) => j.job?.id === jobId)).toBe(false);
     });
 
     it('rejects non-candidate roles with 403 Forbidden', async () => {

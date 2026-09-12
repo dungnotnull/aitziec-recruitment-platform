@@ -131,7 +131,7 @@ export class GeminiAdapter implements IAiProviderPort {
   public async callGeminiWithRetry(prompt: string): Promise<string> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelName}:generateContent?key=${this.apiKey}`;
 
-    let lastError: any = null;
+    let lastError: unknown = null;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       if (attempt > 0) {
@@ -171,14 +171,16 @@ export class GeminiAdapter implements IAiProviderPort {
           throw new AiUpstreamUnavailableException(`Provider error: ${errText.substring(0, 200)}`);
         }
 
-        const data: any = await response.json();
+        const data = (await response.json()) as {
+          candidates?: { content?: { parts?: { text?: string }[] } }[];
+        };
         const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!candidateText) {
           throw new AiOutputInvalidException('No text content returned from Gemini.');
         }
 
         return candidateText;
-      } catch (err: any) {
+      } catch (err: unknown) {
         clearTimeout(timer);
         lastError = err;
 
@@ -186,7 +188,7 @@ export class GeminiAdapter implements IAiProviderPort {
           throw err;
         }
 
-        if (err.name === 'AbortError') {
+        if ((err as Error)?.name === 'AbortError') {
           lastError = new AiUpstreamUnavailableException('Gemini request timed out.');
         }
 
@@ -197,15 +199,16 @@ export class GeminiAdapter implements IAiProviderPort {
       }
     }
 
-    throw (
-      lastError || new AiUpstreamUnavailableException('Failed to communicate with AI provider.')
-    );
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
+    throw new AiUpstreamUnavailableException('Failed to communicate with AI provider.');
   }
 
   /**
    * Safely parses JSON from LLM response text (handling code blocks if present).
    */
-  public parseJsonFromLlm(raw: string): any {
+  public parseJsonFromLlm(raw: string): Record<string, unknown> {
     try {
       let cleaned = raw.trim();
       if (cleaned.startsWith('```json')) {
@@ -213,7 +216,7 @@ export class GeminiAdapter implements IAiProviderPort {
       } else if (cleaned.startsWith('```')) {
         cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
       }
-      return JSON.parse(cleaned);
+      return JSON.parse(cleaned) as Record<string, unknown>;
     } catch {
       throw new AiOutputInvalidException('Malformed JSON received from AI provider.');
     }

@@ -11,6 +11,8 @@ import { ContractValidationPipe } from '../../src/common/pipes/contract-validati
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import { ResponseTransformInterceptor } from '../../src/common/interceptors/response-transform.interceptor';
 import { ERROR_CODES } from '../../src/common/constants/error-codes';
+import { EmailService } from '../../src/email/email.service';
+import { NotificationsService } from '../../src/notifications/notifications.service';
 
 describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
   let app: INestApplication;
@@ -309,6 +311,97 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
       );
       expect(outbox).toBeDefined();
       expect(outbox.payload.email).toBe('unregistered-guest@itziec.com');
+      // Prove neither outbox payload nor audit contains plaintext token or encryption secret
+      expect(outbox.payload.token).toBeUndefined();
+      expect(outbox.payload.tokenHash).toBeUndefined();
+      expect(outbox.payload.encryptedToken).toBeUndefined();
+
+      // Verify CompanyInvitationDeliverySecret row in database snapshot
+      const secretRow = inMemoryPrisma.companyInvitationDeliverySecrets.find(
+        (s) => s.invitationId === res.body.data.id,
+      );
+      expect(secretRow).toBeDefined();
+      expect(secretRow.encryptedToken).toBeDefined();
+      expect(typeof secretRow.encryptedToken).toBe('string');
+      expect(secretRow.iv).toBeDefined();
+      expect(secretRow.authTag).toBeDefined();
+      // Must be ciphertext, never plaintext
+      expect(secretRow.token).toBeUndefined();
+    });
+
+    it('delivers invitation email with accept URL, recipient accepts with 201, and secret row is deleted', async () => {
+      // 1. Create invitation for another unregistered guest
+      const inviteRes = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/members`)
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .send({
+          userEmail: 'flow-invitee@itziec.com',
+          role: 'RECRUITER',
+        })
+        .expect(202);
+
+      const invitationId = inviteRes.body.data.id;
+      const secretBefore = inMemoryPrisma.companyInvitationDeliverySecrets.find(
+        (s) => s.invitationId === invitationId,
+      );
+      expect(secretBefore).toBeDefined();
+
+      // 2. Mock or capture email delivery
+      let deliveredAcceptUrl = '';
+      const emailService = app.get(EmailService);
+      emailService.sendEmail = jest.fn().mockImplementation(async (opts) => {
+        const match = opts.text.match(/\/company-invitations\/([a-f0-9]+)\/accept/);
+        if (match) {
+          deliveredAcceptUrl = match[0];
+        }
+        return { success: true, messageId: 'mock-sent' };
+      });
+
+      // 3. Deliver invitation via NotificationsService
+      const notificationsService = app.get(NotificationsService);
+      await notificationsService.routeEvent('CompanyInvitationCreated', {
+        companyId,
+        companyName: 'Test Company',
+        email: 'flow-invitee@itziec.com',
+        role: 'RECRUITER',
+        invitedById: 'owner-id',
+        invitationId,
+      });
+
+      expect(deliveredAcceptUrl).toMatch(/\/company-invitations\/[a-f0-9]{64}\/accept/);
+      const tokenMatch = deliveredAcceptUrl.match(/\/company-invitations\/([a-f0-9]{64})\/accept/);
+      expect(tokenMatch).not.toBeNull();
+      const rawToken = tokenMatch![1];
+
+      // Delivery secret row must be deleted after confirmed delivery
+      const secretAfter = inMemoryPrisma.companyInvitationDeliverySecrets.find(
+        (s) => s.invitationId === invitationId,
+      );
+      expect(secretAfter).toBeUndefined();
+
+      // 4. Invitee registers account
+      const registerRes = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+        email: 'flow-invitee@itziec.com',
+        password: 'Password123!@#',
+        role: 'HR',
+      });
+      const inviteeToken = registerRes.body.data.accessToken;
+
+      // 5. Invitee calls accept endpoint using token from email
+      const acceptRes = await request(app.getHttpServer())
+        .post(`/api/v1/company-invitations/${rawToken}/accept`)
+        .set('Authorization', `Bearer ${inviteeToken}`)
+        .expect(201);
+
+      expect(acceptRes.body.data.role).toBe('RECRUITER');
+      expect(acceptRes.body.data.companyId).toBe(companyId);
+      expect(acceptRes.body.data.user.email).toBe('flow-invitee@itziec.com');
+
+      // Replay acceptance is rejected
+      await request(app.getHttpServer())
+        .post(`/api/v1/company-invitations/${rawToken}/accept`)
+        .set('Authorization', `Bearer ${inviteeToken}`)
+        .expect(409);
     });
 
     it('POST /api/v1/companies/:companyId/members rejects duplicate pending invitation with 409 INVITATION_ALREADY_PENDING', async () => {

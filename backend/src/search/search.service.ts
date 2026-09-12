@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { ExperienceLevel, EmploymentType, WorkplaceType } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { JobsService } from '../jobs/jobs.service';
@@ -77,15 +78,15 @@ export class SearchService {
         ...(query.companyId && { companyId: query.companyId }),
         ...(query.experienceLevel &&
           query.experienceLevel.length > 0 && {
-            experienceLevel: { in: query.experienceLevel as any },
+            experienceLevel: { in: query.experienceLevel as ExperienceLevel[] },
           }),
         ...(query.employmentType &&
           query.employmentType.length > 0 && {
-            employmentType: { in: query.employmentType as any },
+            employmentType: { in: query.employmentType as EmploymentType[] },
           }),
         ...(query.workplaceType &&
           query.workplaceType.length > 0 && {
-            workplaceType: { in: query.workplaceType as any },
+            workplaceType: { in: query.workplaceType as WorkplaceType[] },
           }),
         ...(query.publishedAfter && {
           publishedAt: { gte: new Date(query.publishedAfter) },
@@ -95,7 +96,7 @@ export class SearchService {
     });
 
     // In-memory filter for text, arrays, salary range
-    const filtered = rawJobs.filter((job: any) => {
+    const filtered = rawJobs.filter((job) => {
       // Full-text query match
       if (normalizedQ) {
         const words = normalizedQ.toLowerCase().split(' ').filter(Boolean);
@@ -144,7 +145,7 @@ export class SearchService {
     });
 
     // Deterministic sorting (BE-3-012)
-    filtered.sort((a: any, b: any) => {
+    filtered.sort((a, b) => {
       if (sort === 'NEWEST') {
         const timeA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
         const timeB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
@@ -179,7 +180,7 @@ export class SearchService {
     // Opaque cursor pagination (BE-3-013)
     let startIndex = 0;
     if (decodedCursor) {
-      const idx = filtered.findIndex((j: any) => j.id === decodedCursor.id);
+      const idx = filtered.findIndex((j) => j.id === decodedCursor.id);
       if (idx !== -1) {
         startIndex = idx + 1;
       }
@@ -191,22 +192,23 @@ export class SearchService {
 
     let nextCursor: string | null = null;
     if (hasMore && lastItem) {
-      let sortVal: any = null;
-      if (sort === 'NEWEST') sortVal = lastItem.publishedAt;
+      let sortVal: string | number | null = null;
+      if (sort === 'NEWEST')
+        sortVal = lastItem.publishedAt ? lastItem.publishedAt.toISOString() : null;
       else if (sort === 'SALARY_ASC') sortVal = lastItem.salaryMin;
       else if (sort === 'SALARY_DESC') sortVal = lastItem.salaryMax;
       nextCursor = this.encodeCursor(lastItem.id, sortVal);
     }
 
     const response: CollectionResponse<JobDto> = {
-      data: pageItems.map((j: any) => this.jobsService.mapToDto(j)),
+      data: pageItems.map((j) => this.jobsService.mapToDto(j)),
       meta: {
         page: {
           nextCursor,
           hasNextPage: hasMore,
           limit,
         },
-      } as any,
+      },
     };
 
     // Cache results for 60s
@@ -215,9 +217,9 @@ export class SearchService {
     return response;
   }
 
-  async parseSearchQuery(dto: ParseSearchQueryDto): Promise<Record<string, any>> {
+  async parseSearchQuery(dto: ParseSearchQueryDto): Promise<Record<string, unknown>> {
     const raw = dto.query.toLowerCase();
-    const result: Record<string, any> = {};
+    const result: Record<string, unknown> = {};
 
     // Detect workplace type
     if (raw.includes('remote')) result.workplaceType = ['REMOTE'];
@@ -285,8 +287,8 @@ export class SearchService {
   private generateCacheKey(query: JobSearchQueryDto): string {
     const sorted = Object.keys(query)
       .sort()
-      .reduce((acc: any, key: string) => {
-        acc[key] = (query as any)[key];
+      .reduce((acc: Record<string, unknown>, key: string) => {
+        acc[key] = (query as unknown as Record<string, unknown>)[key];
         return acc;
       }, {});
     const hash = crypto.createHash('md5').update(JSON.stringify(sorted)).digest('hex');
@@ -301,19 +303,21 @@ export class SearchService {
       if (cachedStr) {
         return JSON.parse(cachedStr);
       }
-    } catch (err: any) {
-      this.logger.debug(`Cache read error: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.debug(`Cache read error: ${msg}`);
     }
     return null;
   }
 
-  private async setInCache(key: string, data: any, ttlSeconds: number): Promise<void> {
+  private async setInCache(key: string, data: unknown, ttlSeconds: number): Promise<void> {
     try {
       const client = this.redisService.getClient();
       if (!client || client.status !== 'ready') return;
       await client.set(key, JSON.stringify(data), 'EX', ttlSeconds);
-    } catch (err: any) {
-      this.logger.debug(`Cache write error: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.debug(`Cache write error: ${msg}`);
     }
   }
 
@@ -325,8 +329,9 @@ export class SearchService {
       if (keys.length > 0) {
         await client.del(...keys);
       }
-    } catch (err: any) {
-      this.logger.debug(`Cache invalidation error: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.debug(`Cache invalidation error: ${msg}`);
     }
   }
 }

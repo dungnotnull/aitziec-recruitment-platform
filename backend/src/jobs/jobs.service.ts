@@ -5,7 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, Job, Company } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../companies/company-scope.service';
 import { AuditService } from '../audit/audit.service';
@@ -41,13 +41,13 @@ export class JobsService {
       .replace(/^-+|-+$/g, '');
   }
 
-  private toIso(date: any): string | null {
+  private toIso(date: Date | string | number | null | undefined): string | null {
     if (!date) return null;
     const d = date instanceof Date ? date : new Date(date);
     return isNaN(d.getTime()) ? null : d.toISOString();
   }
 
-  public mapToDto(job: any): JobDto {
+  public mapToDto(job: Job & { company?: Partial<Company> | null }): JobDto {
     return {
       id: job.id,
       company: {
@@ -598,7 +598,7 @@ export class JobsService {
     }
 
     let updatedStatus: 'UNPUBLISHED' | 'CLOSED';
-    const updateData: any = {
+    const updateData: Prisma.JobUpdateInput = {
       version: job.version + 1,
     };
 

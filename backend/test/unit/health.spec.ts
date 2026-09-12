@@ -62,4 +62,27 @@ describe('HealthController (BE-1-018)', () => {
       },
     });
   });
+
+  it('/health/ready returns 503 when encryption configuration is missing or invalid', async () => {
+    mockPrisma.isHealthy.mockResolvedValue(true);
+    mockRedis.isHealthy.mockResolvedValue(true);
+    const mockSecretAdapter = { isConfigured: jest.fn().mockReturnValue(false) };
+    const healthController = new HealthController(mockPrisma, mockRedis, mockSecretAdapter as any);
+
+    const jsonMock = jest.fn();
+    const statusMock = jest.fn().mockReturnValue({ json: jsonMock });
+    const resMock: any = { status: statusMock };
+
+    await healthController.checkReadiness(resMock);
+
+    expect(statusMock).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);
+    expect(jsonMock).toHaveBeenCalledWith({
+      status: 'unavailable',
+      checks: {
+        database: 'up',
+        redis: 'up',
+        encryption: 'down',
+      },
+    });
+  });
 });

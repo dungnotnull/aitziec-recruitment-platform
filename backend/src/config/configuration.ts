@@ -74,6 +74,11 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   CORS_ORIGINS: string = 'http://localhost:5173,http://localhost:3000';
+
+  @IsString()
+  @IsOptional()
+  INVITATION_TOKEN_ENCRYPTION_KEY: string =
+    process.env.INVITATION_TOKEN_ENCRYPTION_KEY || Buffer.alloc(32, 'a').toString('base64');
 }
 
 export function validateConfig(config: Record<string, unknown>): EnvironmentVariables {
@@ -103,6 +108,15 @@ export function validateConfig(config: Record<string, unknown>): EnvironmentVari
     throw new Error(
       `[ConfigValidation] Invalid application environment: ${sanitizedErrorMessages}`,
     );
+  }
+
+  if (config.INVITATION_TOKEN_ENCRYPTION_KEY) {
+    const buf = Buffer.from(String(config.INVITATION_TOKEN_ENCRYPTION_KEY), 'base64');
+    if (buf.length !== 32) {
+      throw new Error(
+        '[ConfigValidation] INVITATION_TOKEN_ENCRYPTION_KEY must be a valid base64 string decoding to exactly 32 bytes.',
+      );
+    }
   }
 
   return transformed;

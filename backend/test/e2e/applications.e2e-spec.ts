@@ -22,6 +22,8 @@ describe('Applications (E2E)', () => {
   let draftJobId = '';
   let closedJobId = '';
   let applicationId = '';
+  let cvIdA = '';
+  let unreadyCvIdA = '';
 
   beforeAll(async () => {
     inMemoryPrisma = new InMemoryPrismaService();
@@ -98,6 +100,36 @@ describe('Applications (E2E)', () => {
         fullName: 'Tran Candidate B',
         headline: 'Frontend Engineer',
       });
+
+    // Seed READY CV and unready CV for Candidate A
+    const profileA = inMemoryPrisma.candidateProfiles.find(
+      (cp) => cp.userId === candResA.body.data.user.id,
+    );
+    const cvA = await inMemoryPrisma.cv.create({
+      data: {
+        candidateProfileId: profileA.id,
+        originalFileName: 'cand-a.pdf',
+        sizeBytes: 1000,
+        checksumSha256: 'sha-cand-a',
+        storageKey: 'cvs/cand-a.pdf',
+        processingStatus: 'READY',
+        isDefault: true,
+      },
+    });
+    cvIdA = cvA.id;
+
+    const unreadyCvA = await inMemoryPrisma.cv.create({
+      data: {
+        candidateProfileId: profileA.id,
+        originalFileName: 'cand-a-unready.pdf',
+        sizeBytes: 1000,
+        checksumSha256: 'sha-cand-a-unready',
+        storageKey: 'cvs/cand-a-unready.pdf',
+        processingStatus: 'UPLOADED',
+        isDefault: false,
+      },
+    });
+    unreadyCvIdA = unreadyCvA.id;
 
     // 5. Create Company
     const compRes = await request(app.getHttpServer())
@@ -194,7 +226,7 @@ describe('Applications (E2E)', () => {
         .post(`/api/v1/jobs/${draftJobId}/applications`)
         .set('Authorization', `Bearer ${candidateTokenA}`)
         .send({
-          cvId: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
+          cvId: cvIdA,
         });
 
       expect(res.status).toBe(404);
@@ -206,11 +238,47 @@ describe('Applications (E2E)', () => {
         .post(`/api/v1/jobs/${closedJobId}/applications`)
         .set('Authorization', `Bearer ${candidateTokenA}`)
         .send({
-          cvId: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
+          cvId: cvIdA,
         });
 
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('JOB_NOT_OPEN');
+    });
+
+    it('BE-10-001 returns 404 RESOURCE_NOT_FOUND when CV does not exist', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${publishedJobId}/applications`)
+        .set('Authorization', `Bearer ${candidateTokenA}`)
+        .send({
+          cvId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('RESOURCE_NOT_FOUND');
+    });
+
+    it('BE-10-001 returns 404 RESOURCE_NOT_FOUND when candidate B submits candidate A CV (no existence leakage)', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${publishedJobId}/applications`)
+        .set('Authorization', `Bearer ${candidateTokenB}`)
+        .send({
+          cvId: cvIdA,
+        });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('RESOURCE_NOT_FOUND');
+    });
+
+    it('BE-10-001 returns 409 CV_NOT_READY when submitting with unready CV', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${publishedJobId}/applications`)
+        .set('Authorization', `Bearer ${candidateTokenA}`)
+        .send({
+          cvId: unreadyCvIdA,
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('CV_NOT_READY');
     });
   });
 
@@ -221,7 +289,7 @@ describe('Applications (E2E)', () => {
         .set('Authorization', `Bearer ${candidateTokenA}`)
         .set('Idempotency-Key', 'idemp-key-sub-001')
         .send({
-          cvId: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
+          cvId: cvIdA,
           candidateNote: 'Excited about this opportunity!',
         });
 
@@ -235,13 +303,59 @@ describe('Applications (E2E)', () => {
       applicationId = res.body.data.id;
     });
 
-    it('BE-4-002 & BE-4-006 rejects duplicate application from same candidate for same job', async () => {
+    it('BE-10-005 replays identical submission with same Idempotency-Key returning 201 without duplicate application', async () => {
       const res = await request(app.getHttpServer())
         .post(`/api/v1/jobs/${publishedJobId}/applications`)
         .set('Authorization', `Bearer ${candidateTokenA}`)
+        .set('Idempotency-Key', 'idemp-key-sub-001')
         .send({
-          cvId: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
-          candidateNote: 'Trying again',
+          cvId: cvIdA,
+          candidateNote: 'Excited about this opportunity!',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.id).toBe(applicationId);
+      expect(res.body.data.status).toBe(ApplicationStatus.APPLIED);
+      expect(res.body.data.version).toBe(1);
+      expect(res.body.data.candidateNote).toBe('Excited about this opportunity!');
+    });
+
+    it('BE-10-005 rejects reusing same Idempotency-Key with different payload with 409 IDEMPOTENCY_KEY_REUSED', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${publishedJobId}/applications`)
+        .set('Authorization', `Bearer ${candidateTokenA}`)
+        .set('Idempotency-Key', 'idemp-key-sub-001')
+        .send({
+          cvId: cvIdA,
+          candidateNote: 'Tampered note for same key',
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
+    });
+
+    it('BE-10-005 rejects invalid Idempotency-Key format with 400 VALIDATION_ERROR', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${publishedJobId}/applications`)
+        .set('Authorization', `Bearer ${candidateTokenA}`)
+        .set('Idempotency-Key', 'too-short')
+        .send({
+          cvId: cvIdA,
+          candidateNote: 'Short key test',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('BE-4-002 & BE-4-006 rejects duplicate application from same candidate for same job with different key', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${publishedJobId}/applications`)
+        .set('Authorization', `Bearer ${candidateTokenA}`)
+        .set('Idempotency-Key', 'idemp-key-sub-diff-002')
+        .send({
+          cvId: cvIdA,
+          candidateNote: 'Trying again with different key',
         });
 
       expect(res.status).toBe(409);
@@ -352,6 +466,7 @@ describe('Applications (E2E)', () => {
       const res = await request(app.getHttpServer())
         .post(`/api/v1/applications/${applicationId}/transitions`)
         .set('Authorization', `Bearer ${hrToken}`)
+        .set('Idempotency-Key', 'idemp-key-trans-001')
         .send({
           expectedVersion: 1,
           targetStatus: ApplicationStatus.REVIEWING,
@@ -364,6 +479,52 @@ describe('Applications (E2E)', () => {
       expect(res.body.data.history.length).toBe(2);
       expect(res.body.data.history[1].toStatus).toBe(ApplicationStatus.REVIEWING);
       expect(res.body.data.history[1].reason).toBe('Initial CV screening passed');
+    });
+
+    it('BE-10-005 replays identical transition with same Idempotency-Key returning 200 without duplicate status event', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${applicationId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .set('Idempotency-Key', 'idemp-key-trans-001')
+        .send({
+          expectedVersion: 1,
+          targetStatus: ApplicationStatus.REVIEWING,
+          reason: 'Initial CV screening passed',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe(ApplicationStatus.REVIEWING);
+      expect(res.body.data.version).toBe(2);
+      expect(res.body.data.history.length).toBe(2);
+    });
+
+    it('BE-10-005 rejects reusing transition Idempotency-Key with different payload with 409 IDEMPOTENCY_KEY_REUSED', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${applicationId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .set('Idempotency-Key', 'idemp-key-trans-001')
+        .send({
+          expectedVersion: 1,
+          targetStatus: ApplicationStatus.REJECTED,
+          reason: 'Different target status payload',
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
+    });
+
+    it('BE-10-005 rejects invalid transition Idempotency-Key format with 400 VALIDATION_ERROR', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${applicationId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .set('Idempotency-Key', 'short')
+        .send({
+          expectedVersion: 2,
+          targetStatus: ApplicationStatus.INTERVIEWING,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('successfully transitions REVIEWING -> INTERVIEWING (version: 2 -> 3)', async () => {

@@ -18,8 +18,11 @@ import { OutboxService } from '../outbox/outbox.service';
 import { CompanyScopeService } from '../companies/company-scope.service';
 import { QueueService, QUEUES } from '../queues/queue.service';
 import { ERROR_CODES } from '../common/constants/error-codes';
+import { Prisma, Cv, Operation } from '@prisma/client';
+import { CollectionResponse } from '../common/dto/response.dto';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { CvDto, CvQueryDto, OperationDto, SignedDownloadDto, UploadedCvFile } from './dto/cv.dto';
+import { IdempotencyService } from '../idempotency';
 
 interface CursorData {
   id: string;
@@ -37,6 +40,7 @@ export class CvsService {
     private readonly outboxService: OutboxService,
     private readonly companyScopeService: CompanyScopeService,
     private readonly queueService: QueueService,
+    private readonly idempotencyService: IdempotencyService,
   ) {}
 
   private toIso(date: Date | string | null | undefined): string | null {
@@ -118,97 +122,112 @@ export class CvsService {
     await this.storageService.uploadFile(storageKey, file.buffer, 'application/pdf');
 
     // 6. Atomically persist CV and QUEUED Operation
-    const { createdCv, createdOp } = await this.prisma.$transaction(async (tx: any) => {
-      const existingCvs = await tx.cv.findMany({
-        where: {
-          candidateProfileId: candidateProfile.id,
-          processingStatus: { not: 'DELETED' },
-        },
-      });
+    const { createdCv, createdOp } = await this.prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const existingCvs = await tx.cv.findMany({
+          where: {
+            candidateProfileId: candidateProfile.id,
+            processingStatus: { not: 'DELETED' },
+          },
+        });
 
-      const isDefault = existingCvs.length === 0;
+        const isDefault = existingCvs.length === 0;
 
-      const cv = await tx.cv.create({
-        data: {
-          candidateProfileId: candidateProfile.id,
-          originalFileName: file.originalname || 'document.pdf',
-          mimeType: 'application/pdf',
-          sizeBytes: file.size,
-          checksumSha256,
-          storageKey,
-          processingStatus: 'UPLOADED',
-          extractionAttempts: 1,
-          isDefault,
-          version: 1,
-        },
-      });
+        const cv = await tx.cv.create({
+          data: {
+            candidateProfileId: candidateProfile.id,
+            originalFileName: file.originalname || 'document.pdf',
+            mimeType: 'application/pdf',
+            sizeBytes: file.size,
+            checksumSha256,
+            storageKey,
+            processingStatus: 'UPLOADED',
+            extractionAttempts: 1,
+            isDefault,
+            version: 1,
+          },
+        });
 
-      const operation = await tx.operation.create({
-        data: {
-          userId: user.id,
-          type: 'CV_TEXT_EXTRACTION',
-          status: 'QUEUED',
-          progressPercent: 0,
-          resultResourceType: 'CV',
-          resultResourceId: cv.id,
-        },
-      });
+        if (isDefault) {
+          await tx.candidateProfile.update({
+            where: { id: candidateProfile.id },
+            data: { defaultCvId: cv.id },
+          });
+        }
 
-      await tx.cv.update({
-        where: { id: cv.id },
-        data: { latestOperationId: operation.id },
-      });
+        const operation = await tx.operation.create({
+          data: {
+            userId: user.id,
+            type: 'CV_TEXT_EXTRACTION',
+            status: 'QUEUED',
+            progressPercent: 0,
+            resultResourceType: 'CV',
+            resultResourceId: cv.id,
+          },
+        });
 
-      await this.auditService.record(
-        {
-          actorId: user.id,
-          action: 'CV_UPLOADED',
-          targetType: 'CV',
-          targetId: cv.id,
-          requestId,
-          metadata: {
-            originalFileName: file.originalname,
+        await tx.cv.update({
+          where: { id: cv.id },
+          data: { latestOperationId: operation.id },
+        });
+
+        await this.auditService.record(
+          {
+            actorId: user.id,
+            action: 'CV_UPLOADED',
+            targetType: 'CV',
+            targetId: cv.id,
+            requestId,
+            metadata: {
+              originalFileName: file.originalname,
+              sizeBytes: file.size,
+              checksumSha256,
+              operationId: operation.id,
+            },
+          },
+          tx,
+        );
+
+        await this.outboxService.recordEvent(tx, {
+          eventName: 'CvUploaded',
+          aggregateType: 'Cv',
+          aggregateId: cv.id,
+          payload: {
+            cvId: cv.id,
+            candidateId: candidateProfile.id,
             sizeBytes: file.size,
             checksumSha256,
             operationId: operation.id,
           },
-        },
-        tx,
-      );
+          requestId,
+          actorId: user.id,
+        });
 
-      await this.outboxService.recordEvent(tx, {
-        eventName: 'CvUploaded',
-        aggregateType: 'Cv',
-        aggregateId: cv.id,
-        payload: {
-          cvId: cv.id,
-          candidateId: candidateProfile.id,
-          storageKey,
-          sizeBytes: file.size,
-          checksumSha256,
-          operationId: operation.id,
-        },
-        requestId,
-        actorId: user.id,
-      });
-
-      return { createdCv: cv, createdOp: operation };
-    });
-
-    // 7. Enqueue extraction job to BullMQ with deterministic operation-based job ID
-    await this.queueService.addJob(
-      QUEUES.CV_EXTRACTION,
-      'extract-cv-text',
-      {
-        cvId: createdCv.id,
-        operationId: createdOp.id,
-        actorId: user.id,
-        requestId,
-      },
-      {
-        jobId: `cv-extraction:${createdOp.id}`,
+        return { createdCv: cv, createdOp: operation };
       },
     );
+
+    // 7. Enqueue extraction job to BullMQ with deterministic operation-based job ID
+    try {
+      await this.queueService.addJob(
+        QUEUES.CV_EXTRACTION,
+        'extract-cv-text',
+        {
+          cvId: createdCv.id,
+          operationId: createdOp.id,
+          actorId: user.id,
+          requestId,
+        },
+        {
+          jobId: `cv-extraction:${createdOp.id}`,
+        },
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Immediate BullMQ enqueue failed for CV ${createdCv.id} (opId=${createdOp.id}): ${msg}. Outbox dispatcher will deliver job when queue is restored.`,
+      );
+    }
 
     return {
       cv: this.mapToDto(createdCv),
@@ -217,7 +236,7 @@ export class CvsService {
   }
 
   /**
-   * Bounded and idempotent retry for failed CV text extraction (BE-8-017).
+   * Bounded and idempotent retry for failed CV text extraction (BE-8-017, BE-10-006).
    */
   async retryProcessing(
     user: AuthenticatedUser,
@@ -225,155 +244,180 @@ export class CvsService {
     idempotencyKey: string,
     requestId?: string,
   ): Promise<{ cv: CvDto; operation: OperationDto }> {
-    if (!idempotencyKey || !idempotencyKey.trim()) {
-      throw new BadRequestException({
-        code: ERROR_CODES.IDEMPOTENCY_KEY_REQUIRED,
-        message: 'Idempotency-Key header is required for retry processing.',
-      });
-    }
-
-    const cv = await this.prisma.cv.findUnique({
-      where: { id: cvId },
-      include: { candidateProfile: true },
+    const claim = await this.idempotencyService.claimOrReplay({
+      actorId: user.id,
+      method: 'POST',
+      route: '/api/v1/cvs/:cvId/retry-processing',
+      key: idempotencyKey,
+      params: { cvId },
     });
 
-    if (!cv || cv.processingStatus === 'DELETED') {
-      throw new NotFoundException({
-        code: ERROR_CODES.RESOURCE_NOT_FOUND,
-        message: 'CV not found.',
-      });
+    if (claim.type === 'REPLAY') {
+      return claim.responseBody as { cv: CvDto; operation: OperationDto };
     }
 
-    // 1. Authorization: Only owner or admin
-    if (user.role !== 'ADMIN' && cv.candidateProfile?.userId !== user.id) {
-      throw new ForbiddenException({
-        code: ERROR_CODES.FORBIDDEN,
-        message: 'You can only retry extraction for your own CV.',
-      });
-    }
-
-    // 2. Idempotency replay check
-    const existingOp = await this.prisma.operation.findFirst({
-      where: { idempotencyKey },
-    });
-
-    if (existingOp) {
-      if (
-        (existingOp.resultResourceId === cvId || (existingOp as any).entityId === cvId) &&
-        (existingOp.type === 'CV_TEXT_EXTRACTION' || existingOp.type === 'CV_EXTRACTION')
-      ) {
-        return {
-          cv: this.mapToDto(cv),
-          operation: this.mapOperationToDto(existingOp),
-        };
-      }
-      throw new ConflictException({
-        code: ERROR_CODES.IDEMPOTENCY_KEY_REUSED,
-        message: 'Idempotency key has already been used for another operation.',
-      });
-    }
-
-    // 3. State verification: Only FAILED CVs can be retried
-    if (cv.processingStatus === 'UPLOADED' || cv.processingStatus === 'EXTRACTING') {
-      throw new ConflictException({
-        code: ERROR_CODES.CV_ALREADY_PROCESSING,
-        message: 'CV extraction is currently in progress.',
-      });
-    }
-
-    if (cv.processingStatus !== 'FAILED') {
-      throw new ConflictException({
-        code: ERROR_CODES.CV_EXTRACTION_NOT_RETRYABLE,
-        message: `Cannot retry CV in status ${cv.processingStatus}. Only FAILED CVs can be retried.`,
-      });
-    }
-
-    // 4. Attempt limit check (Max 3 attempts)
-    const MAX_RETRY_ATTEMPTS = 3;
-    if (cv.extractionAttempts >= MAX_RETRY_ATTEMPTS) {
-      throw new ConflictException({
-        code: ERROR_CODES.CV_RETRY_LIMIT_EXCEEDED,
-        message: `Maximum retry attempts (${MAX_RETRY_ATTEMPTS}) exceeded for this CV.`,
-      });
-    }
-
-    // 5. Transaction: create new QUEUED operation, reset CV status to UPLOADED, clear failureCode, increment attempts & version
-    const { updatedCv, newOp } = await this.prisma.$transaction(async (tx: any) => {
-      const operation = await tx.operation.create({
-        data: {
-          userId: user.id,
-          type: 'CV_TEXT_EXTRACTION',
-          status: 'QUEUED',
-          progressPercent: 0,
-          resultResourceType: 'CV',
-          resultResourceId: cv.id,
-          idempotencyKey,
-        },
-      });
-
-      const updated = await tx.cv.update({
+    try {
+      const cv = await this.prisma.cv.findUnique({
         where: { id: cvId },
-        data: {
-          processingStatus: 'UPLOADED',
-          failureCode: null,
-          latestOperationId: operation.id,
-          extractionAttempts: { increment: 1 },
-          version: { increment: 1 },
-        },
+        include: { candidateProfile: true },
       });
 
-      await this.auditService.record(
-        {
-          actorId: user.id,
-          action: 'CV_EXTRACTION_RETRIED',
-          targetType: 'CV',
-          targetId: cv.id,
-          requestId,
-          metadata: {
-            operationId: operation.id,
-            attempt: cv.extractionAttempts + 1,
-            idempotencyKey,
-          },
+      if (!cv || cv.processingStatus === 'DELETED') {
+        throw new NotFoundException({
+          code: ERROR_CODES.RESOURCE_NOT_FOUND,
+          message: 'CV not found.',
+        });
+      }
+
+      // 1. Authorization: Only owner or admin
+      if (user.role !== 'ADMIN' && cv.candidateProfile?.userId !== user.id) {
+        throw new ForbiddenException({
+          code: ERROR_CODES.FORBIDDEN,
+          message: 'You can only retry extraction for your own CV.',
+        });
+      }
+
+      // 2. Legacy / fallback operation replay check
+      const existingOp = await this.prisma.operation.findFirst({
+        where: { idempotencyKey },
+      });
+
+      if (existingOp) {
+        if (
+          (existingOp.resultResourceId === cvId ||
+            (existingOp as unknown as { entityId?: string }).entityId === cvId) &&
+          (existingOp.type === 'CV_TEXT_EXTRACTION' || existingOp.type === 'CV_EXTRACTION')
+        ) {
+          const replayResult = {
+            cv: this.mapToDto(cv),
+            operation: this.mapOperationToDto(existingOp),
+          };
+          await this.idempotencyService.complete(claim.recordId, 202, replayResult).catch(() => {});
+          return replayResult;
+        }
+        throw new ConflictException({
+          code: ERROR_CODES.IDEMPOTENCY_KEY_REUSED,
+          message: 'Idempotency key has already been used for another operation.',
+        });
+      }
+
+      // 3. State verification: Only FAILED CVs can be retried
+      if (cv.processingStatus === 'UPLOADED' || cv.processingStatus === 'EXTRACTING') {
+        throw new ConflictException({
+          code: ERROR_CODES.CV_ALREADY_PROCESSING,
+          message: 'CV extraction is currently in progress.',
+        });
+      }
+
+      if (cv.processingStatus !== 'FAILED') {
+        throw new ConflictException({
+          code: ERROR_CODES.CV_EXTRACTION_NOT_RETRYABLE,
+          message: `Cannot retry CV in status ${cv.processingStatus}. Only FAILED CVs can be retried.`,
+        });
+      }
+
+      // 4. Attempt limit check (Max 3 attempts)
+      const MAX_RETRY_ATTEMPTS = 3;
+      if (cv.extractionAttempts >= MAX_RETRY_ATTEMPTS) {
+        throw new ConflictException({
+          code: ERROR_CODES.CV_RETRY_LIMIT_EXCEEDED,
+          message: `Maximum retry attempts (${MAX_RETRY_ATTEMPTS}) exceeded for this CV.`,
+        });
+      }
+
+      // 5. Transaction: create new QUEUED operation, reset CV status to UPLOADED, clear failureCode, increment attempts & version
+      const { updatedCv, newOp } = await this.prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          const operation = await tx.operation.create({
+            data: {
+              userId: user.id,
+              type: 'CV_TEXT_EXTRACTION',
+              status: 'QUEUED',
+              progressPercent: 0,
+              resultResourceType: 'CV',
+              resultResourceId: cv.id,
+              idempotencyKey,
+            },
+          });
+
+          const updated = await tx.cv.update({
+            where: { id: cv.id },
+            data: {
+              processingStatus: 'UPLOADED',
+              failureCode: null,
+              latestOperationId: operation.id,
+              extractionAttempts: { increment: 1 },
+              version: { increment: 1 },
+            },
+          });
+
+          await this.outboxService.recordEvent(tx, {
+            eventName: 'CvExtractionRetryQueued',
+            aggregateType: 'Cv',
+            aggregateId: cv.id,
+            actorId: user.id,
+            requestId,
+            payload: {
+              cvId: cv.id,
+              candidateId: cv.candidateProfileId,
+              operationId: operation.id,
+              attempt: updated.extractionAttempts,
+            },
+          });
+
+          await this.auditService.record(
+            {
+              actorId: user.id,
+              action: 'CV_RETRY_INITIATED',
+              targetType: 'CV',
+              targetId: cv.id,
+              requestId,
+              metadata: {
+                operationId: operation.id,
+                attempts: updated.extractionAttempts,
+                previousStatus: cv.processingStatus,
+              },
+            },
+            tx,
+          );
+
+          return { updatedCv: updated, newOp: operation };
         },
-        tx,
       );
 
-      await this.outboxService.recordEvent(tx, {
-        eventName: 'CvExtractionRetryQueued',
-        aggregateType: 'Cv',
-        aggregateId: cv.id,
-        payload: {
-          cvId: cv.id,
-          candidateId: cv.candidateProfileId,
-          operationId: operation.id,
-          attempt: cv.extractionAttempts + 1,
-        },
-        requestId,
-        actorId: user.id,
-      });
+      // 6. Direct queue enqueue attempt with outbox fallback
+      try {
+        await this.queueService.addJob(
+          QUEUES.CV_EXTRACTION,
+          'extract-cv-text',
+          {
+            cvId: updatedCv.id,
+            operationId: newOp.id,
+            actorId: user.id,
+            requestId,
+          },
+          {
+            jobId: `cv-extraction:${newOp.id}`,
+          },
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Immediate BullMQ enqueue failed for CV retry ${updatedCv.id} (opId=${newOp.id}): ${msg}. Outbox dispatcher will deliver job when queue is restored.`,
+        );
+      }
 
-      return { updatedCv: updated, newOp: operation };
-    });
+      const result = {
+        cv: this.mapToDto(updatedCv),
+        operation: this.mapOperationToDto(newOp),
+      };
 
-    // 6. Enqueue BullMQ extraction job
-    await this.queueService.addJob(
-      QUEUES.CV_EXTRACTION,
-      'extract-cv-text',
-      {
-        cvId: updatedCv.id,
-        operationId: newOp.id,
-        actorId: user.id,
-        requestId,
-      },
-      {
-        jobId: `cv-extraction:${newOp.id}`,
-      },
-    );
-
-    return {
-      cv: this.mapToDto(updatedCv),
-      operation: this.mapOperationToDto(newOp),
-    };
+      await this.idempotencyService.complete(claim.recordId, 202, result);
+      return result;
+    } catch (error) {
+      await this.idempotencyService.fail(claim.recordId).catch(() => {});
+      throw error;
+    }
   }
 
   private async extractCvText(
@@ -390,7 +434,7 @@ export class CvsService {
         .replace(/\s+/g, ' ')
         .trim();
 
-      await this.prisma.$transaction(async (tx: any) => {
+      await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         await tx.cv.update({
           where: { id: cvId },
           data: {
@@ -422,7 +466,7 @@ export class CvsService {
   async listCandidateCvs(
     user: AuthenticatedUser,
     query: CvQueryDto,
-  ): Promise<{ data: CvDto[]; meta: any }> {
+  ): Promise<CollectionResponse<CvDto>> {
     const candidateProfile = await this.prisma.candidateProfile.findUnique({
       where: { userId: user.id },
     });
@@ -433,7 +477,7 @@ export class CvsService {
       };
     }
 
-    let cursorCondition: any = undefined;
+    let cursorCondition: Prisma.CvWhereUniqueInput | undefined = undefined;
     if (query.cursor) {
       const decoded = this.decodeCursor(query.cursor);
       if (decoded) {
@@ -465,7 +509,7 @@ export class CvsService {
     }
 
     return {
-      data: items.map((c: any) => this.mapToDto(c)),
+      data: items.map((c) => this.mapToDto(c)),
       meta: {
         page: {
           nextCursor,
@@ -524,8 +568,21 @@ export class CvsService {
       });
     }
 
-    const updated = await this.prisma.$transaction(async (tx: any) => {
-      // Clear previous default
+    if (cv.processingStatus !== 'READY') {
+      throw new ConflictException({
+        code: ERROR_CODES.CV_NOT_READY,
+        message: 'The selected CV is not ready to be set as default.',
+      });
+    }
+
+    const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // 1. Serialize concurrent requests and update authoritative profile defaultCvId
+      await tx.candidateProfile.update({
+        where: { id: candidateProfile.id },
+        data: { defaultCvId: cvId },
+      });
+
+      // 2. Clear previous default
       await tx.cv.updateMany({
         where: {
           candidateProfileId: candidateProfile.id,
@@ -534,6 +591,7 @@ export class CvsService {
         data: { isDefault: false },
       });
 
+      // 3. Set new default flag and increment version
       const res = await tx.cv.update({
         where: { id: cvId },
         data: {
@@ -631,9 +689,11 @@ export class CvsService {
       where: { submittedCvId: cvId },
     });
 
+    const wasDefault = cv.isDefault || candidateProfile.defaultCvId === cvId;
+
     if (referencedApp) {
       // Soft-delete to preserve application audit integrity
-      await this.prisma.$transaction(async (tx: any) => {
+      await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         await tx.cv.update({
           where: { id: cvId },
           data: {
@@ -641,6 +701,43 @@ export class CvsService {
             isDefault: false,
           },
         });
+
+        if (wasDefault) {
+          const nextDefaultCv = await tx.cv.findFirst({
+            where: {
+              candidateProfileId: candidateProfile.id,
+              id: { not: cvId },
+              processingStatus: 'READY',
+            },
+            orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+          });
+
+          if (nextDefaultCv) {
+            await tx.cv.update({
+              where: { id: nextDefaultCv.id },
+              data: {
+                isDefault: true,
+                version: { increment: 1 },
+              },
+            });
+            await tx.candidateProfile.update({
+              where: { id: candidateProfile.id },
+              data: { defaultCvId: nextDefaultCv.id },
+            });
+          } else {
+            await tx.candidateProfile.update({
+              where: { id: candidateProfile.id },
+              data: { defaultCvId: null },
+            });
+            await tx.cv.updateMany({
+              where: {
+                candidateProfileId: candidateProfile.id,
+                id: { not: cvId },
+              },
+              data: { isDefault: false },
+            });
+          }
+        }
 
         await this.auditService.record(
           {
@@ -656,8 +753,43 @@ export class CvsService {
       });
     } else {
       // Hard delete: remove DB record and audit first in transaction
-      await this.prisma.$transaction(async (tx: any) => {
+      await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         await tx.cv.delete({ where: { id: cvId } });
+
+        if (wasDefault) {
+          const nextDefaultCv = await tx.cv.findFirst({
+            where: {
+              candidateProfileId: candidateProfile.id,
+              processingStatus: 'READY',
+            },
+            orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+          });
+
+          if (nextDefaultCv) {
+            await tx.cv.update({
+              where: { id: nextDefaultCv.id },
+              data: {
+                isDefault: true,
+                version: { increment: 1 },
+              },
+            });
+            await tx.candidateProfile.update({
+              where: { id: candidateProfile.id },
+              data: { defaultCvId: nextDefaultCv.id },
+            });
+          } else {
+            await tx.candidateProfile.update({
+              where: { id: candidateProfile.id },
+              data: { defaultCvId: null },
+            });
+            await tx.cv.updateMany({
+              where: {
+                candidateProfileId: candidateProfile.id,
+              },
+              data: { isDefault: false },
+            });
+          }
+        }
 
         await this.auditService.record(
           {
@@ -680,7 +812,7 @@ export class CvsService {
     }
   }
 
-  private async assertCvAccess(user: AuthenticatedUser, cv: any): Promise<void> {
+  private async assertCvAccess(user: AuthenticatedUser, cv: Cv): Promise<void> {
     if (user.role === 'ADMIN') return;
 
     if (user.role === 'CANDIDATE') {
@@ -724,7 +856,55 @@ export class CvsService {
     });
   }
 
-  private mapToDto(cv: any): CvDto {
+  /**
+   * Reconciles stale QUEUED operations by republishing missing BullMQ jobs
+   * from persisted operation state without creating a new logical run (BE-10-009).
+   */
+  async reconcileStaleQueuedOperations(staleThresholdMs = 60000): Promise<number> {
+    const cutoff = new Date(Date.now() - staleThresholdMs);
+    const staleOps = await this.prisma.operation.findMany({
+      where: {
+        type: { in: ['CV_TEXT_EXTRACTION', 'CV_EXTRACTION'] },
+        status: 'QUEUED',
+        createdAt: { lt: cutoff },
+      },
+    });
+
+    let reconciled = 0;
+    for (const op of staleOps) {
+      if (!op.resultResourceId) continue;
+      const cv = await this.prisma.cv.findUnique({
+        where: { id: op.resultResourceId },
+      });
+
+      if (cv && cv.processingStatus !== 'DELETED' && cv.processingStatus !== 'READY') {
+        try {
+          await this.queueService.addJob(
+            QUEUES.CV_EXTRACTION,
+            'extract-cv-text',
+            {
+              cvId: cv.id,
+              operationId: op.id,
+              actorId: op.userId ?? undefined,
+            },
+            {
+              jobId: `cv-extraction:${op.id}`,
+            },
+          );
+          reconciled++;
+          this.logger.log(
+            `Reconciled and republished stale QUEUED operation ${op.id} for cvId=${cv.id}`,
+          );
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.logger.warn(`Failed to republish stale operation ${op.id}: ${msg}`);
+        }
+      }
+    }
+    return reconciled;
+  }
+
+  private mapToDto(cv: Cv): CvDto {
     return {
       id: cv.id,
       candidateId: cv.candidateProfileId,
@@ -743,15 +923,16 @@ export class CvsService {
     };
   }
 
-  public mapOperationToDto(op: any): OperationDto {
+  public mapOperationToDto(op: Operation): OperationDto {
     return {
       id: op.id,
       type: op.type,
       status: op.status,
       progressPercent: op.progressPercent ?? null,
-      resultResource: op.resultResourceType
-        ? { type: op.resultResourceType, id: op.resultResourceId }
-        : null,
+      resultResource:
+        op.resultResourceType && op.resultResourceId
+          ? { type: op.resultResourceType, id: op.resultResourceId }
+          : null,
       failure: op.failureCode ? { code: op.failureCode, message: op.failureMessage || '' } : null,
       idempotencyKey: op.idempotencyKey ?? null,
       createdAt: op.createdAt instanceof Date ? op.createdAt.toISOString() : op.createdAt,

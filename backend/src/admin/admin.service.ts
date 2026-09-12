@@ -4,7 +4,19 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { JobStatus } from '@prisma/client';
+import {
+  Prisma,
+  JobStatus,
+  User,
+  Company,
+  Job,
+  AuditLog,
+  Application,
+  CandidateProfile,
+  CandidateSkill,
+  Skill,
+  ApplicationStatusEvent,
+} from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CompaniesService } from '../companies/companies.service';
@@ -32,6 +44,22 @@ import {
   ModerateApplicationDto,
 } from './dto/admin-application.dto';
 
+type AdminApplicationWithRelations = Application & {
+  candidate?:
+    | (CandidateProfile & {
+        skills?: (CandidateSkill & {
+          skill?: Skill | null;
+        })[];
+      })
+    | null;
+  job?:
+    | (Job & {
+        company?: Company | null;
+      })
+    | null;
+  history?: ApplicationStatusEvent[];
+};
+
 @Injectable()
 export class AdminService {
   constructor(
@@ -58,11 +86,11 @@ export class AdminService {
 
     if (query.search) {
       const searchLower = query.search.toLowerCase();
-      users = users.filter((u: any) => u.email.toLowerCase().includes(searchLower));
+      users = users.filter((u) => u.email.toLowerCase().includes(searchLower));
     }
 
     // Sort newest first
-    users.sort((a: any, b: any) => {
+    users.sort((a, b) => {
       const timeDiff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       if (timeDiff !== 0) return timeDiff;
       return a.id.localeCompare(b.id);
@@ -76,7 +104,7 @@ export class AdminService {
         const [cursorTimeStr, cursorId] = decoded.split(':');
         const cursorTime = parseInt(cursorTimeStr, 10);
 
-        const foundIdx = users.findIndex((u: any) => {
+        const foundIdx = users.findIndex((u) => {
           return new Date(u.createdAt).getTime() === cursorTime && u.id === cursorId;
         });
 
@@ -99,14 +127,14 @@ export class AdminService {
     }
 
     return {
-      data: pageItems.map((u: any) => this.mapUserToSummary(u)),
+      data: pageItems.map((u) => this.mapUserToSummary(u)),
       meta: {
         page: {
           nextCursor,
           hasNextPage: hasMore,
           limit,
         },
-      } as any,
+      },
     };
   }
 
@@ -134,7 +162,7 @@ export class AdminService {
     const toStatus = dto.status;
 
     // Execute atomic update & session revocation in transaction
-    const updatedUser = await this.prisma.$transaction(async (tx: any) => {
+    const updatedUser = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // 1. If suspending or disabling, revoke active sessions immediately
       if (toStatus === 'SUSPENDED' || toStatus === 'DISABLED') {
         await tx.refreshSession.updateMany({
@@ -199,7 +227,7 @@ export class AdminService {
       });
     }
 
-    const updatedCompany = await this.prisma.$transaction(async (tx: any) => {
+    const updatedCompany = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const updated = await tx.company.update({
         where: { id: companyId },
         data: {
@@ -261,8 +289,8 @@ export class AdminService {
 
     const targetStatus = dto.action === 'UNPUBLISH' ? JobStatus.UNPUBLISHED : JobStatus.CLOSED;
 
-    const updatedJob = await this.prisma.$transaction(async (tx: any) => {
-      const updateData: any = {
+    const updatedJob = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const updateData: Prisma.JobUpdateInput = {
         status: targetStatus,
         version: { increment: 1 },
       };
@@ -308,7 +336,7 @@ export class AdminService {
   async queryAuditLogs(query: AuditLogQueryDto): Promise<CollectionResponse<AuditLogDto>> {
     const limit = query.limit || 20;
 
-    let logs: any[] = [];
+    let logs: AuditLog[] = [];
     if (this.prisma.auditLog && typeof this.prisma.auditLog.findMany === 'function') {
       logs = await this.prisma.auditLog.findMany({
         where: {
@@ -375,13 +403,13 @@ export class AdminService {
           hasNextPage: hasMore,
           limit,
         },
-      } as any,
+      },
     };
   }
 
   // --- MAPPERS ---
 
-  private mapUserToSummary(user: any): UserSummaryDto {
+  private mapUserToSummary(user: User): UserSummaryDto {
     return {
       id: user.id,
       email: user.email,
@@ -391,11 +419,16 @@ export class AdminService {
     };
   }
 
-  private mapAuditLogToDto(log: any): AuditLogDto {
-    let metadataObj = log.metadata || {};
-    if (typeof metadataObj === 'string') {
+  private mapAuditLogToDto(log: AuditLog): AuditLogDto {
+    let metadataObj: Record<string, unknown> = {};
+    if (log.metadata && typeof log.metadata === 'object' && !Array.isArray(log.metadata)) {
+      metadataObj = log.metadata as Record<string, unknown>;
+    } else if (typeof log.metadata === 'string') {
       try {
-        metadataObj = JSON.parse(metadataObj);
+        const parsed = JSON.parse(log.metadata);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          metadataObj = parsed;
+        }
       } catch {
         metadataObj = {};
       }
@@ -422,7 +455,7 @@ export class AdminService {
   ): Promise<CollectionResponse<CompanyDto>> {
     const limit = query.limit || 20;
 
-    const where: any = {};
+    const where: Prisma.CompanyWhereInput = {};
     if (query.status) {
       where.status = query.status;
     }
@@ -433,7 +466,7 @@ export class AdminService {
       ];
     }
 
-    const findArgs: any = {
+    const findArgs: Prisma.CompanyFindManyArgs = {
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
@@ -450,7 +483,7 @@ export class AdminService {
     const nextCursor = hasNextPage && items.length > 0 ? items[items.length - 1].id : null;
 
     return {
-      data: items.map((c: any) => this.mapCompanyToDto(c)),
+      data: items.map((c) => this.mapCompanyToDto(c)),
       meta: {
         requestId: requestId || '',
         page: {
@@ -458,7 +491,7 @@ export class AdminService {
           hasNextPage,
           limit,
         },
-      } as any,
+      },
     };
   }
 
@@ -468,7 +501,7 @@ export class AdminService {
   async listJobs(query: AdminJobQueryDto, requestId?: string): Promise<CollectionResponse<JobDto>> {
     const limit = query.limit || 20;
 
-    const where: any = {};
+    const where: Prisma.JobWhereInput = {};
     if (query.companyId) {
       where.companyId = query.companyId;
     }
@@ -486,7 +519,7 @@ export class AdminService {
       ];
     }
 
-    const findArgs: any = {
+    const findArgs: Prisma.JobFindManyArgs = {
       where,
       include: { company: true },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -504,7 +537,7 @@ export class AdminService {
     const nextCursor = hasNextPage && items.length > 0 ? items[items.length - 1].id : null;
 
     return {
-      data: items.map((j: any) => this.mapJobToDto(j)),
+      data: items.map((j) => this.mapJobToDto(j)),
       meta: {
         requestId: requestId || '',
         page: {
@@ -512,11 +545,11 @@ export class AdminService {
           hasNextPage,
           limit,
         },
-      } as any,
+      },
     };
   }
 
-  private mapCompanyToDto(company: any): CompanyDto {
+  private mapCompanyToDto(company: Company): CompanyDto {
     return {
       id: company.id,
       slug: company.slug,
@@ -534,7 +567,7 @@ export class AdminService {
     };
   }
 
-  private mapJobToDto(job: any): JobDto {
+  private mapJobToDto(job: Job & { company?: Company | null }): JobDto {
     return {
       id: job.id,
       company: {
@@ -628,9 +661,9 @@ export class AdminService {
   ): Promise<CollectionResponse<AdminApplicationSummaryDto>> {
     const limit = query.limit || 20;
 
-    const where: any = {};
+    const where: Prisma.ApplicationWhereInput = {};
     if (query.companyId) {
-      where.job = { ...(where.job || {}), companyId: query.companyId };
+      where.job = { companyId: query.companyId };
     }
     if (query.jobId) {
       where.jobId = query.jobId;
@@ -639,9 +672,10 @@ export class AdminService {
       where.status = query.status;
     }
     if (query.submittedAfter || query.submittedBefore) {
-      where.submittedAt = {};
-      if (query.submittedAfter) where.submittedAt.gte = new Date(query.submittedAfter);
-      if (query.submittedBefore) where.submittedAt.lte = new Date(query.submittedBefore);
+      where.submittedAt = {
+        ...(query.submittedAfter ? { gte: new Date(query.submittedAfter) } : {}),
+        ...(query.submittedBefore ? { lte: new Date(query.submittedBefore) } : {}),
+      };
     }
     if (query.search && query.search.trim()) {
       const term = query.search.trim();
@@ -654,7 +688,7 @@ export class AdminService {
       ];
     }
 
-    const findArgs: any = {
+    const findArgs: Prisma.ApplicationFindManyArgs = {
       where,
       include: {
         candidate: {
@@ -691,7 +725,7 @@ export class AdminService {
         : null;
 
     return {
-      data: items.map((app: any) => this.mapApplicationToSummary(app)),
+      data: items.map((app) => this.mapApplicationToSummary(app)),
       meta: {
         requestId: requestId || '',
         page: {
@@ -699,7 +733,7 @@ export class AdminService {
           hasNextPage,
           limit,
         },
-      } as any,
+      },
     };
   }
 
@@ -757,6 +791,7 @@ export class AdminService {
         job: {
           include: { company: true },
         },
+        candidate: true,
       },
     });
 
@@ -780,7 +815,7 @@ export class AdminService {
       dto.targetStatus,
     );
 
-    await this.prisma.$transaction(async (tx: any) => {
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // 1. Update application status & increment version
       await tx.application.update({
         where: { id: applicationId },
@@ -828,7 +863,11 @@ export class AdminService {
         payload: {
           applicationId,
           candidateId: application.candidateId,
+          candidateUserId: application.candidate?.userId || '',
           jobId: application.jobId,
+          jobTitle: application.job.title,
+          companyId: application.job.companyId,
+          companyName: application.job.company.name,
           fromStatus: application.status,
           toStatus: dto.targetStatus,
           changedAt: new Date().toISOString(),
@@ -843,9 +882,9 @@ export class AdminService {
 
   // --- REDACTION MAPPERS (BE-8-014) ---
 
-  private mapApplicationToSummary(app: any): AdminApplicationSummaryDto {
+  private mapApplicationToSummary(app: AdminApplicationWithRelations): AdminApplicationSummaryDto {
     const skills: string[] = (app.candidate?.skills || [])
-      .map((cs: any) => cs.skill?.name || cs.skillId)
+      .map((cs) => cs.skill?.name || cs.skillId)
       .filter(Boolean);
 
     return {
@@ -876,9 +915,9 @@ export class AdminService {
     };
   }
 
-  private mapApplicationToDetail(app: any): AdminApplicationDetailDto {
+  private mapApplicationToDetail(app: AdminApplicationWithRelations): AdminApplicationDetailDto {
     const summary = this.mapApplicationToSummary(app);
-    const history: AdminApplicationStatusEventDto[] = (app.history || []).map((evt: any) => ({
+    const history: AdminApplicationStatusEventDto[] = (app.history || []).map((evt) => ({
       id: evt.id,
       fromStatus: evt.fromStatus ?? null,
       toStatus: evt.toStatus,

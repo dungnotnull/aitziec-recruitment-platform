@@ -10,7 +10,7 @@ import { CompanyScopeService } from '../companies/company-scope.service';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
-import { ApplicationStatus, InterviewStatus } from '@prisma/client';
+import { ApplicationStatus, InterviewStatus, Interview, Prisma } from '@prisma/client';
 import {
   CancelInterviewDto,
   CompleteInterviewDto,
@@ -19,6 +19,7 @@ import {
   InterviewQueryDto,
   UpdateInterviewDto,
 } from './dto/interview.dto';
+import { IdempotencyService, ClaimResult } from '../idempotency';
 
 @Injectable()
 export class InterviewsService {
@@ -27,6 +28,7 @@ export class InterviewsService {
     private readonly companyScopeService: CompanyScopeService,
     private readonly auditService: AuditService,
     private readonly outboxService: OutboxService,
+    private readonly idempotencyService: IdempotencyService,
   ) {}
 
   async scheduleInterview(
@@ -34,90 +36,118 @@ export class InterviewsService {
     applicationId: string,
     dto: CreateInterviewDto,
     requestId?: string,
+    idempotencyKey?: string,
   ): Promise<InterviewDto> {
-    const application = await this.prisma.application.findUnique({
-      where: { id: applicationId },
-      include: {
-        job: {
-          include: {
-            company: true,
-          },
-        },
-        candidate: true,
-      },
-    });
-
-    if (!application) {
-      throw new NotFoundException(`Application with ID ${applicationId} not found`);
-    }
-
-    await this.companyScopeService.assertMemberOrAdmin(application.job.companyId, user);
-
-    if (application.status !== ApplicationStatus.INTERVIEWING) {
-      throw new BadRequestException({
-        code: 'INVALID_APPLICATION_STATUS',
-        message: 'Cannot schedule interview: application must be in INTERVIEWING status',
+    let claim: ClaimResult | null = null;
+    if (idempotencyKey !== undefined) {
+      claim = await this.idempotencyService.claimOrReplay({
+        actorId: user.id,
+        method: 'POST',
+        route: '/api/v1/applications/:applicationId/interviews',
+        key: idempotencyKey,
+        params: { applicationId },
+        body: dto,
       });
+
+      if (claim.type === 'REPLAY') {
+        return claim.responseBody as InterviewDto;
+      }
     }
 
-    const startsAt = new Date(dto.startsAt);
-    const endsAt = new Date(dto.endsAt);
+    try {
+      const application = await this.prisma.application.findUnique({
+        where: { id: applicationId },
+        include: {
+          job: {
+            include: {
+              company: true,
+            },
+          },
+          candidate: true,
+        },
+      });
 
-    if (isNaN(startsAt.getTime()) || isNaN(endsAt.getTime())) {
-      throw new BadRequestException('Invalid startsAt or endsAt date format');
+      if (!application) {
+        throw new NotFoundException(`Application with ID ${applicationId} not found`);
+      }
+
+      await this.companyScopeService.assertMemberOrAdmin(application.job.companyId, user);
+
+      if (application.status !== ApplicationStatus.INTERVIEWING) {
+        throw new BadRequestException({
+          code: 'INVALID_APPLICATION_STATUS',
+          message: 'Cannot schedule interview: application must be in INTERVIEWING status',
+        });
+      }
+
+      const startsAt = new Date(dto.startsAt);
+      const endsAt = new Date(dto.endsAt);
+
+      if (isNaN(startsAt.getTime()) || isNaN(endsAt.getTime())) {
+        throw new BadRequestException('Invalid startsAt or endsAt date format');
+      }
+
+      if (endsAt <= startsAt) {
+        throw new BadRequestException('endsAt must be strictly after startsAt');
+      }
+
+      const interview = await this.prisma.interview.create({
+        data: {
+          applicationId,
+          status: InterviewStatus.SCHEDULED,
+          startsAt,
+          endsAt,
+          locationOrMeetingUrl: dto.locationOrMeetingUrl,
+          candidateInstructions: dto.candidateInstructions ?? null,
+          recruiterPrivateNotes: dto.recruiterPrivateNotes ?? null,
+          version: 1,
+        },
+      });
+
+      await this.auditService.recordAudit({
+        actorId: user.id,
+        actorRole: user.role,
+        action: 'INTERVIEW_SCHEDULED',
+        targetType: 'INTERVIEW',
+        targetId: interview.id,
+        metadata: {
+          applicationId,
+          startsAt: interview.startsAt.toISOString(),
+          endsAt: interview.endsAt.toISOString(),
+          locationOrMeetingUrl: interview.locationOrMeetingUrl,
+        },
+        requestId,
+      });
+
+      await this.outboxService.emitEvent({
+        aggregateType: 'INTERVIEW',
+        aggregateId: interview.id,
+        eventType: 'InterviewScheduled',
+        payload: {
+          interviewId: interview.id,
+          applicationId,
+          candidateUserId: application.candidate.userId,
+          jobTitle: application.job.title,
+          companyName: application.job.company.name,
+          startsAt: interview.startsAt.toISOString(),
+          endsAt: interview.endsAt.toISOString(),
+          locationOrMeetingUrl: interview.locationOrMeetingUrl,
+          candidateInstructions: interview.candidateInstructions,
+        },
+        idempotencyKey: requestId ? `interview-sched-${interview.id}-${requestId}` : undefined,
+      });
+
+      const result = this.toInterviewDto(interview, false);
+      if (claim) {
+        await this.idempotencyService.complete(claim.recordId, 201, result);
+      }
+      return result;
+    } catch (error) {
+      if (claim) {
+        await this.idempotencyService.fail(claim.recordId).catch(() => {});
+      }
+      throw error;
     }
-
-    if (endsAt <= startsAt) {
-      throw new BadRequestException('endsAt must be strictly after startsAt');
-    }
-
-    const interview = await this.prisma.interview.create({
-      data: {
-        applicationId,
-        status: InterviewStatus.SCHEDULED,
-        startsAt,
-        endsAt,
-        locationOrMeetingUrl: dto.locationOrMeetingUrl,
-        candidateInstructions: dto.candidateInstructions ?? null,
-        recruiterPrivateNotes: dto.recruiterPrivateNotes ?? null,
-        version: 1,
-      },
-    });
-
-    await this.auditService.recordAudit({
-      actorId: user.id,
-      actorRole: user.role,
-      action: 'INTERVIEW_SCHEDULED',
-      targetType: 'INTERVIEW',
-      targetId: interview.id,
-      metadata: {
-        applicationId,
-        startsAt: interview.startsAt.toISOString(),
-        endsAt: interview.endsAt.toISOString(),
-        locationOrMeetingUrl: interview.locationOrMeetingUrl,
-      },
-      requestId,
-    });
-
-    await this.outboxService.emitEvent({
-      aggregateType: 'INTERVIEW',
-      aggregateId: interview.id,
-      eventType: 'InterviewScheduled',
-      payload: {
-        interviewId: interview.id,
-        applicationId,
-        candidateUserId: application.candidate.userId,
-        jobTitle: application.job.title,
-        companyName: application.job.company.name,
-        startsAt: interview.startsAt.toISOString(),
-        endsAt: interview.endsAt.toISOString(),
-        locationOrMeetingUrl: interview.locationOrMeetingUrl,
-        candidateInstructions: interview.candidateInstructions,
-      },
-      idempotencyKey: requestId ? `interview-sched-${interview.id}-${requestId}` : undefined,
-    });
-
-    return this.toInterviewDto(interview, false);
   }
 
   async listApplicationInterviews(
@@ -153,13 +183,11 @@ export class InterviewsService {
     }
 
     const limit = query.limit || 20;
-    const where: any = { applicationId };
+    const where: Prisma.InterviewWhereInput = { applicationId };
 
-    const total = (this.prisma.interview as any).count
-      ? await (this.prisma.interview as any).count({ where })
-      : 0;
+    const total = this.prisma.interview?.count ? await this.prisma.interview.count({ where }) : 0;
 
-    const findArgs: any = {
+    const findArgs: Prisma.InterviewFindManyArgs = {
       where,
       orderBy: { startsAt: 'desc' },
       take: limit + 1,
@@ -266,7 +294,7 @@ export class InterviewsService {
       (dto.endsAt && nextEndsAt.getTime() !== interview.endsAt.getTime()) ||
       (dto.locationOrMeetingUrl && dto.locationOrMeetingUrl !== interview.locationOrMeetingUrl);
 
-    const updateData: any = {
+    const updateData: Prisma.InterviewUpdateInput = {
       version: { increment: 1 },
       updatedAt: new Date(),
     };
@@ -458,7 +486,7 @@ export class InterviewsService {
     return this.toInterviewDto(updated, false);
   }
 
-  private toInterviewDto(interview: any, isCandidate: boolean): InterviewDto {
+  private toInterviewDto(interview: Interview, isCandidate: boolean): InterviewDto {
     const dto: InterviewDto = {
       id: interview.id,
       applicationId: interview.applicationId,

@@ -9,7 +9,7 @@ export interface RecordAuditParams {
   targetType: string;
   targetId: string;
   requestId?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 @Injectable()
@@ -30,11 +30,12 @@ export class AuditService {
           targetType: params.targetType,
           targetId: params.targetId,
           requestId: params.requestId || null,
-          metadata: sanitizedMetadata ?? undefined,
+          metadata: (sanitizedMetadata as Prisma.InputJsonValue) ?? undefined,
         },
       });
-    } catch (err) {
-      this.logger.error(`Failed to write audit log: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Failed to write audit log: ${msg}`);
       return null;
     }
   }
@@ -46,7 +47,7 @@ export class AuditService {
       action: string;
       targetType: string;
       targetId: string;
-      metadata?: Record<string, any>;
+      metadata?: Record<string, unknown>;
       requestId?: string;
     },
     tx?: Prisma.TransactionClient,

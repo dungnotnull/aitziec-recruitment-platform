@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -11,13 +12,21 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiHeader,
+} from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { ApplicationsService } from './applications.service';
+import { CollectionResponse } from '../common/dto/response.dto';
 import {
   ApplicationDetailDto,
   ApplicationDto,
@@ -38,15 +47,21 @@ export class ApplicationsController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Submit an application for a published job' })
   @ApiParam({ name: 'jobId', description: 'Job UUID' })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description: 'Optional idempotency key (16-128 printable ASCII characters)',
+  })
   @ApiResponse({ status: 201, description: 'Application submitted successfully' })
   async submitApplication(
     @Param('jobId', ParseUUIDPipe) jobId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SubmitApplicationDto,
     @Req() req: Request,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<ApplicationDto> {
     const requestId = req.headers['x-request-id'] as string | undefined;
-    return this.applicationsService.submitApplication(user, jobId, dto, requestId);
+    return this.applicationsService.submitApplication(user, jobId, dto, requestId, idempotencyKey);
   }
 
   @Get('applications')
@@ -56,7 +71,7 @@ export class ApplicationsController {
   async getCandidateApplications(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ApplicationQueryDto,
-  ): Promise<{ data: ApplicationDetailDto[]; meta: any }> {
+  ): Promise<CollectionResponse<ApplicationDetailDto>> {
     return this.applicationsService.getCandidateApplications(user, query);
   }
 
@@ -81,7 +96,7 @@ export class ApplicationsController {
     @Param('jobId', ParseUUIDPipe) jobId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ApplicationQueryDto,
-  ): Promise<{ data: ApplicationDetailDto[]; meta: any }> {
+  ): Promise<CollectionResponse<ApplicationDetailDto>> {
     return this.applicationsService.getJobApplications(user, jobId, query);
   }
 
@@ -91,13 +106,25 @@ export class ApplicationsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Transition application status (scoped HR or admin)' })
   @ApiParam({ name: 'applicationId', description: 'Application UUID' })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description: 'Optional idempotency key (16-128 printable ASCII characters)',
+  })
   async transitionApplication(
     @Param('applicationId', ParseUUIDPipe) applicationId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: TransitionApplicationDto,
     @Req() req: Request,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<ApplicationDetailDto> {
     const requestId = req.headers['x-request-id'] as string | undefined;
-    return this.applicationsService.transitionApplication(user, applicationId, dto, requestId);
+    return this.applicationsService.transitionApplication(
+      user,
+      applicationId,
+      dto,
+      requestId,
+      idempotencyKey,
+    );
   }
 }

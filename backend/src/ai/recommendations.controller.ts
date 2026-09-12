@@ -5,9 +5,8 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { AiService } from './ai.service';
-import { RecommendationQueryDto } from './dto/recommendation.dto';
+import { RecommendationQueryDto, RecommendedJobDto } from './dto/recommendation.dto';
 import { CollectionResponse } from '../common/dto/response.dto';
-import { JobDto } from '../jobs/dto/job.dto';
 
 @ApiTags('Recommendations')
 @Controller('recommendations')
@@ -24,11 +23,13 @@ export class RecommendationsController {
   @ApiResponse({
     status: 200,
     description: 'Paginated recommended jobs',
+    type: RecommendedJobDto,
+    isArray: true,
   })
   async getRecommendedJobs(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: RecommendationQueryDto,
-  ): Promise<CollectionResponse<JobDto>> {
+  ): Promise<CollectionResponse<RecommendedJobDto>> {
     return this.aiService.getJobRecommendations(user, query);
   }
 }

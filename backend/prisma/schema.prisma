@@ -117,6 +117,12 @@ enum AiAnalysisStatus {
   FAILED
 }
 
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
 model User {
   id           String     @id @default(uuid())
   email        String     @unique
@@ -289,11 +295,26 @@ model CompanyInvitation {
 
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   invitedBy User?   @relation(fields: [invitedById], references: [id], onDelete: SetNull)
+  deliverySecret CompanyInvitationDeliverySecret?
 
   @@index([companyId])
   @@index([email])
   @@index([status])
   @@map("company_invitations")
+}
+
+model CompanyInvitationDeliverySecret {
+  id             String   @id @default(uuid())
+  invitationId   String   @unique
+  encryptedToken String
+  iv             String
+  authTag        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  invitation CompanyInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+
+  @@map("company_invitation_delivery_secrets")
 }
 
 model Job {
@@ -408,6 +429,7 @@ model Cv {
   aiAnalyses       AiAnalysis[]
 
   @@index([candidateProfileId])
+  @@index([candidateProfileId, isDefault])
   @@index([processingStatus])
   @@index([checksumSha256])
   @@index([latestOperationId])
@@ -555,5 +577,24 @@ model RecommendationPreference {
 
   @@index([userId])
   @@map("recommendation_preferences")
+}
+
+model IdempotencyRecord {
+  id             String            @id @default(uuid())
+  actorId        String
+  method         String
+  route          String
+  key            String
+  requestHash    String
+  status         IdempotencyStatus @default(IN_PROGRESS)
+  responseStatus Int?
+  responseBody   Json?
+  expiresAt      DateTime
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@unique([actorId, method, route, key])
+  @@index([expiresAt])
+  @@map("idempotency_records")
 }
 

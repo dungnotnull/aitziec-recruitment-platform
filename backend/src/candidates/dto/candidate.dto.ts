@@ -3,10 +3,12 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsISO8601,
   IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -90,9 +92,8 @@ export class CandidateProfileDto {
 }
 
 export class UpdateSkillInput {
-  @ApiProperty({ example: 'skill-id-1' })
-  @IsString()
-  @IsNotEmpty()
+  @ApiProperty({ example: '11111111-1111-4111-8111-111111111111' })
+  @IsUUID()
   skillId: string;
 
   @ApiPropertyOptional({ example: 3, nullable: true })
@@ -119,16 +120,17 @@ export class UpdateExperienceInput {
   title: string;
 
   @ApiProperty({ example: '2022-01-01T00:00:00.000Z' })
-  @IsString()
-  @IsNotEmpty()
+  @IsISO8601()
   startDate: string;
 
   @ApiPropertyOptional({ example: null, nullable: true })
   @IsOptional()
+  @IsISO8601()
   endDate?: string | null;
 
   @ApiPropertyOptional({ example: 'Responsible for APIs', nullable: true })
   @IsOptional()
+  @IsString()
   description?: string | null;
 }
 

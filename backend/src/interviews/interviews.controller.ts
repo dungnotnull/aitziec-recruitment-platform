@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -12,7 +13,14 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiHeader,
+} from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -40,15 +48,27 @@ export class InterviewsController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Schedule an interview for an application in INTERVIEWING status' })
   @ApiParam({ name: 'applicationId', description: 'Application UUID' })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description: 'Optional idempotency key (16-128 printable ASCII characters)',
+  })
   @ApiResponse({ status: 201, description: 'Interview scheduled successfully' })
   async scheduleInterview(
     @Param('applicationId', ParseUUIDPipe) applicationId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateInterviewDto,
     @Req() req: Request,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<InterviewDto> {
     const requestId = req.headers['x-request-id'] as string | undefined;
-    return this.interviewsService.scheduleInterview(user, applicationId, dto, requestId);
+    return this.interviewsService.scheduleInterview(
+      user,
+      applicationId,
+      dto,
+      requestId,
+      idempotencyKey,
+    );
   }
 
   @Get('applications/:applicationId/interviews')
@@ -61,7 +81,10 @@ export class InterviewsController {
     @Param('applicationId', ParseUUIDPipe) applicationId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: InterviewQueryDto,
-  ): Promise<{ data: InterviewDto[]; meta: any }> {
+  ): Promise<{
+    data: InterviewDto[];
+    meta: { hasMore: boolean; nextCursor: string | null; total: number };
+  }> {
     return this.interviewsService.listApplicationInterviews(user, applicationId, query);
   }
 

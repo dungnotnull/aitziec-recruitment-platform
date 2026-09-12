@@ -1,14 +1,47 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
+import { Buffer } from 'node:buffer';
 import { PrismaService } from '../database/prisma.service';
 import { EmailService } from '../email/email.service';
 import { EmailTemplates } from '../email/email-templates';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
-import { NotificationType } from '@prisma/client';
+import { CompanyMemberRole, Notification, NotificationType, Prisma } from '@prisma/client';
+import { ERROR_CODES } from '../common/constants/error-codes';
+import { CollectionResponse } from '../common/dto/response.dto';
 import {
   CreateNotificationDto,
+  MarkNotificationReadDto,
   NotificationDto,
   NotificationQueryDto,
 } from './dto/notification.dto';
+import { validateEventVersion, SUPPORTED_EVENT_VERSION } from '../outbox/domain-events';
+import { InvitationDeliveryWorker } from '../companies/workers/invitation-delivery.worker';
+
+export interface EventRoutingPayload {
+  candidateUserId?: string;
+  applicationId?: string;
+  jobTitle?: string;
+  companyName?: string;
+  companyId?: string;
+  toStatus?: string;
+  interviewId?: string;
+  startsAt?: string;
+  endsAt?: string;
+  locationOrMeetingUrl?: string;
+  candidateInstructions?: string;
+  reason?: string;
+  userId?: string;
+  role?: string;
+  email?: string;
+  invitationId?: string;
+  [key: string]: unknown;
+}
 
 @Injectable()
 export class NotificationsService {
@@ -17,17 +50,15 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    @Optional() private readonly invitationDeliveryWorker?: InvitationDeliveryWorker,
   ) {}
 
   async listNotifications(
     user: AuthenticatedUser,
     query: NotificationQueryDto,
-  ): Promise<{
-    data: NotificationDto[];
-    meta: { hasMore: boolean; nextCursor: string | null; total: number; unreadCount: number };
-  }> {
-    const limit = query.limit || 20;
-    const where: any = { userId: user.id };
+  ): Promise<CollectionResponse<NotificationDto>> {
+    const limit = query.limit ?? 20;
+    const where: Prisma.NotificationWhereInput = { userId: user.id };
 
     if (query.read === true) {
       where.readAt = { not: null };
@@ -35,69 +66,138 @@ export class NotificationsService {
       where.readAt = null;
     }
 
-    const unreadCount = (this.prisma.notification as any).count
-      ? await (this.prisma.notification as any).count({
+    const unreadCount = this.prisma.notification?.count
+      ? await this.prisma.notification.count({
           where: { userId: user.id, readAt: null },
         })
       : 0;
 
-    const total = (this.prisma.notification as any).count
-      ? await (this.prisma.notification as any).count({ where })
-      : 0;
-
-    const findArgs: any = {
+    const findArgs: Prisma.NotificationFindManyArgs = {
       where,
       orderBy: { createdAt: 'desc' },
       take: limit + 1,
     };
 
     if (query.cursor) {
-      findArgs.cursor = { id: query.cursor };
+      const { createdAt: cursorCreatedAt, id: cursorId } = this.decodeCursor(query.cursor);
+
+      const cursorRecord = await this.prisma.notification.findUnique({
+        where: { id: cursorId },
+      });
+
+      if (
+        !cursorRecord ||
+        cursorRecord.userId !== user.id ||
+        new Date(cursorRecord.createdAt).getTime() !== cursorCreatedAt.getTime()
+      ) {
+        throw new BadRequestException({
+          code: ERROR_CODES.INVALID_CURSOR,
+          message: 'Pagination cursor is invalid, expired, or belongs to another user.',
+        });
+      }
+
+      if (query.read === true && !cursorRecord.readAt) {
+        throw new BadRequestException({
+          code: ERROR_CODES.INVALID_CURSOR,
+          message: 'Pagination cursor does not match the active filter.',
+        });
+      }
+
+      if (query.read === false && cursorRecord.readAt) {
+        throw new BadRequestException({
+          code: ERROR_CODES.INVALID_CURSOR,
+          message: 'Pagination cursor does not match the active filter.',
+        });
+      }
+
+      findArgs.cursor = { id: cursorId };
       findArgs.skip = 1;
     }
 
     const items = await this.prisma.notification.findMany(findArgs);
     const hasMore = items.length > limit;
     const dataItems = hasMore ? items.slice(0, limit) : items;
-    const nextCursor = hasMore ? dataItems[dataItems.length - 1].id : null;
+    const nextCursor =
+      hasMore && dataItems.length > 0
+        ? this.encodeCursor(
+            dataItems[dataItems.length - 1].createdAt,
+            dataItems[dataItems.length - 1].id,
+          )
+        : null;
 
     return {
-      data: dataItems.map(this.toNotificationDto),
+      data: dataItems.map((n) => this.toNotificationDto(n)),
       meta: {
-        hasMore,
-        nextCursor,
-        total: total || dataItems.length,
+        page: {
+          nextCursor,
+          hasNextPage: hasMore,
+          limit,
+        },
         unreadCount,
       },
     };
   }
 
-  async markAsRead(user: AuthenticatedUser, notificationId: string): Promise<NotificationDto> {
+  async markAsRead(
+    user: AuthenticatedUser,
+    notificationId: string,
+    body?: MarkNotificationReadDto,
+  ): Promise<NotificationDto> {
     const notification = await this.prisma.notification.findUnique({
       where: { id: notificationId },
     });
 
     if (!notification) {
-      throw new NotFoundException(`Notification with ID ${notificationId} not found`);
+      throw new NotFoundException({
+        code: ERROR_CODES.RESOURCE_NOT_FOUND,
+        message: `Notification with ID ${notificationId} not found`,
+      });
     }
 
     if (notification.userId !== user.id) {
-      throw new ForbiddenException('You do not have permission to modify this notification');
+      throw new ForbiddenException({
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'You do not have permission to modify this notification',
+      });
     }
 
-    if (notification.readAt) {
-      return this.toNotificationDto(notification);
+    const shouldRead = body ? body.read : true;
+
+    if (shouldRead) {
+      if (notification.readAt) {
+        return this.toNotificationDto(notification);
+      }
+      const updated = await this.prisma.notification.update({
+        where: { id: notificationId },
+        data: { readAt: new Date() },
+      });
+      return this.toNotificationDto(updated);
+    } else {
+      if (!notification.readAt) {
+        return this.toNotificationDto(notification);
+      }
+      const updated = await this.prisma.notification.update({
+        where: { id: notificationId },
+        data: { readAt: null },
+      });
+      return this.toNotificationDto(updated);
     }
-
-    const updated = await this.prisma.notification.update({
-      where: { id: notificationId },
-      data: { readAt: new Date() },
-    });
-
-    return this.toNotificationDto(updated);
   }
 
   async createNotification(dto: CreateNotificationDto): Promise<NotificationDto> {
+    const existing = await this.prisma.notification.findFirst({
+      where: {
+        userId: dto.userId,
+        type: dto.type,
+        resourceType: dto.resourceType ?? null,
+        resourceId: dto.resourceId ?? null,
+      },
+    });
+
+    if (existing) {
+      return this.toNotificationDto(existing);
+    }
+
     const created = await this.prisma.notification.create({
       data: {
         userId: dto.userId,
@@ -112,7 +212,12 @@ export class NotificationsService {
     return this.toNotificationDto(created);
   }
 
-  async routeEvent(eventType: string, payload: any): Promise<void> {
+  async routeEvent(
+    eventType: string,
+    payload: EventRoutingPayload,
+    eventVersion: number = SUPPORTED_EVENT_VERSION,
+  ): Promise<void> {
+    validateEventVersion(eventVersion);
     try {
       switch (eventType) {
         case 'ApplicationSubmitted': {
@@ -169,7 +274,7 @@ export class NotificationsService {
               const tmpl = EmailTemplates.applicationStatusChanged(
                 payload.jobTitle || 'Job',
                 payload.companyName || 'Company',
-                payload.toStatus,
+                payload.toStatus || 'UPDATED',
               );
               await this.emailService.sendEmail({
                 to: candidateUser.email,
@@ -201,9 +306,9 @@ export class NotificationsService {
               const tmpl = EmailTemplates.interviewScheduled(
                 payload.jobTitle || 'Job',
                 payload.companyName || 'Company',
-                payload.startsAt,
-                payload.endsAt,
-                payload.locationOrMeetingUrl,
+                payload.startsAt || '',
+                payload.endsAt || '',
+                payload.locationOrMeetingUrl || 'TBD',
                 payload.candidateInstructions,
               );
               await this.emailService.sendEmail({
@@ -236,9 +341,9 @@ export class NotificationsService {
               const tmpl = EmailTemplates.interviewRescheduled(
                 payload.jobTitle || 'Job',
                 payload.companyName || 'Company',
-                payload.startsAt,
-                payload.endsAt,
-                payload.locationOrMeetingUrl,
+                payload.startsAt || '',
+                payload.endsAt || '',
+                payload.locationOrMeetingUrl || 'TBD',
                 payload.candidateInstructions,
               );
               await this.emailService.sendEmail({
@@ -246,7 +351,7 @@ export class NotificationsService {
                 subject: tmpl.subject,
                 text: tmpl.text,
                 html: tmpl.html,
-                idempotencyKey: `email-int-resched-${payload.interviewId}-${Date.now()}`,
+                idempotencyKey: `email-int-resched-${payload.interviewId}-${payload.startsAt}`,
               });
             }
           }
@@ -318,17 +423,26 @@ export class NotificationsService {
 
         case 'CompanyInvitationCreated': {
           if (payload.email) {
-            const tmpl = EmailTemplates.companyInvitation(
-              payload.companyName || 'Company',
-              payload.role || 'RECRUITER',
-            );
-            await this.emailService.sendEmail({
-              to: payload.email,
-              subject: tmpl.subject,
-              text: tmpl.text,
-              html: tmpl.html,
-              idempotencyKey: `email-comp-inv-${payload.invitationId}`,
-            });
+            if (this.invitationDeliveryWorker) {
+              await this.invitationDeliveryWorker.deliverInvitation({
+                invitationId: payload.invitationId || '',
+                companyName: payload.companyName || 'Company',
+                role: (payload.role as CompanyMemberRole) || 'RECRUITER',
+                email: payload.email,
+              });
+            } else {
+              const tmpl = EmailTemplates.companyInvitation(
+                payload.companyName || 'Company',
+                payload.role || 'RECRUITER',
+              );
+              await this.emailService.sendEmail({
+                to: payload.email,
+                subject: tmpl.subject,
+                text: tmpl.text,
+                html: tmpl.html,
+                idempotencyKey: `email-comp-inv-${payload.invitationId}`,
+              });
+            }
           }
           break;
         }
@@ -336,22 +450,72 @@ export class NotificationsService {
         default:
           this.logger.debug(`Unhandled event type in NotificationsService: ${eventType}`);
       }
-    } catch (err: any) {
-      this.logger.error(`Error routing notification event ${eventType}: ${err.message}`, err.stack);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : undefined;
+      this.logger.error(`Error routing notification event ${eventType}: ${msg}`, stack);
     }
   }
 
-  private toNotificationDto(n: any): NotificationDto {
+  private toNotificationDto(n: Notification): NotificationDto {
+    const resource =
+      n.resourceType && n.resourceId ? { type: n.resourceType, id: n.resourceId } : null;
+
     return {
       id: n.id,
-      userId: n.userId,
       type: n.type,
       title: n.title,
       body: n.body,
-      resourceType: n.resourceType ?? null,
-      resourceId: n.resourceId ?? null,
+      resource,
       readAt: n.readAt ? new Date(n.readAt).toISOString() : null,
       createdAt: new Date(n.createdAt).toISOString(),
     };
+  }
+
+  private encodeCursor(createdAt: Date | string, id: string): string {
+    const date = createdAt instanceof Date ? createdAt : new Date(createdAt);
+    return Buffer.from(`${date.toISOString()}|${id}`).toString('base64');
+  }
+
+  private decodeCursor(cursor: string): { createdAt: Date; id: string } {
+    if (!cursor || typeof cursor !== 'string') {
+      throw new BadRequestException({
+        code: ERROR_CODES.INVALID_CURSOR,
+        message: 'Con trỏ phân trang không hợp lệ.',
+      });
+    }
+
+    let decoded: string;
+    try {
+      const buf = Buffer.from(cursor, 'base64');
+      decoded = buf.toString('utf8');
+      if (Buffer.from(decoded, 'utf8').toString('base64') !== cursor) {
+        throw new Error('Not canonical base64');
+      }
+    } catch {
+      throw new BadRequestException({
+        code: ERROR_CODES.INVALID_CURSOR,
+        message: 'Con trỏ phân trang sai định dạng base64.',
+      });
+    }
+
+    const parts = decoded.split('|');
+    if (parts.length !== 2) {
+      throw new BadRequestException({
+        code: ERROR_CODES.INVALID_CURSOR,
+        message: 'Con trỏ phân trang sai cấu trúc.',
+      });
+    }
+
+    const [isoDate, id] = parts;
+    const createdAt = new Date(isoDate);
+    if (isNaN(createdAt.getTime()) || !id || id.trim().length === 0) {
+      throw new BadRequestException({
+        code: ERROR_CODES.INVALID_CURSOR,
+        message: 'Con trỏ phân trang chứa dữ liệu không hợp lệ.',
+      });
+    }
+
+    return { createdAt, id };
   }
 }

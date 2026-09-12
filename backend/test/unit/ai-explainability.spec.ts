@@ -8,6 +8,9 @@ import { AiMetricsService } from '../../src/ai/metrics/ai-metrics.service';
 import { AI_PROVIDER_PORT } from '../../src/ai/interfaces/ai-provider.port';
 import { InMemoryPrismaService } from '../e2e/in-memory-prisma';
 import { AuthenticatedUser } from '../../src/common/decorators/current-user.decorator';
+import { QueueService } from '../../src/queues/queue.service';
+import { OutboxService } from '../../src/outbox/outbox.service';
+import { IdempotencyService } from '../../src/idempotency';
 
 describe('AiExplainabilityAndConsent (Unit - BE-8-021 & BE-8-022)', () => {
   let service: AiService;
@@ -59,6 +62,26 @@ describe('AiExplainabilityAndConsent (Unit - BE-8-021 & BE-8-022)', () => {
           useValue: {
             recordAnalysisDuration: jest.fn(),
             incrementEvaluations: jest.fn(),
+          },
+        },
+        {
+          provide: QueueService,
+          useValue: {
+            addJob: jest.fn().mockResolvedValue({ id: 'mock-job-id' }),
+          },
+        },
+        {
+          provide: OutboxService,
+          useValue: {
+            recordEvent: jest.fn().mockResolvedValue({ id: 'mock-event-id' }),
+          },
+        },
+        {
+          provide: IdempotencyService,
+          useValue: {
+            claimOrReplay: jest.fn().mockResolvedValue({ type: 'CLAIMED', recordId: 'mock-claim' }),
+            complete: jest.fn().mockResolvedValue(undefined),
+            fail: jest.fn().mockResolvedValue(undefined),
           },
         },
         { provide: AI_PROVIDER_PORT, useValue: mockAiProvider },
@@ -181,7 +204,21 @@ describe('AiExplainabilityAndConsent (Unit - BE-8-021 & BE-8-022)', () => {
       const res = await service.getJobRecommendations(candidateUser, { limit: 10 });
 
       expect(res.data.length).toBeGreaterThanOrEqual(1);
-      const rec = res.data[0] as any;
+      const rec = res.data[0];
+
+      // Exact-key check: verify exact keys match RecommendedJobDto and no flat JobDto fields leak
+      const keys = Object.keys(rec).sort();
+      expect(keys).toEqual(['evidence', 'job', 'limitations', 'reasonCodes', 'score'].sort());
+
+      // Verify no flat JobDto compatibility fields exist on the root object
+      const flatRec = rec as unknown as Record<string, unknown>;
+      expect(flatRec.id).toBeUndefined();
+      expect(flatRec.title).toBeUndefined();
+      expect(flatRec.slug).toBeUndefined();
+      expect(flatRec.companyId).toBeUndefined();
+      expect(flatRec.company).toBeUndefined();
+      expect(flatRec.status).toBeUndefined();
+      expect(flatRec.technologyNames).toBeUndefined();
 
       expect(rec.job.id).toBe(eligibleJob.id);
       expect(rec.score).toBeGreaterThanOrEqual(50);
@@ -202,7 +239,7 @@ describe('AiExplainabilityAndConsent (Unit - BE-8-021 & BE-8-022)', () => {
       const res = await service.getJobRecommendations(candidateUser, { limit: 10 });
 
       expect(res.data).toHaveLength(0);
-      expect((res.meta as any).optedOut).toBe(true);
+      expect(res.meta.optedOut).toBe(true);
     });
 
     it('does not recommend jobs from suspended companies', async () => {

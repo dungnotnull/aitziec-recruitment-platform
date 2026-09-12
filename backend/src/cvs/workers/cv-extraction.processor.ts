@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Job } from 'bullmq';
+import { Prisma } from '@prisma/client';
 import { QueueService, QUEUES } from '../../queues/queue.service';
 import { PrismaService } from '../../database/prisma.service';
 import { StorageService } from '../../storage/storage.service';
@@ -11,6 +12,10 @@ export interface CvExtractionJobData {
   operationId: string;
   actorId?: string;
   requestId?: string;
+  payload?: {
+    cvId?: string;
+    operationId?: string;
+  };
 }
 
 @Injectable()
@@ -33,9 +38,20 @@ export class CvExtractionProcessor implements OnModuleInit {
     this.logger.log('Registered BullMQ worker for CV extraction queue');
   }
 
-  async processJob(job: Job<CvExtractionJobData>): Promise<void> {
-    const { cvId, operationId, actorId, requestId } = job.data;
+  async processJob(job: Job<CvExtractionJobData | Record<string, unknown>>): Promise<void> {
+    const rawData = job.data as Record<string, unknown>;
+    const payload = rawData.payload as Record<string, unknown> | undefined;
+    const cvId = (rawData.cvId as string) || (payload?.cvId as string);
+    const operationId = (rawData.operationId as string) || (payload?.operationId as string);
+    const actorId = rawData.actorId as string | undefined;
+    const requestId = rawData.requestId as string | undefined;
+
     this.logger.log(`Processing CV extraction job=${job.id} for cvId=${cvId} opId=${operationId}`);
+
+    if (!cvId || !operationId) {
+      this.logger.warn(`Missing cvId or operationId in job ${job.id}, skipping.`);
+      return;
+    }
 
     const cv = await this.prisma.cv.findUnique({
       where: { id: cvId },
@@ -52,6 +68,27 @@ export class CvExtractionProcessor implements OnModuleInit {
 
     if (!operation) {
       this.logger.warn(`Operation ${operationId} not found for CV ${cvId}`);
+      return;
+    }
+
+    // Terminal state idempotency: if operation is already SUCCEEDED or FAILED, skip
+    if (operation.status === 'SUCCEEDED' || operation.status === 'FAILED') {
+      this.logger.log(
+        `Operation ${operationId} is already terminal (${operation.status}), skipping extraction.`,
+      );
+      return;
+    }
+
+    // If CV is already READY, complete operation
+    if (cv.processingStatus === 'READY') {
+      await this.prisma.operation.update({
+        where: { id: operationId },
+        data: {
+          status: 'SUCCEEDED',
+          progressPercent: 100,
+          completedAt: new Date(),
+        },
+      });
       return;
     }
 
@@ -86,7 +123,7 @@ export class CvExtractionProcessor implements OnModuleInit {
 
       const now = new Date();
 
-      await this.prisma.$transaction(async (tx: any) => {
+      await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         await tx.cv.update({
           where: { id: cvId },
           data: {
@@ -136,14 +173,15 @@ export class CvExtractionProcessor implements OnModuleInit {
       });
 
       this.logger.log(`CV extraction succeeded for cvId=${cvId} opId=${operationId}`);
-    } catch (err: any) {
-      this.logger.error(`CV extraction failed for cvId=${cvId}: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`CV extraction failed for cvId=${cvId}: ${msg}`);
       const now = new Date();
-      const failureCode = err.message?.includes('empty or unreadable')
+      const failureCode = msg.includes('empty or unreadable')
         ? 'EXTRACTION_EMPTY_TEXT'
         : 'EXTRACTION_FAILED';
 
-      await this.prisma.$transaction(async (tx: any) => {
+      await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         await tx.cv.update({
           where: { id: cvId },
           data: {
@@ -152,13 +190,15 @@ export class CvExtractionProcessor implements OnModuleInit {
           },
         });
 
+        const errorMessage = err instanceof Error ? err.message : String(err);
+
         await tx.operation.update({
           where: { id: operationId },
           data: {
             status: 'FAILED',
             progressPercent: 100,
             failureCode,
-            failureMessage: err.message || 'CV text extraction failed',
+            failureMessage: errorMessage || 'CV text extraction failed',
             completedAt: now,
           },
         });
@@ -173,7 +213,7 @@ export class CvExtractionProcessor implements OnModuleInit {
             metadata: {
               operationId,
               failureCode,
-              error: err.message,
+              error: errorMessage,
             },
           },
           tx,

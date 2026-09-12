@@ -5,6 +5,7 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
+import { Company, CompanyMemberRole, CompanyMembership, User } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from './company-scope.service';
 import { AuditService } from '../audit/audit.service';
@@ -21,6 +22,7 @@ import {
   CallerCompanyMembershipDto,
 } from './dto/company.dto';
 import { CompanyInvitationDto, maskEmail } from './dto/company-invitation.dto';
+import { InvitationSecretAdapter } from './adapters/invitation-secret.adapter';
 
 @Injectable()
 export class CompaniesService {
@@ -29,6 +31,7 @@ export class CompaniesService {
     private readonly scopeService: CompanyScopeService,
     private readonly auditService: AuditService,
     private readonly outboxService: OutboxService,
+    private readonly secretAdapter: InvitationSecretAdapter,
   ) {}
 
   private slugify(text: string): string {
@@ -205,19 +208,14 @@ export class CompaniesService {
     await this.scopeService.assertMemberOrAdmin(companyId, user);
 
     const limit = query.limit || 20;
-    const findArgs: any = {
+
+    const rows = await this.prisma.companyMembership.findMany({
       where: { companyId },
       include: { user: true },
       orderBy: { createdAt: 'desc' },
       take: limit + 1,
-    };
-
-    if (query.cursor) {
-      findArgs.cursor = { id: query.cursor };
-      findArgs.skip = 1;
-    }
-
-    const rows = await this.prisma.companyMembership.findMany(findArgs);
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+    });
     const hasNextPage = rows.length > limit;
     const items = hasNextPage ? rows.slice(0, limit) : rows;
     const nextCursor = hasNextPage && items.length > 0 ? items[items.length - 1].id : null;
@@ -256,7 +254,7 @@ export class CompaniesService {
       where: { email: normalizedEmail },
     });
 
-    const targetRole = (dto.role as any) || 'RECRUITER';
+    const targetRole: CompanyMemberRole = (dto.role as CompanyMemberRole) || 'RECRUITER';
 
     if (targetUser) {
       const existingMembership = await this.prisma.companyMembership.findUnique({
@@ -335,6 +333,7 @@ export class CompaniesService {
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const encryptedSecret = this.secretAdapter.encryptToken(rawToken);
 
     const invitation = await this.prisma.$transaction(async (tx) => {
       const created = await tx.companyInvitation.create({
@@ -346,6 +345,15 @@ export class CompaniesService {
           tokenHash,
           status: 'PENDING',
           expiresAt,
+        },
+      });
+
+      await tx.companyInvitationDeliverySecret.create({
+        data: {
+          invitationId: created.id,
+          encryptedToken: encryptedSecret.encryptedToken,
+          iv: encryptedSecret.iv,
+          authTag: encryptedSecret.authTag,
         },
       });
 
@@ -441,7 +449,7 @@ export class CompaniesService {
     });
   }
 
-  public mapToDto(company: any): CompanyDto {
+  public mapToDto(company: Company): CompanyDto {
     return {
       id: company.id,
       slug: company.slug,
@@ -457,7 +465,7 @@ export class CompaniesService {
     };
   }
 
-  private mapMemberToDto(membership: any): CompanyMembershipDto {
+  private mapMemberToDto(membership: CompanyMembership & { user: User }): CompanyMembershipDto {
     return {
       id: membership.id,
       companyId: membership.companyId,
