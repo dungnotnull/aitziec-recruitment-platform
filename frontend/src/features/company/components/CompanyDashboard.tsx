@@ -15,13 +15,27 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
   const navigate = useNavigate()
 
   const parsedCompanyId = companyId === 'undefined' ? undefined : companyId;
-  const activeCompanyId = parsedCompanyId || localStorage.getItem('hr_company_id') || undefined;
+  const cachedId = localStorage.getItem('hr_company_id') || undefined;
 
   const myCompaniesQuery = useQuery({
     queryKey: ['my-companies'],
     queryFn: () => listMyCompanies(),
     enabled: !!session && session.user.role === 'HR',
   })
+
+  const myCompanies = myCompaniesQuery.data;
+  let activeCompanyId: string | undefined = undefined;
+
+  if (myCompanies) {
+    if (parsedCompanyId && myCompanies.some(m => m.company.id === parsedCompanyId)) {
+      activeCompanyId = parsedCompanyId;
+    } else if (cachedId && myCompanies.some(m => m.company.id === cachedId)) {
+      activeCompanyId = cachedId;
+    } else if (myCompanies.length > 0) {
+      activeCompanyId = myCompanies[0].company.id;
+      localStorage.setItem('hr_company_id', activeCompanyId);
+    }
+  }
 
   const { data: company, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['company', activeCompanyId],
