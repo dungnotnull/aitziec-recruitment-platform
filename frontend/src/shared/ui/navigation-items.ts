@@ -24,7 +24,6 @@ export function getNavigationItems(role: UserRole): NavigationItem[] {
   ]
   return [
     ...common,
-    { href: '/profile', label: 'Account Settings', icon: 'user' },
     { href: '/admin', label: 'Admin', icon: 'shield' },
     { href: '/admin/audit', label: 'Audit log', icon: 'audit' },
   ]
