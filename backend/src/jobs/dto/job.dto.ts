@@ -79,8 +79,14 @@ export class JobDto {
   @ApiProperty({ example: '2026-10-01T00:00:00.000Z' })
   applicationDeadline: string;
 
-  @ApiProperty({ enum: ['DRAFT', 'PUBLISHED', 'UNPUBLISHED', 'CLOSED'], example: 'DRAFT' })
-  status: 'DRAFT' | 'PUBLISHED' | 'UNPUBLISHED' | 'CLOSED';
+  @ApiPropertyOptional({ example: 'user-uuid', nullable: true })
+  creatorId?: string | null;
+
+  @ApiProperty({
+    enum: ['DRAFT', 'PENDING_APPROVAL', 'PUBLISHED', 'UNPUBLISHED', 'CLOSED', 'EXPIRED'],
+    example: 'DRAFT',
+  })
+  status: 'DRAFT' | 'PENDING_APPROVAL' | 'PUBLISHED' | 'UNPUBLISHED' | 'CLOSED' | 'EXPIRED';
 
   @ApiPropertyOptional({ example: '2026-09-09T00:00:00.000Z', nullable: true })
   publishedAt: string | null;
@@ -295,4 +301,11 @@ export class ModerateJobDto {
   @IsString()
   @IsNotEmpty()
   reason: string;
+}
+
+export class ApproveJobDto {
+  @ApiProperty({ example: 1 })
+  @IsInt()
+  @Min(1)
+  expectedVersion: number;
 }

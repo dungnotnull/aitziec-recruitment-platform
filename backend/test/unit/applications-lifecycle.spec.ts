@@ -191,6 +191,32 @@ describe('ApplicationsLifecycle (Unit)', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
+    it('fails if job is pending approval (BE-11-003)', async () => {
+      mockPrisma.candidateProfile.findUnique.mockResolvedValue({ id: 'prof-1' });
+      mockPrisma.job.findUnique.mockResolvedValue({ ...validJob, status: 'PENDING_APPROVAL' });
+
+      await expect(
+        service.submitApplication(candidateUser, 'job-1', {
+          cvId: 'b9d363b9-3bf6-4b20-8012-70b135bc87d1',
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('fails if job is expired (BE-11-003)', async () => {
+      mockPrisma.candidateProfile.findUnique.mockResolvedValue({ id: 'prof-1' });
+      mockPrisma.job.findUnique.mockResolvedValue({ ...validJob, status: 'EXPIRED' });
+
+      try {
+        await service.submitApplication(candidateUser, 'job-1', {
+          cvId: 'b9d363b9-3bf6-4b20-8012-70b135bc87d1',
+        });
+        fail('Should have thrown ConflictException');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(ConflictException);
+        expect(err.getResponse().code).toBe(ERROR_CODES.JOB_NOT_OPEN);
+      }
+    });
+
     it('fails if job is closed', async () => {
       mockPrisma.candidateProfile.findUnique.mockResolvedValue({ id: 'prof-1' });
       mockPrisma.job.findUnique.mockResolvedValue({ ...validJob, status: 'CLOSED' });

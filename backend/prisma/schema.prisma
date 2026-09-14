@@ -31,9 +31,11 @@ enum CompanyMemberRole {
 
 enum JobStatus {
   DRAFT
+  PENDING_APPROVAL
   PUBLISHED
   UNPUBLISHED
   CLOSED
+  EXPIRED
 }
 
 enum WorkplaceType {
@@ -140,6 +142,7 @@ model User {
   notifications       Notification[]
   operations          Operation[]
   recommendationPreference RecommendationPreference?
+  createdJobs         Job[]                   @relation("JobCreator")
 
   @@map("users")
 }
@@ -320,6 +323,7 @@ model CompanyInvitationDeliverySecret {
 model Job {
   id                  String          @id @default(uuid())
   companyId           String
+  creatorId           String?
   title               String
   slug                String          @unique
   description         String
@@ -343,12 +347,16 @@ model Job {
   updatedAt           DateTime        @updatedAt
 
   company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  creator      User?         @relation("JobCreator", fields: [creatorId], references: [id], onDelete: SetNull)
   savedJobs    SavedJob[]
   applications Application[]
   aiAnalyses   AiAnalysis[]
 
   @@index([companyId])
+  @@index([creatorId])
+  @@index([companyId, creatorId])
   @@index([status])
+  @@index([status, applicationDeadline])
   @@index([publishedAt])
   @@index([applicationDeadline])
   @@map("jobs")

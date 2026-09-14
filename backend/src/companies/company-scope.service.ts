@@ -4,6 +4,11 @@ import { ERROR_CODES } from '../common/constants/error-codes';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { Company } from '@prisma/client';
 
+export interface CompanyScopeContext {
+  company: Company;
+  role: 'ADMIN' | 'OWNER' | 'RECRUITER';
+}
+
 @Injectable()
 export class CompanyScopeService {
   constructor(private readonly prisma: PrismaService) {}
@@ -50,7 +55,11 @@ export class CompanyScopeService {
     return company;
   }
 
-  async assertMemberOrAdmin(companyId: string, user: AuthenticatedUser): Promise<Company> {
+  async assertMemberOrAdminWithRole(
+    companyId: string,
+    user: AuthenticatedUser,
+    options?: { allowSuspended?: boolean },
+  ): Promise<CompanyScopeContext> {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
     });
@@ -62,7 +71,7 @@ export class CompanyScopeService {
       });
     }
 
-    if (company.status === 'SUSPENDED') {
+    if (!options?.allowSuspended && company.status === 'SUSPENDED') {
       throw new ForbiddenException({
         code: ERROR_CODES.FORBIDDEN,
         message: 'Company has been suspended by an administrator.',
@@ -70,7 +79,7 @@ export class CompanyScopeService {
     }
 
     if (user.role === 'ADMIN') {
-      return company;
+      return { company, role: 'ADMIN' };
     }
 
     const membership = await this.prisma.companyMembership.findUnique({
@@ -89,41 +98,20 @@ export class CompanyScopeService {
       });
     }
 
+    return { company, role: membership.role as 'OWNER' | 'RECRUITER' };
+  }
+
+  async assertMemberOrAdmin(companyId: string, user: AuthenticatedUser): Promise<Company> {
+    const { company } = await this.assertMemberOrAdminWithRole(companyId, user, {
+      allowSuspended: false,
+    });
     return company;
   }
 
   async assertMemberOrAdminReadOnly(companyId: string, user: AuthenticatedUser): Promise<Company> {
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
+    const { company } = await this.assertMemberOrAdminWithRole(companyId, user, {
+      allowSuspended: true,
     });
-
-    if (!company) {
-      throw new NotFoundException({
-        code: ERROR_CODES.RESOURCE_NOT_FOUND,
-        message: 'Company not found.',
-      });
-    }
-
-    if (user.role === 'ADMIN') {
-      return company;
-    }
-
-    const membership = await this.prisma.companyMembership.findUnique({
-      where: {
-        companyId_userId: {
-          companyId,
-          userId: user.id,
-        },
-      },
-    });
-
-    if (!membership) {
-      throw new ForbiddenException({
-        code: ERROR_CODES.FORBIDDEN,
-        message: 'You are not a member of this company.',
-      });
-    }
-
     return company;
   }
 }

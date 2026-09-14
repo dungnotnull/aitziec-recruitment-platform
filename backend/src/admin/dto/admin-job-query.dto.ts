@@ -13,10 +13,12 @@ export class AdminJobQueryDto {
   @IsUUID()
   companyId?: string;
 
-  @ApiPropertyOptional({ enum: ['DRAFT', 'PUBLISHED', 'UNPUBLISHED', 'CLOSED'] })
+  @ApiPropertyOptional({
+    enum: ['DRAFT', 'PENDING_APPROVAL', 'PUBLISHED', 'UNPUBLISHED', 'CLOSED', 'EXPIRED'],
+  })
   @IsOptional()
-  @IsIn(['DRAFT', 'PUBLISHED', 'UNPUBLISHED', 'CLOSED'])
-  status?: 'DRAFT' | 'PUBLISHED' | 'UNPUBLISHED' | 'CLOSED';
+  @IsIn(['DRAFT', 'PENDING_APPROVAL', 'PUBLISHED', 'UNPUBLISHED', 'CLOSED', 'EXPIRED'])
+  status?: 'DRAFT' | 'PENDING_APPROVAL' | 'PUBLISHED' | 'UNPUBLISHED' | 'CLOSED' | 'EXPIRED';
 
   @ApiPropertyOptional({
     enum: ['INTERN', 'FRESHER', 'JUNIOR', 'MID', 'SENIOR', 'LEAD', 'MANAGER'],

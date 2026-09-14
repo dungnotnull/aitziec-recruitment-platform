@@ -5,7 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
-import { Prisma, Job, Company } from '@prisma/client';
+import { Prisma, Job, Company, JobStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../companies/company-scope.service';
 import { AuditService } from '../audit/audit.service';
@@ -14,6 +14,7 @@ import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { CollectionResponse } from '../common/dto/response.dto';
 import { CompanyJobQueryDto } from './dto/company-job-query.dto';
 import {
+  ApproveJobDto,
   CloseJobDto,
   CreateJobDto,
   JobDto,
@@ -70,6 +71,7 @@ export class JobsService {
       salaryMax: job.salaryMax ?? null,
       currency: job.currency,
       applicationDeadline: this.toIso(job.applicationDeadline) ?? new Date().toISOString(),
+      creatorId: job.creatorId ?? null,
       status: job.status,
       publishedAt: this.toIso(job.publishedAt),
       closedAt: this.toIso(job.closedAt),
@@ -85,10 +87,18 @@ export class JobsService {
     query: CompanyJobQueryDto,
     requestId?: string,
   ): Promise<CollectionResponse<JobDto>> {
-    const company = await this.companyScopeService.assertMemberOrAdminReadOnly(companyId, user);
+    const { company, role } = await this.companyScopeService.assertMemberOrAdminWithRole(
+      companyId,
+      user,
+      { allowSuspended: true },
+    );
 
     const limit = query.limit ?? 20;
     const where: Prisma.JobWhereInput = { companyId: company.id };
+
+    if (role === 'RECRUITER') {
+      where.creatorId = user.id;
+    }
 
     if (query.status && query.status.length > 0) {
       where.status = { in: query.status };
@@ -196,6 +206,7 @@ export class JobsService {
     const job = await this.prisma.job.create({
       data: {
         companyId: company.id,
+        creatorId: user.id,
         title: dto.title,
         slug,
         description: dto.description,
@@ -388,7 +399,10 @@ export class JobsService {
       });
     }
 
-    await this.companyScopeService.assertMemberOrAdmin(job.companyId, user);
+    const { role } = await this.companyScopeService.assertMemberOrAdminWithRole(
+      job.companyId,
+      user,
+    );
 
     if (job.version !== dto.expectedVersion) {
       throw new ConflictException({
@@ -397,7 +411,7 @@ export class JobsService {
       });
     }
 
-    // Publish eligibility policy (BE-3-005)
+    // Publish eligibility policy (BE-3-005, BE-11-003)
     if (job.status === 'PUBLISHED') {
       throw new BadRequestException({
         code: ERROR_CODES.JOB_NOT_PUBLISHABLE,
@@ -405,10 +419,17 @@ export class JobsService {
       });
     }
 
-    if (job.status === 'CLOSED') {
+    if (job.status === 'PENDING_APPROVAL' && role === 'RECRUITER') {
       throw new BadRequestException({
         code: ERROR_CODES.JOB_NOT_PUBLISHABLE,
-        message: 'Closed job cannot be published.',
+        message: 'Job is already pending approval.',
+      });
+    }
+
+    if (job.status === 'CLOSED' || job.status === 'EXPIRED') {
+      throw new BadRequestException({
+        code: ERROR_CODES.JOB_NOT_PUBLISHABLE,
+        message: 'Closed or expired job cannot be published.',
       });
     }
 
@@ -441,11 +462,16 @@ export class JobsService {
       });
     }
 
+    const isRecruiter = role === 'RECRUITER';
+    const targetStatus: JobStatus = isRecruiter ? 'PENDING_APPROVAL' : 'PUBLISHED';
+    const publishedAt = isRecruiter ? null : new Date();
+    const action = isRecruiter ? 'JOB_PENDING_APPROVAL' : 'JOB_PUBLISHED';
+
     const updated = await this.prisma.job.update({
       where: { id: jobId },
       data: {
-        status: 'PUBLISHED',
-        publishedAt: new Date(),
+        status: targetStatus,
+        publishedAt,
         version: job.version + 1,
       },
       include: { company: true },
@@ -453,10 +479,106 @@ export class JobsService {
 
     await this.auditService.record({
       actorId: user.id,
-      action: 'JOB_PUBLISHED',
+      action,
       targetType: 'JOB',
       targetId: job.id,
-      metadata: { publishedAt: updated.publishedAt, version: updated.version },
+      metadata: {
+        previousStatus: job.status,
+        newStatus: updated.status,
+        publishedAt: updated.publishedAt,
+        version: updated.version,
+      },
+    });
+
+    return this.mapToDto(updated);
+  }
+
+  async approveJob(
+    companyId: string,
+    jobId: string,
+    user: AuthenticatedUser,
+    dto: ApproveJobDto,
+  ): Promise<JobDto> {
+    await this.companyScopeService.assertOwnerOrAdmin(companyId, user);
+
+    const job = await this.prisma.job.findUnique({
+      where: { id: jobId },
+      include: { company: true },
+    });
+
+    if (!job || job.companyId !== companyId) {
+      throw new NotFoundException({
+        code: ERROR_CODES.RESOURCE_NOT_FOUND,
+        message: 'Job not found.',
+      });
+    }
+
+    if (job.version !== dto.expectedVersion) {
+      throw new ConflictException({
+        code: ERROR_CODES.VERSION_CONFLICT,
+        message: `Version conflict: Expected version ${dto.expectedVersion}, but job is at version ${job.version}.`,
+      });
+    }
+
+    if (job.status !== 'PENDING_APPROVAL') {
+      throw new BadRequestException({
+        code: ERROR_CODES.JOB_NOT_PUBLISHABLE,
+        message: 'Only jobs pending approval can be approved.',
+      });
+    }
+
+    if (job.company?.status !== 'ACTIVE') {
+      throw new ForbiddenException({
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'Company is suspended. Cannot approve job.',
+      });
+    }
+
+    if (new Date(job.applicationDeadline).getTime() <= Date.now()) {
+      throw new BadRequestException({
+        code: ERROR_CODES.JOB_NOT_PUBLISHABLE,
+        message: 'Job application deadline has already passed.',
+      });
+    }
+
+    if (
+      !job.title ||
+      !job.description ||
+      !job.requirements ||
+      !job.location ||
+      !job.technologyNames ||
+      job.technologyNames.length === 0
+    ) {
+      throw new BadRequestException({
+        code: ERROR_CODES.JOB_NOT_PUBLISHABLE,
+        message:
+          'Job is missing required fields (title, description, requirements, location, technologies).',
+      });
+    }
+
+    const now = new Date();
+    const updated = await this.prisma.job.update({
+      where: { id: jobId },
+      data: {
+        status: 'PUBLISHED',
+        publishedAt: now,
+        version: job.version + 1,
+      },
+      include: { company: true },
+    });
+
+    await this.auditService.record({
+      actorId: user.id,
+      action: 'JOB_APPROVED',
+      targetType: 'JOB',
+      targetId: job.id,
+      metadata: {
+        companyId,
+        previousStatus: job.status,
+        newStatus: updated.status,
+        publishedAt: updated.publishedAt,
+        version: updated.version,
+      },
     });
 
     return this.mapToDto(updated);

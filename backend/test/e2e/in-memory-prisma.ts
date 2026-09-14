@@ -736,6 +736,14 @@ export class InMemoryPrismaService {
         if (args.where?.slug && j.slug !== args.where.slug) return false;
         if (args.where?.companyId && j.companyId !== args.where.companyId) return false;
         if (args.where?.status && j.status !== args.where.status) return false;
+        if (args.where?.OR && Array.isArray(args.where.OR)) {
+          const matched = args.where.OR.some((cond: any) => {
+            if (cond.id && j.id === cond.id) return true;
+            if (cond.slug && j.slug === cond.slug) return true;
+            return false;
+          });
+          if (!matched) return false;
+        }
         return true;
       });
       const found = filtered[0] || null;
@@ -748,6 +756,7 @@ export class InMemoryPrismaService {
     findMany: async (args: any) => {
       let result = this.jobs.filter((j) => {
         if (args.where?.companyId && j.companyId !== args.where.companyId) return false;
+        if (args.where?.creatorId && j.creatorId !== args.where.creatorId) return false;
         if (args.where?.status) {
           if (typeof args.where.status === 'string' && j.status !== args.where.status) return false;
           if (args.where.status.in && !args.where.status.in.includes(j.status)) return false;
@@ -895,6 +904,7 @@ export class InMemoryPrismaService {
       const job = {
         id: args.data.id || uuidv4(),
         ...args.data,
+        creatorId: args.data.creatorId || null,
         status: args.data.status || 'DRAFT',
         version: args.data.version || 1,
         publishedAt: args.data.publishedAt || null,
@@ -924,6 +934,27 @@ export class InMemoryPrismaService {
         return this.jobs[idx];
       }
       return null;
+    },
+    updateMany: async (args: any) => {
+      let count = 0;
+      for (let i = 0; i < this.jobs.length; i++) {
+        const j = this.jobs[i];
+        if (args.where?.id && j.id !== args.where.id) continue;
+        if (args.where?.status && j.status !== args.where.status) continue;
+        if (args.where?.version !== undefined && j.version !== args.where.version) continue;
+        if (
+          args.where?.applicationDeadline?.lt &&
+          !(new Date(j.applicationDeadline) < new Date(args.where.applicationDeadline.lt))
+        )
+          continue;
+        this.jobs[i] = {
+          ...this.jobs[i],
+          ...args.data,
+          updatedAt: new Date(),
+        };
+        count++;
+      }
+      return { count };
     },
   };
 

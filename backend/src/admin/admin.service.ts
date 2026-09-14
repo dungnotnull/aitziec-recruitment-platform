@@ -593,6 +593,7 @@ export class AdminService {
         job.applicationDeadline instanceof Date
           ? job.applicationDeadline.toISOString()
           : job.applicationDeadline,
+      creatorId: job.creatorId ?? null,
       status: job.status,
       publishedAt: job.publishedAt
         ? job.publishedAt instanceof Date

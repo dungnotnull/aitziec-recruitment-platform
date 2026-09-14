@@ -2,7 +2,14 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsArray, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
-export const JOB_STATUSES = ['DRAFT', 'PUBLISHED', 'UNPUBLISHED', 'CLOSED'] as const;
+export const JOB_STATUSES = [
+  'DRAFT',
+  'PENDING_APPROVAL',
+  'PUBLISHED',
+  'UNPUBLISHED',
+  'CLOSED',
+  'EXPIRED',
+] as const;
 export const EXPERIENCE_LEVELS = [
   'INTERN',
   'FRESHER',

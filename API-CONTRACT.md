@@ -192,7 +192,13 @@ type CompanyStatus = "ACTIVE" | "SUSPENDED";
 
 type CompanyMemberRole = "OWNER" | "RECRUITER";
 
-type JobStatus = "DRAFT" | "PUBLISHED" | "UNPUBLISHED" | "CLOSED";
+type JobStatus =
+  | "DRAFT"
+  | "PENDING_APPROVAL"
+  | "PUBLISHED"
+  | "UNPUBLISHED"
+  | "CLOSED"
+  | "EXPIRED";
 
 type ExperienceLevel =
   | "INTERN"
@@ -409,6 +415,7 @@ type Job = {
   salaryMax: number | null;
   currency: string;
   applicationDeadline: string;
+  creatorId: string | null;
   status: JobStatus;
   publishedAt: string | null;
   closedAt: string | null;
@@ -434,6 +441,10 @@ type CreateJobRequest = {
 };
 
 type UpdateJobRequest = Partial<CreateJobRequest> & {
+  expectedVersion: number;
+};
+
+type ApproveJobRequest = {
   expectedVersion: number;
 };
 
@@ -801,13 +812,20 @@ The final active owner cannot be removed. Membership changes and invitations are
 | `POST /companies/:companyId/jobs` | Company recruiter/admin | `CreateJobRequest` | `201 SuccessResponse<Job>` |
 | `PATCH /jobs/:jobId` | Company recruiter/admin | `UpdateJobRequest` | `200 SuccessResponse<Job>` |
 | `POST /jobs/:jobId/publish` | Company recruiter/admin | `{ expectedVersion }` | `200 SuccessResponse<Job>` |
+| `POST /companies/:companyId/jobs/:jobId/approve` | Company owner or admin | `ApproveJobRequest` | `200 SuccessResponse<Job>` |
 | `POST /jobs/:jobId/unpublish` | Company recruiter/admin | `{ expectedVersion }` | `200 SuccessResponse<Job>` |
 | `POST /jobs/:jobId/close` | Company recruiter/admin | `{ expectedVersion, reason? }` | `200 SuccessResponse<Job>` |
 | `POST /jobs/search/parse` | Public, rate-limited | `{ query: string }` | `200 SuccessResponse<JobSearchFilters>` |
 
 Public job reads return `404 RESOURCE_NOT_FOUND` for drafts, unpublished jobs,
-or inaccessible records to avoid leaking existence. HR users with company scope
-may retrieve their non-public jobs.
+pending approval jobs, or inaccessible records to avoid leaking existence. HR users
+with company scope may retrieve their non-public jobs.
+
+`POST /jobs/:jobId/publish`: transitions job to `PUBLISHED` if caller is company
+owner or global admin; transitions job to `PENDING_APPROVAL` if caller is recruiter.
+`POST /companies/:companyId/jobs/:jobId/approve`: transitions job from `PENDING_APPROVAL`
+to `PUBLISHED`. Requires company owner or global admin. Application submission strictly
+requires `job.status === "PUBLISHED"`.
 
 ### 9.5 Saved Jobs
 
