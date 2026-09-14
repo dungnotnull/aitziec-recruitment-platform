@@ -8,8 +8,10 @@ import { EmailModule } from '../email/email.module';
 import { InvitationSecretAdapter } from './adapters/invitation-secret.adapter';
 import { InvitationDeliveryWorker } from './workers/invitation-delivery.worker';
 
+import { StorageModule } from '../storage/storage.module';
+
 @Module({
-  imports: [OutboxModule, EmailModule],
+  imports: [OutboxModule, EmailModule, StorageModule],
   controllers: [CompaniesController, CompanyInvitationsController],
   providers: [
     CompaniesService,

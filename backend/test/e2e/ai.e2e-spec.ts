@@ -149,6 +149,35 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
       },
     });
     notReadyCvId = notReadyCv.id;
+
+    // Seed skill and associate with Candidate 1 & Candidate 2 profiles so they have profile skills
+    const testSkill = await inMemoryPrisma.skill.create({
+      data: {
+        id: 'sk-ai-e2e-1',
+        name: 'TypeScript',
+        normalizedName: 'typescript',
+        active: true,
+      },
+    });
+
+    await inMemoryPrisma.candidateSkill.create({
+      data: {
+        candidateProfileId: candProfile.id,
+        skillId: testSkill.id,
+      },
+    });
+
+    const otherProfile = inMemoryPrisma.candidateProfiles.find(
+      (cp) => cp.userId === otherRes.body.data.user.id,
+    );
+    if (otherProfile) {
+      await inMemoryPrisma.candidateSkill.create({
+        data: {
+          candidateProfileId: otherProfile.id,
+          skillId: testSkill.id,
+        },
+      });
+    }
   });
 
   afterAll(async () => {
@@ -343,6 +372,28 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
       expect(res.status).toBe(200);
       expect(res.body.data).toBeDefined();
       expect(res.body.meta.page.limit).toBe(20);
+      expect(res.body.meta.requestId).toBeDefined();
+    });
+
+    it('BE-12-002: returns onboarding empty state (profileRequired: true) for candidate without profile', async () => {
+      const regRes = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+        email: 'newbie-rec-e2e@test.com',
+        password: 'Password123!@#',
+        role: 'CANDIDATE',
+      });
+      const newbieToken = regRes.body.data.accessToken;
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/recommendations/jobs')
+        .set('Authorization', `Bearer ${newbieToken}`)
+        .expect(200);
+
+      expect(res.body.data).toEqual([]);
+      expect(res.body.meta.profileRequired).toBe(true);
+      expect(res.body.meta.message).toBe(
+        'Candidate profile with skills is required to compute recommendations.',
+      );
+      expect(res.body.meta.page.hasNextPage).toBe(false);
       expect(res.body.meta.requestId).toBeDefined();
     });
 

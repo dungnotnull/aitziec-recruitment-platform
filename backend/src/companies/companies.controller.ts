@@ -12,9 +12,13 @@ import {
   HttpCode,
   HttpStatus,
   Res,
+  UploadedFile,
+  UseInterceptors,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { CompaniesService } from './companies.service';
 import {
   CompanyDto,
@@ -23,6 +27,9 @@ import {
   AddCompanyMemberDto,
   CompanyMembershipDto,
   CallerCompanyMembershipDto,
+  UploadedLogoFile,
+  UploadCompanyLogoDto,
+  UploadCompanyLogoResponseDto,
 } from './dto/company.dto';
 import { CompanyInvitationDto } from './dto/company-invitation.dto';
 import { PaginationQueryDto, CollectionResponse } from '../common/dto/response.dto';
@@ -93,6 +100,34 @@ export class CompaniesController {
     @Body() dto: UpdateCompanyDto,
   ): Promise<CompanyDto> {
     return this.companiesService.updateCompany(companyId, user, dto);
+  }
+
+  @ApiBearerAuth('bearer')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('HR', 'ADMIN')
+  @Post(':companyId/logo')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('logo'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload company logo image (PNG, JPEG, WebP, max 5 MiB)' })
+  @ApiResponse({
+    status: 200,
+    type: UploadCompanyLogoResponseDto,
+    description: 'Logo uploaded and company updated',
+  })
+  @ApiResponse({ status: 400, description: 'File missing or invalid' })
+  @ApiResponse({ status: 403, description: 'Forbidden: only company owner or admin' })
+  @ApiResponse({ status: 404, description: 'Company not found' })
+  @ApiResponse({ status: 409, description: 'Version conflict' })
+  @ApiResponse({ status: 413, description: 'File too large (exceeds 5 MiB)' })
+  @ApiResponse({ status: 415, description: 'Unsupported media type or magic byte mismatch' })
+  async uploadLogo(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: UploadedLogoFile,
+    @Body() dto: UploadCompanyLogoDto,
+  ): Promise<UploadCompanyLogoResponseDto> {
+    return this.companiesService.uploadCompanyLogo(companyId, user, file, dto);
   }
 
   @ApiBearerAuth('bearer')

@@ -288,6 +288,11 @@ export class AiService {
   ): Promise<CollectionResponse<RecommendedJobDto>> {
     const limit = query.limit ?? 20;
 
+    // Kiểm tra tính hợp lệ của con trỏ phân trang trước tiên (BE-12-002: malformed cursor không bị che bởi empty state)
+    if (query.cursor) {
+      this.decodeCursor(query.cursor);
+    }
+
     // 0. Kiểm tra tùy chọn gợi ý / trạng thái từ chối của ứng viên (BE-8-021)
     const preference = await this.prisma.recommendationPreference.findUnique({
       where: { userId: user.id },
@@ -314,11 +319,19 @@ export class AiService {
       },
     });
 
-    if (!candidateProfile) {
-      throw new NotFoundException({
-        code: ERROR_CODES.RESOURCE_NOT_FOUND,
-        message: 'Candidate profile not found.',
-      });
+    if (!candidateProfile || !candidateProfile.skills || candidateProfile.skills.length === 0) {
+      return {
+        data: [],
+        meta: {
+          profileRequired: true,
+          message: 'Candidate profile with skills is required to compute recommendations.',
+          page: {
+            nextCursor: null,
+            hasNextPage: false,
+            limit,
+          },
+        },
+      };
     }
 
     // 1. Loại trừ các công việc ứng viên đã nộp hồ sơ

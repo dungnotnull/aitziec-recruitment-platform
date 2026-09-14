@@ -47,6 +47,12 @@ export class CollectionMeta extends ResponseMeta {
   message?: string;
 
   @ApiPropertyOptional({
+    description: 'Whether a complete candidate profile with skills is required for recommendations',
+    example: true,
+  })
+  profileRequired?: boolean;
+
+  @ApiPropertyOptional({
     description: 'Total unread notifications count for notification queries',
     example: 3,
   })

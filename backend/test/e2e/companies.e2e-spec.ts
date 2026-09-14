@@ -198,6 +198,47 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
     expect(res.body.error.message).toContain('Company slug cannot be changed once created');
   });
 
+  it('POST /api/v1/companies/:companyId/logo uploads company logo and increments version', async () => {
+    const pngBuffer = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(64, 0),
+    ]);
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/companies/${companyId}/logo`)
+      .set('Authorization', `Bearer ${hrOwnerToken}`)
+      .attach('logo', pngBuffer, { filename: 'test-logo.png', contentType: 'image/png' })
+      .field('expectedVersion', 3)
+      .expect(200);
+
+    expect(res.body.data.version).toBe(4);
+    expect(res.body.data.logoUrl).toContain('companies/');
+    expect(res.body.data.logoUrl).toMatch(/\.png$/);
+  });
+
+  it('POST /api/v1/companies/:companyId/logo rejects candidate with 403 FORBIDDEN', async () => {
+    const pngBuffer = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(64, 0),
+    ]);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/companies/${companyId}/logo`)
+      .set('Authorization', `Bearer ${candidateToken}`)
+      .attach('logo', pngBuffer, { filename: 'test-logo.png', contentType: 'image/png' })
+      .expect(403);
+  });
+
+  it('POST /api/v1/companies/:companyId/logo rejects file with invalid signature with 415', async () => {
+    const fakeBuffer = Buffer.from('NOT_A_REAL_IMAGE');
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/companies/${companyId}/logo`)
+      .set('Authorization', `Bearer ${hrOwnerToken}`)
+      .attach('logo', fakeBuffer, { filename: 'fake.png', contentType: 'image/png' })
+      .expect(415);
+  });
+
   it('POST /api/v1/companies/:companyId/members adds a recruiter member to the company', async () => {
     const res = await request(app.getHttpServer())
       .post(`/api/v1/companies/${companyId}/members`)

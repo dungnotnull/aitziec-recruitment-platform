@@ -240,6 +240,55 @@ describe('AiExplainabilityAndConsent (Unit - BE-8-021 & BE-8-022)', () => {
 
       expect(res.data).toHaveLength(0);
       expect(res.meta.optedOut).toBe(true);
+      expect(res.meta.profileRequired).toBeUndefined();
+    });
+
+    it('returns onboarding empty state (profileRequired: true) when candidate has no profile (BE-12-002)', async () => {
+      const newUser: AuthenticatedUser = {
+        id: 'new-user-no-profile',
+        email: 'newbie@test.com',
+        role: 'CANDIDATE',
+        status: 'ACTIVE',
+      };
+
+      const res = await service.getJobRecommendations(newUser, { limit: 10 });
+
+      expect(res.data).toEqual([]);
+      expect(res.meta.profileRequired).toBe(true);
+      expect(res.meta.message).toBe(
+        'Candidate profile with skills is required to compute recommendations.',
+      );
+      expect(res.meta.page.nextCursor).toBeNull();
+      expect(res.meta.page.hasNextPage).toBe(false);
+      expect(res.meta.page.limit).toBe(10);
+    });
+
+    it('returns onboarding empty state (profileRequired: true) when candidate profile has zero skills (BE-12-002)', async () => {
+      const userNoSkills: AuthenticatedUser = {
+        id: 'user-profile-no-skills',
+        email: 'noskills@test.com',
+        role: 'CANDIDATE',
+        status: 'ACTIVE',
+      };
+
+      const profileNoSkills = {
+        id: 'prof-no-skills-1',
+        userId: userNoSkills.id,
+        fullName: 'Candidate Without Skills',
+        skills: [],
+      };
+      inMemoryPrisma.candidateProfiles.push(profileNoSkills);
+
+      const res = await service.getJobRecommendations(userNoSkills, { limit: 15 });
+
+      expect(res.data).toEqual([]);
+      expect(res.meta.profileRequired).toBe(true);
+      expect(res.meta.message).toBe(
+        'Candidate profile with skills is required to compute recommendations.',
+      );
+      expect(res.meta.page.nextCursor).toBeNull();
+      expect(res.meta.page.hasNextPage).toBe(false);
+      expect(res.meta.page.limit).toBe(15);
     });
 
     it('does not recommend jobs from suspended companies', async () => {

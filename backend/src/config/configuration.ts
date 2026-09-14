@@ -79,6 +79,58 @@ export class EnvironmentVariables {
   @IsOptional()
   INVITATION_TOKEN_ENCRYPTION_KEY: string =
     process.env.INVITATION_TOKEN_ENCRYPTION_KEY || Buffer.alloc(32, 'a').toString('base64');
+
+  @IsString()
+  @IsOptional()
+  STORAGE_ENDPOINT?: string;
+
+  @IsString()
+  @IsOptional()
+  STORAGE_REGION?: string;
+
+  @IsString()
+  @IsOptional()
+  STORAGE_ACCESS_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  STORAGE_SECRET_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  STORAGE_BUCKET?: string;
+
+  @IsString()
+  @IsOptional()
+  STORAGE_ASSETS_BUCKET?: string;
+
+  @IsString()
+  @IsOptional()
+  STORAGE_PUBLIC_URL?: string;
+
+  @IsString()
+  @IsOptional()
+  MINIO_ENDPOINT?: string;
+
+  @IsInt()
+  @IsOptional()
+  MINIO_PORT?: number;
+
+  @IsString()
+  @IsOptional()
+  MINIO_ACCESS_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  MINIO_SECRET_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  MINIO_BUCKET?: string;
+
+  @IsString()
+  @IsOptional()
+  MINIO_ASSETS_BUCKET?: string;
 }
 
 export function validateConfig(config: Record<string, unknown>): EnvironmentVariables {
@@ -89,6 +141,7 @@ export function validateConfig(config: Record<string, unknown>): EnvironmentVari
       ...config,
       PORT: config.PORT ? Number(config.PORT) : 4000,
       REDIS_PORT: config.REDIS_PORT ? Number(config.REDIS_PORT) : 6379,
+      MINIO_PORT: config.MINIO_PORT ? Number(config.MINIO_PORT) : undefined,
       REFRESH_COOKIE_SECURE:
         config.REFRESH_COOKIE_SECURE === 'true' || config.REFRESH_COOKIE_SECURE === true,
     },

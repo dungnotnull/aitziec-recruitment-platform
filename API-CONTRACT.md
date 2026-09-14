@@ -117,6 +117,10 @@ type CollectionResponse<T> = {
   meta: {
     requestId: string;
     page: PageInfo;
+    optedOut?: boolean;
+    profileRequired?: boolean;
+    message?: string;
+    unreadCount?: number;
   };
 };
 ```
@@ -392,6 +396,11 @@ type CompanyMembership = {
   user: UserSummary;
   role: CompanyMemberRole;
   createdAt: string;
+};
+
+type UploadCompanyLogoResponse = {
+  logoUrl: string;
+  version: number;
 };
 ```
 
@@ -795,13 +804,14 @@ The candidate ID comes from the authenticated user, never from a body field.
 | `GET /companies/mine` | HR | Cursor query | `200 CollectionResponse<RecruiterCompanyMembership>` |
 | `GET /companies/:companyIdOrSlug` | Public | None | `200 SuccessResponse<Company>` |
 | `PATCH /companies/:companyId` | Owner/admin | Mutable fields + `expectedVersion` | `200 SuccessResponse<Company>` |
+| `POST /companies/:companyId/logo` | Owner/admin | `multipart/form-data` field `logo` (max 5 MiB, PNG/JPEG/WebP), optional `expectedVersion` | `200 SuccessResponse<UploadCompanyLogoResponse>` |
 | `GET /companies/:companyId/members` | Company member/admin | Cursor query | `200 CollectionResponse<CompanyMembership>` |
 | `POST /companies/:companyId/members` | Owner/admin | `{ userEmail, role }` | `201 SuccessResponse<CompanyMembership>` for registered user; `202 SuccessResponse<CompanyInvitation>` for unknown user |
 | `DELETE /companies/:companyId/members/:memberId` | Owner/admin | None | `204` |
 | `POST /company-invitations/:token/accept` | Authenticated invited user | Empty | `201 SuccessResponse<CompanyMembership>` |
 | `GET /companies/:companyId/jobs` | Scoped HR or admin | Status/filter/cursor query | `200 CollectionResponse<Job>` |
 
-The final active owner cannot be removed. Membership changes and invitations are audited.
+The final active owner cannot be removed. Membership changes and invitations are audited. `POST /companies/:companyId/logo` uploads a public company logo to isolated public asset storage, validates binary magic bytes, enforces optimistic concurrency, and increments aggregate version.
 
 ### 9.4 Jobs and Search
 
@@ -896,8 +906,10 @@ emits `InterviewRescheduled`. Candidate responses omit recruiter-private fields.
 The analysis request is rejected with `409 CV_NOT_READY` until extraction is
 ready. Provider failure is represented on the operation and does not mutate an
 application. Raw prompts, CV text, and provider credentials are never returned.
-If candidate recommendation consent is disabled, the endpoint returns an empty collection
-without triggering AI score queries.
+If candidate recommendation consent is disabled, the endpoint returns an empty collection with `optedOut: true`
+without triggering AI score queries. If the candidate has no profile or zero skills, the endpoint returns `200`
+with `data: []`, `meta.profileRequired: true`, and `meta.message: "Candidate profile with skills is required to compute recommendations."`
+without executing job queries or ranking calculations.
 
 ### 9.10 Notifications
 

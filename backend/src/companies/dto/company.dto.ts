@@ -1,6 +1,36 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import { UserSummaryDto } from '../../auth/dto/auth.dto';
+
+export interface UploadedLogoFile {
+  fieldname?: string;
+  originalname: string;
+  encoding?: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
+
+export class UploadCompanyLogoDto {
+  @ApiPropertyOptional({ example: 1, description: 'Expected aggregate version' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expectedVersion?: number;
+}
+
+export class UploadCompanyLogoResponseDto {
+  @ApiProperty({
+    example: 'http://localhost:9000/itziec-assets/companies/comp-1234/logo-uuid.png',
+    description: 'Public URL to the uploaded company logo',
+  })
+  logoUrl: string;
+
+  @ApiProperty({ example: 2, description: 'New company version after logo update' })
+  version: number;
+}
 
 export class CompanyDto {
   @ApiProperty({ example: 'comp-1234' })

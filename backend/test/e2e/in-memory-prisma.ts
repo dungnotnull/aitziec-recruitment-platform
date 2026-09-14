@@ -446,9 +446,22 @@ export class InMemoryPrismaService {
     update: async (args: any) => {
       const idx = this.companies.findIndex((c) => c.id === args.where.id);
       if (idx !== -1) {
+        if (
+          args.where.version !== undefined &&
+          this.companies[idx].version !== args.where.version
+        ) {
+          throw new Error('Version conflict');
+        }
+        let version = this.companies[idx].version || 1;
+        if (args.data.version?.increment) {
+          version += args.data.version.increment;
+        } else if (typeof args.data.version === 'number') {
+          version = args.data.version;
+        }
         this.companies[idx] = {
           ...this.companies[idx],
           ...args.data,
+          version,
           updatedAt: new Date(),
         };
         return this.companies[idx];

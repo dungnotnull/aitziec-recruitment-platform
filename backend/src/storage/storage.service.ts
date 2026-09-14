@@ -14,17 +14,44 @@ export class StorageService {
   private readonly logger = new Logger(StorageService.name);
   private s3Client: S3Client | null = null;
   private bucket: string;
+  private assetsBucket: string;
+  private publicBaseUrl: string;
   private memoryStore = new Map<string, { buffer: Buffer; mimeType: string }>();
 
   constructor(private readonly configService: ConfigService) {
-    this.bucket = this.configService.get<string>('STORAGE_BUCKET', 'itziec-cvs');
+    this.bucket =
+      this.configService.get<string>('STORAGE_BUCKET') ||
+      this.configService.get<string>('MINIO_BUCKET', 'itziec-cvs');
+
+    this.assetsBucket =
+      this.configService.get<string>('STORAGE_ASSETS_BUCKET') ||
+      this.configService.get<string>('MINIO_ASSETS_BUCKET', 'itziec-assets');
+
+    const region = this.configService.get<string>('STORAGE_REGION', 'us-east-1');
+    const endpoint =
+      this.configService.get<string>('STORAGE_ENDPOINT') ||
+      (this.configService.get<string>('MINIO_ENDPOINT')
+        ? `http://${this.configService.get<string>('MINIO_ENDPOINT')}:${this.configService.get<number>('MINIO_PORT', 9000)}`
+        : 'http://localhost:9000');
+
+    const accessKey =
+      this.configService.get<string>('STORAGE_ACCESS_KEY') ||
+      this.configService.get<string>('MINIO_ACCESS_KEY', 'minioadmin');
+    const secretKey =
+      this.configService.get<string>('STORAGE_SECRET_KEY') ||
+      this.configService.get<string>('MINIO_SECRET_KEY', 'minioadmin');
+
+    this.publicBaseUrl =
+      this.configService.get<string>('STORAGE_PUBLIC_URL') ||
+      `${endpoint.replace(/\/+$/, '')}/${this.assetsBucket}`;
+
     try {
       this.s3Client = new S3Client({
-        region: this.configService.get<string>('STORAGE_REGION', 'us-east-1'),
-        endpoint: this.configService.get<string>('STORAGE_ENDPOINT', 'http://localhost:9000'),
+        region,
+        endpoint,
         credentials: {
-          accessKeyId: this.configService.get<string>('STORAGE_ACCESS_KEY', 'minioadmin'),
-          secretAccessKey: this.configService.get<string>('STORAGE_SECRET_KEY', 'minioadmin'),
+          accessKeyId: accessKey,
+          secretAccessKey: secretKey,
         },
         forcePathStyle: true,
       });
@@ -50,8 +77,59 @@ export class StorageService {
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         this.logger.warn(`S3 upload failed for ${key}, relying on local copy: ${msg}`);
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Storage upload failed: ${msg}`);
+        }
       }
     }
+  }
+
+  async uploadPublicAsset(key: string, buffer: Buffer, mimeType: string): Promise<string> {
+    this.memoryStore.set(`${this.assetsBucket}/${key}`, { buffer, mimeType });
+    if (this.s3Client) {
+      try {
+        await this.s3Client.send(
+          new PutObjectCommand({
+            Bucket: this.assetsBucket,
+            Key: key,
+            Body: buffer,
+            ContentType: mimeType,
+          }),
+        );
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.warn(`S3 public asset upload failed for ${key}: ${msg}`);
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`Public asset storage upload failed: ${msg}`);
+        }
+      }
+    }
+    return `${this.publicBaseUrl}/${key}`;
+  }
+
+  async deletePublicAsset(key: string): Promise<void> {
+    this.memoryStore.delete(`${this.assetsBucket}/${key}`);
+    if (this.s3Client) {
+      try {
+        await this.s3Client.send(
+          new DeleteObjectCommand({
+            Bucket: this.assetsBucket,
+            Key: key,
+          }),
+        );
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.warn(`S3 public asset delete failed for ${key}: ${msg}`);
+      }
+    }
+  }
+
+  getAssetsBucket(): string {
+    return this.assetsBucket;
+  }
+
+  getPublicBaseUrl(): string {
+    return this.publicBaseUrl;
   }
 
   async getFile(key: string): Promise<Buffer> {

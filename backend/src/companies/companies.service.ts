@@ -5,12 +5,16 @@ import {
   ConflictException,
   ForbiddenException,
   BadRequestException,
+  PayloadTooLargeException,
+  UnsupportedMediaTypeException,
+  Logger,
 } from '@nestjs/common';
 import { Company, CompanyMemberRole, CompanyMembership, User } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from './company-scope.service';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { StorageService } from '../storage/storage.service';
 import { ERROR_CODES } from '../common/constants/error-codes';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { PaginationQueryDto, CollectionResponse } from '../common/dto/response.dto';
@@ -21,18 +25,24 @@ import {
   CreateCompanyDto,
   UpdateCompanyDto,
   CallerCompanyMembershipDto,
+  UploadedLogoFile,
+  UploadCompanyLogoDto,
+  UploadCompanyLogoResponseDto,
 } from './dto/company.dto';
 import { CompanyInvitationDto, maskEmail } from './dto/company-invitation.dto';
 import { InvitationSecretAdapter } from './adapters/invitation-secret.adapter';
 
 @Injectable()
 export class CompaniesService {
+  private readonly logger = new Logger(CompaniesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly scopeService: CompanyScopeService,
     private readonly auditService: AuditService,
     private readonly outboxService: OutboxService,
     private readonly secretAdapter: InvitationSecretAdapter,
+    private readonly storageService: StorageService,
   ) {}
 
   private slugify(text: string): string {
@@ -164,6 +174,174 @@ export class CompaniesService {
     });
 
     return this.mapToDto(updated);
+  }
+
+  private isManagedAssetUrl(url: string, companyId: string): boolean {
+    return (
+      url.includes(`/companies/${companyId}/`) &&
+      (url.includes('itziec-assets') || url.includes(this.storageService.getAssetsBucket()))
+    );
+  }
+
+  private extractAssetKey(url: string): string | null {
+    const match = url.match(/companies\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-.]+/);
+    return match ? match[0] : null;
+  }
+
+  async uploadCompanyLogo(
+    companyId: string,
+    user: AuthenticatedUser,
+    file: UploadedLogoFile,
+    dto?: UploadCompanyLogoDto,
+  ): Promise<UploadCompanyLogoResponseDto> {
+    // 1. Authorize: Only global ADMIN or HR OWNER can upload logo
+    const company = await this.scopeService.assertOwnerOrAdmin(companyId, user);
+
+    // 2. Validate file presence
+    if (!file || !file.buffer || file.buffer.length === 0) {
+      throw new BadRequestException({
+        code: ERROR_CODES.VALIDATION_ERROR,
+        message: 'Logo file is required in multipart field "logo".',
+      });
+    }
+
+    // 3. Max size: 5 MiB (5 * 1024 * 1024 bytes)
+    const MAX_LOGO_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_LOGO_SIZE || file.buffer.length > MAX_LOGO_SIZE) {
+      throw new PayloadTooLargeException({
+        code: ERROR_CODES.FILE_TOO_LARGE,
+        message: 'File size exceeds the 5 MiB limit.',
+      });
+    }
+
+    // 4. Validate MIME type
+    const allowedMimes = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!allowedMimes.includes(file.mimetype)) {
+      throw new UnsupportedMediaTypeException({
+        code: ERROR_CODES.INVALID_FILE_TYPE,
+        message: 'Only PNG, JPEG, and WebP images are supported.',
+      });
+    }
+
+    // 5. Validate magic bytes signature
+    let detectedExt: string | null = null;
+    const buf = file.buffer;
+
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (
+      buf.length >= 8 &&
+      buf[0] === 0x89 &&
+      buf[1] === 0x50 &&
+      buf[2] === 0x4e &&
+      buf[3] === 0x47 &&
+      buf[4] === 0x0d &&
+      buf[5] === 0x0a &&
+      buf[6] === 0x1a &&
+      buf[7] === 0x0a
+    ) {
+      detectedExt = 'png';
+    }
+    // JPEG: FF D8 FF
+    else if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+      detectedExt = 'jpg';
+    }
+    // WebP: RIFF at 0..3 and WEBP at 8..11
+    else if (
+      buf.length >= 12 &&
+      buf.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buf.subarray(8, 12).toString('ascii') === 'WEBP'
+    ) {
+      detectedExt = 'webp';
+    }
+
+    if (!detectedExt) {
+      throw new UnsupportedMediaTypeException({
+        code: ERROR_CODES.INVALID_FILE_TYPE,
+        message: 'File content does not match any supported image signature (PNG, JPEG, WebP).',
+      });
+    }
+
+    // Check MIME vs signature
+    if (
+      (detectedExt === 'png' && file.mimetype !== 'image/png') ||
+      (detectedExt === 'jpg' && file.mimetype !== 'image/jpeg') ||
+      (detectedExt === 'webp' && file.mimetype !== 'image/webp')
+    ) {
+      throw new UnsupportedMediaTypeException({
+        code: ERROR_CODES.INVALID_FILE_TYPE,
+        message: `File content signature does not match declared MIME type ${file.mimetype}.`,
+      });
+    }
+
+    // 6. Optimistic concurrency check
+    if (dto?.expectedVersion !== undefined && dto.expectedVersion !== company.version) {
+      throw new ConflictException({
+        code: ERROR_CODES.VERSION_CONFLICT,
+        message: `Company version mismatch: expected ${dto.expectedVersion}, but current is ${company.version}.`,
+      });
+    }
+
+    // 7. Server-side key generation & upload
+    const assetKey = `companies/${companyId}/${crypto.randomUUID()}.${detectedExt}`;
+    const publicUrl = await this.storageService.uploadPublicAsset(
+      assetKey,
+      file.buffer,
+      file.mimetype,
+    );
+
+    // 8. DB update with compensation
+    let updatedCompany: Company;
+    try {
+      updatedCompany = await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.company.update({
+          where: {
+            id: companyId,
+            version: company.version,
+          },
+          data: {
+            logoUrl: publicUrl,
+            version: { increment: 1 },
+          },
+        });
+
+        await this.auditService.record(
+          {
+            actorId: user.id,
+            action: 'COMPANY_LOGO_UPDATED',
+            targetType: 'Company',
+            targetId: companyId,
+            metadata: {
+              version: updated.version,
+              previousLogoUrl: company.logoUrl,
+              newLogoUrl: publicUrl,
+            },
+          },
+          tx,
+        );
+
+        return updated;
+      });
+    } catch (error: unknown) {
+      // Compensation: remove newly uploaded asset if DB update fails
+      await this.storageService.deletePublicAsset(assetKey).catch((delErr: unknown) => {
+        const msg = delErr instanceof Error ? delErr.message : String(delErr);
+        this.logger.warn(`Failed to compensate uploaded logo asset ${assetKey}: ${msg}`);
+      });
+      throw error;
+    }
+
+    // 9. Cleanup old managed logo if replaced
+    if (company.logoUrl && this.isManagedAssetUrl(company.logoUrl, companyId)) {
+      const oldKey = this.extractAssetKey(company.logoUrl);
+      if (oldKey) {
+        await this.storageService.deletePublicAsset(oldKey).catch(() => {});
+      }
+    }
+
+    return {
+      logoUrl: updatedCompany.logoUrl ?? publicUrl,
+      version: updatedCompany.version,
+    };
   }
 
   async listMyCompanies(
