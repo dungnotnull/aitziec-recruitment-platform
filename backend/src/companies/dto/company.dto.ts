@@ -75,6 +75,14 @@ export class UpdateCompanyDto {
   @Min(1)
   expectedVersion: number;
 
+  @ApiPropertyOptional({
+    example: 'techcorp-vietnam',
+    description: 'Company slug (read-only; if provided, must match existing slug)',
+  })
+  @IsOptional()
+  @IsString()
+  slug?: string;
+
   @ApiPropertyOptional({ example: 'TechCorp Vietnam Ltd' })
   @IsOptional()
   @IsString()

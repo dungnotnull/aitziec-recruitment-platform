@@ -167,6 +167,37 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
     expect(res.body.error.code).toBe(ERROR_CODES.FORBIDDEN);
   });
 
+  it('PATCH /api/v1/companies/:companyId accepts unchanged slug and updates company (tolerant slug handling)', async () => {
+    const res = await request(app.getHttpServer())
+      .patch(`/api/v1/companies/${companyId}`)
+      .set('Authorization', `Bearer ${hrOwnerToken}`)
+      .send({
+        expectedVersion: 2,
+        name: 'VNG Corporation Vietnam Ltd',
+        slug: 'vng-corp', // Same slug sent by frontend
+      })
+      .expect(200);
+
+    expect(res.body.data.name).toBe('VNG Corporation Vietnam Ltd');
+    expect(res.body.data.slug).toBe('vng-corp');
+    expect(res.body.data.version).toBe(3);
+  });
+
+  it('PATCH /api/v1/companies/:companyId rejects modified slug with 400 VALIDATION_ERROR', async () => {
+    const res = await request(app.getHttpServer())
+      .patch(`/api/v1/companies/${companyId}`)
+      .set('Authorization', `Bearer ${hrOwnerToken}`)
+      .send({
+        expectedVersion: 3,
+        name: 'VNG Hack',
+        slug: 'vng-new-slug',
+      })
+      .expect(400);
+
+    expect(res.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+    expect(res.body.error.message).toContain('Company slug cannot be changed once created');
+  });
+
   it('POST /api/v1/companies/:companyId/members adds a recruiter member to the company', async () => {
     const res = await request(app.getHttpServer())
       .post(`/api/v1/companies/${companyId}/members`)
