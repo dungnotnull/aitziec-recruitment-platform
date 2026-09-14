@@ -118,13 +118,18 @@ export class ApplicationsService {
         where: { id: jobId },
         include: { company: true },
       });
-      if (!job || job.status === 'DRAFT' || job.status === 'UNPUBLISHED') {
+      if (
+        !job ||
+        job.status === 'DRAFT' ||
+        job.status === 'UNPUBLISHED' ||
+        job.status === 'PENDING_APPROVAL'
+      ) {
         throw new NotFoundException({
           code: ERROR_CODES.RESOURCE_NOT_FOUND,
           message: 'Job not found or inaccessible.',
         });
       }
-      if (job.status === 'CLOSED') {
+      if (job.status !== 'PUBLISHED') {
         throw new ConflictException({
           code: ERROR_CODES.JOB_NOT_OPEN,
           message: 'Job is closed and no longer accepting applications.',

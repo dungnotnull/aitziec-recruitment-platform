@@ -21,6 +21,7 @@ import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-use
 import { CollectionResponse } from '../common/dto/response.dto';
 import { CompanyJobQueryDto } from './dto/company-job-query.dto';
 import {
+  ApproveJobDto,
   CloseJobDto,
   CreateJobDto,
   JobDto,
@@ -107,9 +108,16 @@ export class JobsController {
   @Roles('HR', 'ADMIN')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Publish a draft or unpublished job' })
+  @ApiOperation({
+    summary:
+      'Publish a draft or unpublished job (transitions to PENDING_APPROVAL for recruiter; PUBLISHED for owner/admin)',
+  })
   @ApiParam({ name: 'jobId', description: 'Job UUID' })
-  @ApiResponse({ status: 200, description: 'Job published successfully', type: JobDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Job published or marked pending approval successfully',
+    type: JobDto,
+  })
   @ApiResponse({ status: 400, description: 'Job not publishable' })
   @ApiResponse({ status: 409, description: 'Version conflict' })
   async publishJob(
@@ -118,6 +126,37 @@ export class JobsController {
     @Body() dto: PublishJobDto,
   ): Promise<JobDto> {
     return this.jobsService.publishJob(jobId, user, dto);
+  }
+
+  @Post('companies/:companyId/jobs/:jobId/approve')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('HR', 'ADMIN')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Approve a job pending approval and transition it to PUBLISHED (Owner or Admin only)',
+  })
+  @ApiParam({ name: 'companyId', description: 'Company UUID' })
+  @ApiParam({ name: 'jobId', description: 'Job UUID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Job successfully approved and published',
+    type: JobDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Job not pending approval, expired, or missing required fields',
+  })
+  @ApiResponse({ status: 403, description: 'Forbidden if not company owner or admin' })
+  @ApiResponse({ status: 404, description: 'Job or company not found' })
+  @ApiResponse({ status: 409, description: 'Version conflict' })
+  async approveJob(
+    @Param('companyId') companyId: string,
+    @Param('jobId') jobId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ApproveJobDto,
+  ): Promise<JobDto> {
+    return this.jobsService.approveJob(companyId, jobId, user, dto);
   }
 
   @Post('jobs/:jobId/unpublish')

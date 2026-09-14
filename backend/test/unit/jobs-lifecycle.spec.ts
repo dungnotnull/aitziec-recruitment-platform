@@ -52,6 +52,10 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
     };
     mockScopeService = {
       assertMemberOrAdmin: jest.fn().mockResolvedValue(activeCompany),
+      assertMemberOrAdminReadOnly: jest.fn().mockResolvedValue(activeCompany),
+      assertMemberOrAdminWithRole: jest
+        .fn()
+        .mockResolvedValue({ company: activeCompany, role: 'OWNER' }),
       assertOwnerOrAdmin: jest.fn().mockResolvedValue(activeCompany),
     };
     mockAuditService = {
@@ -89,9 +93,15 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
       const result = await service.createDraftJob('comp-1', hrUser, dto);
 
       expect(result).toBeDefined();
+      expect(result.creatorId).toBe('user-hr-1');
       expect(result.status).toBe('DRAFT');
       expect(result.version).toBe(1);
       expect(result.slug).toContain('senior-backend-engineer');
+      expect(mockPrisma.job.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ creatorId: 'user-hr-1' }),
+        }),
+      );
       expect(mockAuditService.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'JOB_CREATED', targetId: 'job-1' }),
       );
@@ -273,7 +283,11 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
       company: activeCompany,
     };
 
-    it('successfully publishes an eligible draft job', async () => {
+    it('successfully publishes an eligible draft job when caller is OWNER', async () => {
+      mockScopeService.assertMemberOrAdminWithRole.mockResolvedValue({
+        company: activeCompany,
+        role: 'OWNER',
+      });
       mockPrisma.job.findUnique.mockResolvedValue(validDraftJob);
       mockPrisma.job.update.mockImplementation((args: any) => ({
         ...validDraftJob,
@@ -287,6 +301,42 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
       expect(result.version).toBe(2);
       expect(mockAuditService.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'JOB_PUBLISHED' }),
+      );
+    });
+
+    it('transitions to PENDING_APPROVAL when caller is RECRUITER (BE-11-003)', async () => {
+      mockScopeService.assertMemberOrAdminWithRole.mockResolvedValue({
+        company: activeCompany,
+        role: 'RECRUITER',
+      });
+      mockPrisma.job.findUnique.mockResolvedValue(validDraftJob);
+      mockPrisma.job.update.mockImplementation((args: any) => ({
+        ...validDraftJob,
+        ...args.data,
+        company: activeCompany,
+      }));
+
+      const result = await service.publishJob('job-1', hrUser, { expectedVersion: 1 });
+      expect(result.status).toBe('PENDING_APPROVAL');
+      expect(result.publishedAt).toBeNull();
+      expect(result.version).toBe(2);
+      expect(mockAuditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'JOB_PENDING_APPROVAL' }),
+      );
+    });
+
+    it('rejects recruiter publishing when job is already PENDING_APPROVAL (BE-11-003)', async () => {
+      mockScopeService.assertMemberOrAdminWithRole.mockResolvedValue({
+        company: activeCompany,
+        role: 'RECRUITER',
+      });
+      mockPrisma.job.findUnique.mockResolvedValue({
+        ...validDraftJob,
+        status: 'PENDING_APPROVAL',
+      });
+
+      await expect(service.publishJob('job-1', hrUser, { expectedVersion: 1 })).rejects.toThrow(
+        BadRequestException,
       );
     });
 
@@ -395,6 +445,125 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
           reason: 'Attempt',
         }),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('listCompanyJobs scoping (BE-11-002)', () => {
+    it('scopes query to creatorId when caller is RECRUITER', async () => {
+      mockScopeService.assertMemberOrAdminWithRole.mockResolvedValue({
+        company: activeCompany,
+        role: 'RECRUITER',
+      });
+      mockPrisma.job.findMany = jest.fn().mockResolvedValue([]);
+
+      await service.listCompanyJobs('comp-1', hrUser, {});
+
+      expect(mockPrisma.job.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            companyId: 'comp-1',
+            creatorId: hrUser.id,
+          }),
+        }),
+      );
+    });
+
+    it('does NOT scope query to creatorId when caller is OWNER', async () => {
+      mockScopeService.assertMemberOrAdminWithRole.mockResolvedValue({
+        company: activeCompany,
+        role: 'OWNER',
+      });
+      mockPrisma.job.findMany = jest.fn().mockResolvedValue([]);
+
+      await service.listCompanyJobs('comp-1', hrUser, {});
+
+      const callArgs = mockPrisma.job.findMany.mock.calls[0][0];
+      expect(callArgs.where.companyId).toBe('comp-1');
+      expect(callArgs.where.creatorId).toBeUndefined();
+    });
+
+    it('does NOT scope query to creatorId when caller is ADMIN', async () => {
+      mockScopeService.assertMemberOrAdminWithRole.mockResolvedValue({
+        company: activeCompany,
+        role: 'ADMIN',
+      });
+      mockPrisma.job.findMany = jest.fn().mockResolvedValue([]);
+
+      await service.listCompanyJobs('comp-1', adminUser, {});
+
+      const callArgs = mockPrisma.job.findMany.mock.calls[0][0];
+      expect(callArgs.where.companyId).toBe('comp-1');
+      expect(callArgs.where.creatorId).toBeUndefined();
+    });
+  });
+
+  describe('approveJob (BE-11-003)', () => {
+    const pendingJob = {
+      id: 'job-pending-1',
+      companyId: 'comp-1',
+      title: 'Senior DevOps Engineer',
+      description: 'Kubernetes and CI/CD',
+      requirements: 'AWS, Terraform',
+      location: 'HN',
+      technologyNames: ['Kubernetes', 'AWS'],
+      status: 'PENDING_APPROVAL',
+      version: 2,
+      applicationDeadline: new Date(Date.now() + 86400000 * 10),
+      company: activeCompany,
+    };
+
+    it('successfully approves a PENDING_APPROVAL job by company OWNER', async () => {
+      mockScopeService.assertOwnerOrAdmin.mockResolvedValue(activeCompany);
+      mockPrisma.job.findUnique.mockResolvedValue(pendingJob);
+      mockPrisma.job.update.mockImplementation((args: any) => ({
+        ...pendingJob,
+        ...args.data,
+        company: activeCompany,
+      }));
+
+      const result = await service.approveJob('comp-1', 'job-pending-1', hrUser, {
+        expectedVersion: 2,
+      });
+
+      expect(result.status).toBe('PUBLISHED');
+      expect(result.publishedAt).toBeDefined();
+      expect(result.version).toBe(3);
+      expect(mockAuditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'JOB_APPROVED' }),
+      );
+    });
+
+    it('rejects approval when job is in DRAFT instead of PENDING_APPROVAL', async () => {
+      mockScopeService.assertOwnerOrAdmin.mockResolvedValue(activeCompany);
+      mockPrisma.job.findUnique.mockResolvedValue({
+        ...pendingJob,
+        status: 'DRAFT',
+      });
+
+      await expect(
+        service.approveJob('comp-1', 'job-pending-1', hrUser, { expectedVersion: 2 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects approval with 409 VERSION_CONFLICT if expectedVersion does not match', async () => {
+      mockScopeService.assertOwnerOrAdmin.mockResolvedValue(activeCompany);
+      mockPrisma.job.findUnique.mockResolvedValue(pendingJob);
+
+      await expect(
+        service.approveJob('comp-1', 'job-pending-1', hrUser, { expectedVersion: 1 }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('rejects approval with 404 if job does not belong to path company', async () => {
+      mockScopeService.assertOwnerOrAdmin.mockResolvedValue(activeCompany);
+      mockPrisma.job.findUnique.mockResolvedValue({
+        ...pendingJob,
+        companyId: 'comp-other',
+      });
+
+      await expect(
+        service.approveJob('comp-1', 'job-pending-1', hrUser, { expectedVersion: 2 }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

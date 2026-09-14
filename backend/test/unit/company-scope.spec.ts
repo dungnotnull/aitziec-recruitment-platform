@@ -109,4 +109,55 @@ describe('CompanyScopeService (BE-2-019, BE-2-020)', () => {
       );
     });
   });
+
+  describe('assertMemberOrAdminWithRole (BE-11-002)', () => {
+    it('returns role OWNER for company owner', async () => {
+      mockPrisma.company.findUnique.mockResolvedValue(activeCompany);
+      mockPrisma.companyMembership.findUnique.mockResolvedValue({ role: 'OWNER' });
+
+      const user: any = { id: 'user-owner', role: 'HR' };
+      const ctx = await service.assertMemberOrAdminWithRole('comp-1', user);
+      expect(ctx.company.id).toBe('comp-1');
+      expect(ctx.role).toBe('OWNER');
+    });
+
+    it('returns role RECRUITER for company recruiter', async () => {
+      mockPrisma.company.findUnique.mockResolvedValue(activeCompany);
+      mockPrisma.companyMembership.findUnique.mockResolvedValue({ role: 'RECRUITER' });
+
+      const user: any = { id: 'user-recruiter', role: 'HR' };
+      const ctx = await service.assertMemberOrAdminWithRole('comp-1', user);
+      expect(ctx.company.id).toBe('comp-1');
+      expect(ctx.role).toBe('RECRUITER');
+    });
+
+    it('returns role ADMIN for system administrator', async () => {
+      mockPrisma.company.findUnique.mockResolvedValue(activeCompany);
+
+      const user: any = { id: 'admin-1', role: 'ADMIN' };
+      const ctx = await service.assertMemberOrAdminWithRole('comp-1', user);
+      expect(ctx.company.id).toBe('comp-1');
+      expect(ctx.role).toBe('ADMIN');
+    });
+
+    it('rejects suspended company when allowSuspended is false', async () => {
+      mockPrisma.company.findUnique.mockResolvedValue(suspendedCompany);
+      const user: any = { id: 'user-recruiter', role: 'HR' };
+      await expect(
+        service.assertMemberOrAdminWithRole('comp-2', user, { allowSuspended: false }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows suspended company when allowSuspended is true', async () => {
+      mockPrisma.company.findUnique.mockResolvedValue(suspendedCompany);
+      mockPrisma.companyMembership.findUnique.mockResolvedValue({ role: 'RECRUITER' });
+
+      const user: any = { id: 'user-recruiter', role: 'HR' };
+      const ctx = await service.assertMemberOrAdminWithRole('comp-2', user, {
+        allowSuspended: true,
+      });
+      expect(ctx.company.id).toBe('comp-2');
+      expect(ctx.role).toBe('RECRUITER');
+    });
+  });
 });

@@ -10,12 +10,15 @@ import { ContractValidationPipe } from '../../src/common/pipes/contract-validati
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import { ResponseTransformInterceptor } from '../../src/common/interceptors/response-transform.interceptor';
 import { ERROR_CODES } from '../../src/common/constants/error-codes';
+import { JwtService } from '@nestjs/jwt';
+import { JobExpirationScheduler } from '../../src/jobs/job-expiration.scheduler';
 
 describe('Jobs, Search & Saved Jobs E2E (BE-3-001 to BE-3-022)', () => {
   let app: INestApplication;
   let inMemoryPrisma: InMemoryPrismaService;
   let hrToken = '';
   let candidateToken = '';
+  let adminToken = '';
   let companyId = '';
   let jobId = '';
 
@@ -70,13 +73,20 @@ describe('Jobs, Search & Saved Jobs E2E (BE-3-001 to BE-3-022)', () => {
       });
 
     // 4. Register Admin directly in mock DB
-    await inMemoryPrisma.user.create({
+    const adminUser = await inMemoryPrisma.user.create({
       data: {
         email: 'admin-jobs@itziec.com',
         passwordHash: 'dummy',
         role: 'ADMIN',
         status: 'ACTIVE',
       },
+    });
+    const jwtService = app.get(JwtService);
+    adminToken = jwtService.sign({
+      sub: adminUser.id,
+      email: adminUser.email,
+      role: 'ADMIN',
+      status: 'ACTIVE',
     });
 
     // 5. Create Company
@@ -511,6 +521,226 @@ describe('Jobs, Search & Saved Jobs E2E (BE-3-001 to BE-3-022)', () => {
 
       // Restore company status
       if (comp) comp.status = 'ACTIVE';
+    });
+
+    it('enforces role-based scoping: RECRUITER sees only own jobs, OWNER and ADMIN see all (BE-11-002)', async () => {
+      // 1. Register second recruiter
+      const rec2Res = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+        email: 'recruiter2-jobs@itziec.com',
+        password: 'Password123!@#',
+        role: 'HR',
+      });
+      const rec2Token = rec2Res.body.data.accessToken;
+      const rec2UserId = rec2Res.body.data.user.id;
+
+      // 2. Add recruiter2 to company as RECRUITER
+      await inMemoryPrisma.companyMembership.create({
+        data: {
+          companyId,
+          userId: rec2UserId,
+          role: 'RECRUITER',
+        },
+      });
+
+      // 3. Recruiter 2 creates a job
+      const rec2JobRes = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${rec2Token}`)
+        .send({
+          title: 'QA Engineer by Recruiter 2',
+          description: 'Testing automation',
+          requirements: 'Playwright, Jest',
+          technologyNames: ['Playwright'],
+          location: 'Da Nang',
+          workplaceType: 'REMOTE',
+          experienceLevel: 'MID',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: new Date(Date.now() + 86400000 * 15).toISOString(),
+        })
+        .expect(201);
+
+      expect(rec2JobRes.body.data.creatorId).toBe(rec2UserId);
+
+      // 4. Recruiter 2 lists jobs: sees ONLY their own job
+      const rec2List = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${rec2Token}`)
+        .expect(200);
+
+      expect(rec2List.body.data.length).toBe(1);
+      expect(rec2List.body.data[0].id).toBe(rec2JobRes.body.data.id);
+      expect(rec2List.body.data[0].creatorId).toBe(rec2UserId);
+
+      // 5. Company OWNER (hrToken) lists jobs: sees all company jobs (>= 3)
+      const ownerList = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(200);
+
+      expect(ownerList.body.data.length).toBeGreaterThanOrEqual(3);
+      const ownerJobIds = ownerList.body.data.map((j: { id: string }) => j.id);
+      expect(ownerJobIds).toContain(rec2JobRes.body.data.id);
+
+      // 6. Global ADMIN lists jobs: sees all company jobs (>= 3)
+      const adminList = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(adminList.body.data.length).toBeGreaterThanOrEqual(3);
+      const adminJobIds = adminList.body.data.map((j: { id: string }) => j.id);
+      expect(adminJobIds).toContain(rec2JobRes.body.data.id);
+    });
+
+    it('branches publish by role and supports approval flow (BE-11-003)', async () => {
+      // 1. Register Recruiter 3
+      const rec3Res = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+        email: 'recruiter3-jobs@itziec.com',
+        password: 'Password123!@#',
+        role: 'HR',
+      });
+      const rec3Token = rec3Res.body.data.accessToken;
+      const rec3UserId = rec3Res.body.data.user.id;
+
+      // 2. Add recruiter3 to company as RECRUITER
+      await inMemoryPrisma.companyMembership.create({
+        data: {
+          companyId,
+          userId: rec3UserId,
+          role: 'RECRUITER',
+        },
+      });
+
+      // 3. Recruiter 3 creates a job
+      const draftRes = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${rec3Token}`)
+        .send({
+          title: 'Cloud Security Architect by Recruiter 3',
+          description: 'Securing cloud infrastructure and zero-trust',
+          requirements: 'AWS, IAM, Kubernetes, ISO 27001',
+          technologyNames: ['AWS', 'Kubernetes', 'Terraform'],
+          location: 'Ho Chi Minh City',
+          workplaceType: 'HYBRID',
+          experienceLevel: 'LEAD',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: new Date(Date.now() + 86400000 * 20).toISOString(),
+        })
+        .expect(201);
+
+      const pendingJobId = draftRes.body.data.id;
+      expect(draftRes.body.data.status).toBe('DRAFT');
+
+      // 4. Recruiter 3 publishes: should transition to PENDING_APPROVAL, publishedAt null
+      const publishRes = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${pendingJobId}/publish`)
+        .set('Authorization', `Bearer ${rec3Token}`)
+        .send({ expectedVersion: 1 })
+        .expect(200);
+
+      expect(publishRes.body.data.status).toBe('PENDING_APPROVAL');
+      expect(publishRes.body.data.publishedAt).toBeNull();
+      expect(publishRes.body.data.version).toBe(2);
+
+      // 5. Public search does NOT find PENDING_APPROVAL job
+      const searchRes = await request(app.getHttpServer())
+        .get('/api/v1/jobs?q=Cloud+Security+Architect')
+        .expect(200);
+      expect(searchRes.body.data.some((j: { id: string }) => j.id === pendingJobId)).toBe(false);
+
+      // 6. Public get returns 404 for PENDING_APPROVAL job (conceal existence)
+      await request(app.getHttpServer()).get(`/api/v1/jobs/${pendingJobId}`).expect(404);
+
+      // 7. Candidate applying to PENDING_APPROVAL job gets 404
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${pendingJobId}/applications`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ cvId: '00000000-0000-0000-0000-000000000000' })
+        .expect(404);
+
+      // 8. Recruiter 3 attempts to approve: rejected with 403 (Owner or Admin only)
+      await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/jobs/${pendingJobId}/approve`)
+        .set('Authorization', `Bearer ${rec3Token}`)
+        .send({ expectedVersion: 2 })
+        .expect(403);
+
+      // 9. Company OWNER approves the job: transitions to PUBLISHED, sets publishedAt
+      const approveRes = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/jobs/${pendingJobId}/approve`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ expectedVersion: 2 })
+        .expect(200);
+
+      expect(approveRes.body.data.status).toBe('PUBLISHED');
+      expect(approveRes.body.data.publishedAt).toBeDefined();
+      expect(approveRes.body.data.version).toBe(3);
+
+      // 10. Public get now returns the published job
+      const publicGetRes = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${pendingJobId}`)
+        .expect(200);
+      expect(publicGetRes.body.data.status).toBe('PUBLISHED');
+    });
+
+    it('automatically transitions overdue published jobs to EXPIRED via scheduler (BE-11-004)', async () => {
+      // 1. Create a job that has a short deadline
+      const deadline = new Date(Date.now() + 1000);
+      const jobRes = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          title: 'Expiring Job Developer',
+          description: 'Will expire shortly',
+          requirements: 'TypeScript',
+          technologyNames: ['TypeScript'],
+          location: 'Remote',
+          workplaceType: 'REMOTE',
+          experienceLevel: 'JUNIOR',
+          employmentType: 'CONTRACT',
+          currency: 'VND',
+          applicationDeadline: deadline.toISOString(),
+        })
+        .expect(201);
+
+      const expiringJobId = jobRes.body.data.id;
+
+      // 2. Publish it by owner -> PUBLISHED
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${expiringJobId}/publish`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ expectedVersion: 1 })
+        .expect(200);
+
+      // 3. Obtain scheduler from Nest app container
+      const scheduler = app.get(JobExpirationScheduler);
+
+      // Run scheduler with a simulated future date after the deadline
+      const simulatedNow = new Date(deadline.getTime() + 10000);
+      const expiredCount = await scheduler.expireOverdueJobs(simulatedNow);
+      expect(expiredCount).toBeGreaterThanOrEqual(1);
+
+      // 4. Inspect job via company jobs endpoint: status is EXPIRED
+      const listRes = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/jobs?status=EXPIRED`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(200);
+
+      expect(listRes.body.data.some((j: { id: string }) => j.id === expiringJobId)).toBe(true);
+
+      // 5. Candidate applying to EXPIRED job gets 409 JOB_NOT_OPEN
+      const applyRes = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${expiringJobId}/applications`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ cvId: '00000000-0000-0000-0000-000000000000' })
+        .expect(409);
+      expect(applyRes.body.error.code).toBe(ERROR_CODES.JOB_NOT_OPEN);
+
+      // 6. Running scheduler again is idempotent
+      const secondRunCount = await scheduler.expireOverdueJobs(simulatedNow);
+      expect(secondRunCount).toBe(0);
     });
   });
 });

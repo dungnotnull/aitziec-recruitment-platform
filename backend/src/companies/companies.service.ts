@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Company, CompanyMemberRole, CompanyMembership, User } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
@@ -125,6 +126,13 @@ export class CompaniesService {
       throw new ConflictException({
         code: ERROR_CODES.VERSION_CONFLICT,
         message: 'Company was modified by another request. Stale expectedVersion.',
+      });
+    }
+
+    if (dto.slug !== undefined && dto.slug !== company.slug) {
+      throw new BadRequestException({
+        code: ERROR_CODES.VALIDATION_ERROR,
+        message: 'Company slug cannot be changed once created.',
       });
     }
 
