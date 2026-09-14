@@ -78,13 +78,14 @@ export class QueueService implements OnModuleDestroy {
       );
     }
     try {
+      const sanitizedJobId = options?.jobId ? options.jobId.replace(/:/g, '-') : undefined;
       return await queue.add(jobName, data, {
         attempts: options?.attempts ?? 3,
         backoff: {
           type: 'exponential',
           delay: options?.backoffDelayMs ?? 1000,
         },
-        jobId: options?.jobId,
+        jobId: sanitizedJobId,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
