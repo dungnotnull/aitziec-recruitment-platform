@@ -17,6 +17,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { PaginationQueryDto, CollectionResponse } from '../common/dto/response.dto';
 import { JobDto } from '../jobs/dto/job.dto';
+import { CheckSavedJobParamDto, SavedJobCheckDto } from './dto/saved-job-check.dto';
 
 @ApiTags('Saved Jobs')
 @Controller('saved-jobs')
@@ -34,6 +35,22 @@ export class SavedJobsController {
     @Query() query: PaginationQueryDto,
   ): Promise<CollectionResponse<JobDto>> {
     return this.savedJobsService.listSavedJobs(user, query);
+  }
+
+  @Get(':jobId/check')
+  @ApiOperation({
+    summary: 'Kiểm tra trạng thái lưu công việc của ứng viên (BE-9-003, API-SAVE-004)',
+  })
+  @ApiParam({ name: 'jobId', description: 'Mã định danh công việc (UUID)' })
+  @ApiResponse({ status: 200, description: 'Trạng thái lưu công việc', type: SavedJobCheckDto })
+  @ApiResponse({ status: 400, description: 'Mã công việc không hợp lệ' })
+  @ApiResponse({ status: 401, description: 'Chưa xác thực' })
+  @ApiResponse({ status: 403, description: 'Không có quyền truy cập hoặc chưa có hồ sơ ứng viên' })
+  async checkSavedJob(
+    @Param() params: CheckSavedJobParamDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<SavedJobCheckDto> {
+    return this.savedJobsService.checkSavedJob(params.jobId, user);
   }
 
   @Put(':jobId')

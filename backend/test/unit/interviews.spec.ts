@@ -13,6 +13,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import { IdempotencyService } from '../../src/idempotency';
 
 describe('InterviewsService (Unit)', () => {
   let service: InterviewsService;
@@ -109,6 +110,7 @@ describe('InterviewsService (Unit)', () => {
         InterviewsService,
         CompanyScopeService,
         AuditService,
+        IdempotencyService,
         { provide: OutboxService, useValue: mockOutbox },
         { provide: PrismaService, useValue: inMemoryPrisma },
       ],
@@ -184,6 +186,91 @@ describe('InterviewsService (Unit)', () => {
           }),
         }),
       );
+    });
+
+    it('should replay cached interview DTO when called with the same idempotency key and payload', async () => {
+      const startsAt = new Date(Date.now() + 3600000).toISOString();
+      const endsAt = new Date(Date.now() + 7200000).toISOString();
+      const dto = {
+        startsAt,
+        endsAt,
+        locationOrMeetingUrl: 'https://meet.google.com/xyz',
+        candidateInstructions: 'Prep laptop',
+      };
+      const key = 'idem-interview-key-12345';
+
+      const first = await service.scheduleInterview(
+        hrUser,
+        testApplication.id,
+        dto,
+        undefined,
+        key,
+      );
+      expect(first.id).toBeDefined();
+
+      const initialCount = inMemoryPrisma.interviews.length;
+
+      // Replay with identical key and payload
+      const second = await service.scheduleInterview(
+        hrUser,
+        testApplication.id,
+        dto,
+        undefined,
+        key,
+      );
+      expect(second.id).toBe(first.id);
+      expect(inMemoryPrisma.interviews.length).toBe(initialCount);
+    });
+
+    it('should reject with 409 IDEMPOTENCY_KEY_REUSED when payload changes under the same key', async () => {
+      const startsAt = new Date(Date.now() + 3600000).toISOString();
+      const endsAt = new Date(Date.now() + 7200000).toISOString();
+      const key = 'idem-interview-key-conflict-123';
+
+      await service.scheduleInterview(
+        hrUser,
+        testApplication.id,
+        {
+          startsAt,
+          endsAt,
+          locationOrMeetingUrl: 'https://meet.google.com/first',
+        },
+        undefined,
+        key,
+      );
+
+      await expect(
+        service.scheduleInterview(
+          hrUser,
+          testApplication.id,
+          {
+            startsAt,
+            endsAt,
+            locationOrMeetingUrl: 'https://meet.google.com/tampered',
+          },
+          undefined,
+          key,
+        ),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('should reject with 400 VALIDATION_ERROR on malformed idempotency key', async () => {
+      const startsAt = new Date(Date.now() + 3600000).toISOString();
+      const endsAt = new Date(Date.now() + 7200000).toISOString();
+
+      await expect(
+        service.scheduleInterview(
+          hrUser,
+          testApplication.id,
+          {
+            startsAt,
+            endsAt,
+            locationOrMeetingUrl: 'https://meet.google.com/xyz',
+          },
+          undefined,
+          'short-key',
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

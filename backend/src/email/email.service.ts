@@ -22,12 +22,25 @@ export class EmailService implements IEmailPort {
         secure: false,
         ignoreTLS: true,
       });
-    } catch (err: any) {
-      this.logger.warn(`Failed to initialize Nodemailer transport: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to initialize Nodemailer transport: ${msg}`);
     }
   }
 
   async sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
+    if (options.idempotencyKey) {
+      const existing = this.sentEmails.find(
+        (e) => e.idempotencyKey && e.idempotencyKey === options.idempotencyKey,
+      );
+      if (existing) {
+        this.logger.log(
+          `[Email Idempotency Replay] Skipping duplicate email send for key: ${options.idempotencyKey}`,
+        );
+        return { success: true, messageId: `replayed-${options.idempotencyKey}` };
+      }
+    }
+
     this.sentEmails.push({
       ...options,
       sentAt: new Date(),
@@ -52,11 +65,12 @@ export class EmailService implements IEmailPort {
         success: true,
         messageId: info.messageId,
       };
-    } catch (err: any) {
-      this.logger.warn(`Email delivery attempt failed for ${options.to}: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Email delivery attempt failed for ${options.to}: ${msg}`);
       return {
         success: false,
-        error: err.message,
+        error: msg,
       };
     }
   }

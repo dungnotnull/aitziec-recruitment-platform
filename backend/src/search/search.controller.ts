@@ -28,7 +28,7 @@ export class SearchController {
     summary: 'Parse natural-language query into structured job search filters',
   })
   @ApiResponse({ status: 200, description: 'Parsed structured filters' })
-  async parseSearchQuery(@Body() dto: ParseSearchQueryDto): Promise<Record<string, any>> {
+  async parseSearchQuery(@Body() dto: ParseSearchQueryDto): Promise<Record<string, unknown>> {
     return this.searchService.parseSearchQuery(dto);
   }
 }

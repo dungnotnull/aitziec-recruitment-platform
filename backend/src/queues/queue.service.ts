@@ -15,6 +15,22 @@ export interface StandardJobOptions {
   jobId?: string;
 }
 
+export class QueueInfrastructureError extends Error {
+  readonly code = 'QUEUE_UNAVAILABLE';
+  constructor(
+    public readonly queueName: string,
+    originalError?: unknown,
+  ) {
+    super(
+      `Queue infrastructure unavailable for queue '${queueName}': ${
+        (originalError as Error)?.message ||
+        (typeof originalError === 'string' ? originalError : 'Redis client not available')
+      }`,
+    );
+    this.name = 'QueueInfrastructureError';
+  }
+}
+
 @Injectable()
 export class QueueService implements OnModuleDestroy {
   private readonly logger = new Logger(QueueService.name);
@@ -48,15 +64,20 @@ export class QueueService implements OnModuleDestroy {
     return queue;
   }
 
-  async addJob<T = any>(
+  async addJob<T = Record<string, unknown>>(
     queueName: string,
     jobName: string,
     data: T,
     options?: StandardJobOptions,
-  ): Promise<Job<T> | null> {
+  ): Promise<Job<T>> {
+    const queue = this.getOrCreateQueue(queueName);
+    if (!queue) {
+      throw new QueueInfrastructureError(
+        queueName,
+        new Error('Redis client not available or queue initialization failed'),
+      );
+    }
     try {
-      const queue = this.getOrCreateQueue(queueName);
-      if (!queue) return null;
       return await queue.add(jobName, data, {
         attempts: options?.attempts ?? 3,
         backoff: {
@@ -65,15 +86,16 @@ export class QueueService implements OnModuleDestroy {
         },
         jobId: options?.jobId,
       });
-    } catch (err: any) {
-      this.logger.warn(`Failed to add job to queue ${queueName}: ${err.message}`);
-      return null;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to add job to queue ${queueName}: ${msg}`);
+      throw new QueueInfrastructureError(queueName, err);
     }
   }
 
-  registerWorker<T = any>(
+  registerWorker<T = Record<string, unknown>>(
     queueName: string,
-    processor: (job: Job<T>) => Promise<any>,
+    processor: (job: Job<T>) => Promise<unknown>,
   ): Worker | null {
     const redisConnection = this.redisService.getClient();
     if (!redisConnection || typeof redisConnection.on !== 'function') {

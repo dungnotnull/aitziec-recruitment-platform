@@ -21,6 +21,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiConsumes,
+  ApiHeader,
   ApiParam,
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -30,6 +31,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { CvsService } from './cvs.service';
+import { CollectionResponse } from '../common/dto/response.dto';
 import {
   CvDto,
   CvQueryDto,
@@ -69,7 +71,7 @@ export class CvsController {
   async listCandidateCvs(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: CvQueryDto,
-  ): Promise<{ data: CvDto[]; meta: any }> {
+  ): Promise<CollectionResponse<CvDto>> {
     return this.cvsService.listCandidateCvs(user, query);
   }
 
@@ -120,6 +122,11 @@ export class CvsController {
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'Retry failed CV text extraction with idempotency (BE-8-017)' })
   @ApiParam({ name: 'cvId', description: 'CV UUID' })
+  @ApiHeader({
+    name: 'idempotency-key',
+    description: 'Idempotency key (16-128 ASCII chars)',
+    required: true,
+  })
   @ApiResponse({ status: 202, description: 'Extraction retry queued' })
   @ApiResponse({ status: 409, description: 'CV is not retryable or attempt limit reached' })
   async retryProcessing(

@@ -28,8 +28,9 @@ export class StorageService {
         },
         forcePathStyle: true,
       });
-    } catch (e: any) {
-      this.logger.warn(`S3 initialization fallback to in-memory store: ${e.message}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`S3 initialization fallback to in-memory store: ${msg}`);
       this.s3Client = null;
     }
   }
@@ -46,8 +47,9 @@ export class StorageService {
             ContentType: mimeType,
           }),
         );
-      } catch (e: any) {
-        this.logger.warn(`S3 upload failed for ${key}, relying on local copy: ${e.message}`);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.warn(`S3 upload failed for ${key}, relying on local copy: ${msg}`);
       }
     }
   }
@@ -63,10 +65,13 @@ export class StorageService {
           Key: key,
         }),
       );
-      const stream = res.Body as any;
+      const stream = res.Body as AsyncIterable<Uint8Array | string> | null;
+      if (!stream) {
+        throw new Error(`File not found in storage: ${key}`);
+      }
       const chunks: Buffer[] = [];
       for await (const chunk of stream) {
-        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk));
       }
       return Buffer.concat(chunks);
     }
@@ -87,8 +92,9 @@ export class StorageService {
           ResponseContentDisposition: `attachment; filename="${encodeURIComponent(originalFileName)}"`,
         });
         return await getSignedUrl(this.s3Client, command, { expiresIn: expiresInSeconds });
-      } catch (e: any) {
-        this.logger.warn(`Failed to generate S3 presigned URL: ${e.message}`);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.warn(`Failed to generate S3 presigned URL: ${msg}`);
       }
     }
 
@@ -107,8 +113,9 @@ export class StorageService {
             Key: key,
           }),
         );
-      } catch (e: any) {
-        this.logger.warn(`S3 delete failed for ${key}: ${e.message}`);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.warn(`S3 delete failed for ${key}: ${msg}`);
       }
     }
   }

@@ -65,10 +65,14 @@ export const EmailTemplates = {
     return { subject, text, html };
   },
 
-  companyInvitation(companyName: string, role: string): EmailTemplateResult {
+  companyInvitation(companyName: string, role: string, acceptUrl?: string): EmailTemplateResult {
     const subject = `[AitZiec] Invitation to join ${companyName} as ${role}`;
-    const text = `You have been invited to join ${companyName} as ${role}. Please create an account or sign in with this email to accept the invitation.`;
-    const html = `<h2>Company Invitation</h2><p>You have been invited to join <strong>${companyName}</strong> as <strong>${role}</strong>.</p><p>Please register or sign in using this email address to accept your invitation.</p>`;
+    const urlText = acceptUrl ? `\n\nAccept your invitation using this link:\n${acceptUrl}` : '';
+    const urlHtml = acceptUrl
+      ? `<p><a href="${acceptUrl}" style="display:inline-block;padding:10px 20px;background-color:#007bff;color:#ffffff;text-decoration:none;border-radius:4px;">Accept Invitation</a></p><p>Or copy and paste this link into your browser:<br/><a href="${acceptUrl}">${acceptUrl}</a></p>`
+      : '';
+    const text = `You have been invited to join ${companyName} as ${role}. Please create an account or sign in with this email to accept the invitation.${urlText}`;
+    const html = `<h2>Company Invitation</h2><p>You have been invited to join <strong>${companyName}</strong> as <strong>${role}</strong>.</p><p>Please register or sign in using this email address to accept your invitation.</p>${urlHtml}`;
     return { subject, text, html };
   },
 };

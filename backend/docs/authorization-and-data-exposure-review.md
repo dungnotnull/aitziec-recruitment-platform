@@ -29,3 +29,22 @@ Toàn bộ các endpoint API đã được quét kiểm thử tự động để
    - Khi HR chưa nhận được đơn ứng tuyển, không thể tra cứu thông tin cá nhân của ứng viên.
    - Khi gửi CV sang AI Provider, toàn bộ email, số điện thoại, CCCD và địa chỉ chi tiết bị ẩn danh hóa (`PiiRedactor`).
 4. **Kết luận:** **KHÔNG CÓ LỖ HỔNG RÒ RỈ DỮ LIỆU CẤP ĐỘ CAO (ZERO HIGH/CRITICAL FINDINGS).**
+
+---
+
+## 3. Bổ Sung Rà Soát & Thắt Chặt An Ninh Dữ Liệu Phase 10 (Phase 10 Hardening)
+
+Trong khuôn khổ Phase 10, hệ thống đã được gia cố thêm các chốt chặn an ninh chuyên sâu:
+1. **Chặn Nộp Đơn Bằng CV Của Ứng Viên Khác (BE-10-001):**
+   - Thực thi kiểm tra quyền sở hữu CV (`candidateProfileId` khớp với candidate của người dùng) ngay bên trong transaction tạo application.
+   - Nếu CV không thuộc ứng viên hoặc không ở trạng thái `READY`, hệ thống trả về `404 RESOURCE_NOT_FOUND`, tuyệt đối không rò rỉ sự tồn tại hay trạng thái CV của người khác.
+2. **Bảo Vệ Bí Mật Thư Mời Gia Nhập Công Ty (BE-10-011):**
+   - Mã mời (`token`) chỉ lưu dạng băm SHA-256 trên bảng `CompanyInvitation`.
+   - Token gốc phục vụ gửi email được mã hóa đối xứng AES-256-GCM (`CompanyInvitationDeliverySecret`) với khóa `INVITATION_TOKEN_ENCRYPTION_KEY`.
+   - Token thô tuyệt đối không xuất hiện trong API response, audit log, outbox payload hay dead-letter metadata. Bản ghi bí mật bị xóa ngay sau khi gửi email thành công hoặc khi thư mời hết hạn.
+3. **Ẩn Danh Hóa Resource Trong Notification Projection (BE-10-013):**
+   - Projection thông báo chỉ trả về `{ resource: { type, id } | null }`, loại bỏ triệt để trường `userId` nội bộ và các trường root `resourceType`/`resourceId`.
+4. **Bảo Mật Chi Tiết Phỏng Vấn (BE-10-006 / BE-8-018):**
+   - Khi ứng viên truy cập `GET /interviews/:id`, toàn bộ ghi chú nội bộ của nhà tuyển dụng (`recruiterPrivateNotes`, `recruiterFeedback`) bị loại bỏ hoàn toàn khỏi response.
+5. **Khử Bỏ Dữ Liệu Nhạy Cảm Khỏi Log & Outbox (BE-10-007 / BE-10-014):**
+   - Tất cả sự kiện outbox và bản ghi log đều qua bộ lọc `redactSensitiveData` và `sanitizeEventPayload` để loại bỏ token, password, và thông tin nhạy cảm.

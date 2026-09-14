@@ -4,6 +4,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ERROR_CODES } from '../../src/common/constants/error-codes';
 
 import { Type } from 'class-transformer';
+import { RecommendationQueryDto } from '../../src/ai/dto/recommendation.dto';
 
 class TestDto {
   @IsString()
@@ -71,5 +72,49 @@ describe('ContractValidationPipe (BE-1-016)', () => {
 
     expect(transformed.title).toBe('Staff Engineer');
     expect(transformed.salaryMin).toBe(25000000);
+  });
+
+  describe('BE-9-001: RecommendationQueryDto validation & transform regressions', () => {
+    it('transforms query string limit="20" into number 20', async () => {
+      const transformed = await pipe.transform(
+        { limit: '20' },
+        { type: 'query', metatype: RecommendationQueryDto },
+      );
+      expect(typeof transformed.limit).toBe('number');
+      expect(transformed.limit).toBe(20);
+    });
+
+    it('rejects limit="0" with 400 VALIDATION_ERROR', async () => {
+      await expect(
+        pipe.transform({ limit: '0' }, { type: 'query', metatype: RecommendationQueryDto }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects limit="51" with 400 VALIDATION_ERROR', async () => {
+      await expect(
+        pipe.transform({ limit: '51' }, { type: 'query', metatype: RecommendationQueryDto }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects decimal limit="10.5" with 400 VALIDATION_ERROR', async () => {
+      await expect(
+        pipe.transform({ limit: '10.5' }, { type: 'query', metatype: RecommendationQueryDto }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects non-numeric string limit="abc" with 400 VALIDATION_ERROR', async () => {
+      await expect(
+        pipe.transform({ limit: 'abc' }, { type: 'query', metatype: RecommendationQueryDto }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects repeated query limit=["20", "30"] with 400 VALIDATION_ERROR', async () => {
+      await expect(
+        pipe.transform(
+          { limit: ['20', '30'] },
+          { type: 'query', metatype: RecommendationQueryDto },
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 });

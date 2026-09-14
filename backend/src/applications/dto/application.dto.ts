@@ -78,13 +78,31 @@ export interface ApplicationDto {
   updatedAt: string;
 }
 
+export interface CandidateSkillSummaryDto {
+  skillId: string;
+  name: string;
+  yearsOfExperience: number | null;
+}
+
+export interface ApplicationJobSummaryDto {
+  id: string;
+  title: string;
+  slug: string;
+  company?: {
+    id: string;
+    slug: string;
+    name: string;
+    logoUrl: string | null;
+  };
+}
+
 export interface ApplicationDetailDto extends ApplicationDto {
-  job: any;
+  job: ApplicationJobSummaryDto;
   candidate: {
     id: string;
     fullName: string;
     headline: string | null;
-    skills: any[];
+    skills: CandidateSkillSummaryDto[];
   };
   history: ApplicationStatusEventDto[];
 }

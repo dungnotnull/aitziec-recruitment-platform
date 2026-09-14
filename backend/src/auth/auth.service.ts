@@ -10,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Response } from 'express';
 import * as crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
+import { User } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { PasswordService } from './password.service';
 import { UsersService } from '../users/users.service';
@@ -311,7 +312,7 @@ export class AuthService {
     };
   }
 
-  private async createSession(user: any, res: Response): Promise<AuthSessionDto> {
+  private async createSession(user: User, res: Response): Promise<AuthSessionDto> {
     const familyId = uuidv4();
     const rawRefreshToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = this.hashToken(rawRefreshToken);

@@ -4,11 +4,11 @@ import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { ErrorCode } from '../constants/error-codes';
 
 export class ResponseMeta {
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Request identifier',
     example: 'be8db5af-89d7-41f2-9ad1-f98c9d64f2fd',
   })
-  requestId: string;
+  requestId?: string;
 }
 
 export class SuccessResponse<T> {
@@ -33,6 +33,24 @@ export class PageInfo {
 export class CollectionMeta extends ResponseMeta {
   @ApiProperty({ type: PageInfo })
   page: PageInfo;
+
+  @ApiPropertyOptional({
+    description: 'Opt-out status for algorithmic recommendations',
+    example: false,
+  })
+  optedOut?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Informational message',
+    example: 'Candidate has disabled automated job recommendations.',
+  })
+  message?: string;
+
+  @ApiPropertyOptional({
+    description: 'Total unread notifications count for notification queries',
+    example: 3,
+  })
+  unreadCount?: number;
 }
 
 export class CollectionResponse<T> {

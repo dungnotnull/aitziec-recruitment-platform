@@ -23,6 +23,7 @@ import { AiModule } from './ai/ai.module';
 import { AdminModule } from './admin/admin.module';
 import { SkillsModule } from './skills/skills.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { IdempotencyModule } from './idempotency/idempotency.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 
 @Module({
@@ -51,6 +52,7 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
     AdminModule,
     SkillsModule,
     MetricsModule,
+    IdempotencyModule,
   ],
 })
 export class AppModule implements NestModule {

@@ -5,7 +5,13 @@ import { FeatureExtractor } from '../../src/ai/utils/feature-extractor';
 import { AiOutputValidator } from '../../src/ai/schemas/output-schemas';
 import { GeminiAdapter } from '../../src/ai/adapters/gemini.adapter';
 import { AiMetricsService } from '../../src/ai/metrics/ai-metrics.service';
-import { AiOutputInvalidException, AiRateLimitedException } from '../../src/ai/errors/ai.errors';
+import {
+  AiOutputInvalidException,
+  AiRateLimitedException,
+  CvNotReadyException,
+} from '../../src/ai/errors/ai.errors';
+import { AiService } from '../../src/ai/ai.service';
+import { CvJobAnalysisProcessor } from '../../src/ai/workers/cv-job-analysis.processor';
 
 describe('Phase 6 — AI Capabilities Unit Tests', () => {
   describe('BE-6-001 & BE-6-007: PII Redactor', () => {
@@ -224,6 +230,323 @@ describe('Phase 6 — AI Capabilities Unit Tests', () => {
       }
 
       expect(violations).toEqual([]);
+    });
+  });
+
+  describe('BE-10-010: Asynchronous and Idempotent CV-to-Job AI Analysis', () => {
+    let aiService: AiService;
+    let processor: CvJobAnalysisProcessor;
+    let mockPrisma: any;
+    let mockAuditService: any;
+    let mockJobsService: any;
+    let mockMetricsService: any;
+    let mockQueueService: any;
+    let mockOutboxService: any;
+    let mockIdempotencyService: any;
+    let mockAiProvider: any;
+
+    const mockCandidateUser: any = {
+      id: 'candidate-user-1',
+      role: 'CANDIDATE',
+      roles: ['CANDIDATE'],
+    };
+
+    const mockCv = {
+      id: 'cv-123',
+      userId: 'candidate-user-1',
+      processingStatus: 'READY',
+      extractedText: 'Software Engineer with NestJS and TypeScript experience.',
+      candidateProfile: {
+        id: 'profile-1',
+        userId: 'candidate-user-1',
+      },
+    };
+
+    const mockJob = {
+      id: 'job-456',
+      title: 'Backend Engineer',
+      description: 'Build backend APIs with NestJS',
+      requirements: 'NestJS, TypeScript',
+      companyId: 'comp-1',
+      company: { id: 'comp-1', name: 'Tech Corp' },
+    };
+
+    beforeEach(() => {
+      mockPrisma = {
+        cv: {
+          findUnique: jest.fn().mockResolvedValue(mockCv),
+        },
+        job: {
+          findUnique: jest.fn().mockResolvedValue(mockJob),
+        },
+        operation: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'op-789',
+            userId: 'candidate-user-1',
+            status: 'QUEUED',
+            progressPercent: 0,
+          }),
+          update: jest.fn().mockResolvedValue({
+            id: 'op-789',
+            status: 'SUCCEEDED',
+            progressPercent: 100,
+          }),
+        },
+        aiAnalysis: {
+          create: jest.fn().mockResolvedValue({
+            id: 'analysis-1',
+            cvId: 'cv-123',
+            jobId: 'job-456',
+            overallScore: 88,
+          }),
+        },
+        $transaction: jest.fn().mockImplementation(async (callback: any) => {
+          const tx = {
+            operation: {
+              create: jest.fn().mockResolvedValue({
+                id: 'op-789',
+                userId: 'candidate-user-1',
+                type: 'CV_JOB_ANALYSIS',
+                status: 'QUEUED',
+                progressPercent: 0,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              }),
+              update: mockPrisma.operation.update,
+            },
+            aiAnalysis: mockPrisma.aiAnalysis,
+            auditLog: {
+              create: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+            },
+          };
+          return callback(tx);
+        }),
+      };
+
+      mockAuditService = {
+        record: jest.fn().mockResolvedValue(undefined),
+      };
+
+      mockJobsService = {};
+
+      mockMetricsService = {
+        acquireSlot: jest.fn(),
+        releaseSlot: jest.fn(),
+        recordMetric: jest.fn(),
+      };
+
+      mockQueueService = {
+        addJob: jest.fn().mockResolvedValue({ id: 'job-bull-1' }),
+        registerWorker: jest.fn(),
+      };
+
+      mockOutboxService = {
+        recordEvent: jest.fn().mockResolvedValue({ id: 'outbox-1' }),
+      };
+
+      mockIdempotencyService = {
+        claimOrReplay: jest.fn().mockResolvedValue({ type: 'CLAIMED', recordId: 'idem-rec-1' }),
+        complete: jest.fn().mockResolvedValue(undefined),
+        fail: jest.fn().mockResolvedValue(undefined),
+      };
+
+      mockAiProvider = {
+        matchCvJob: jest.fn().mockResolvedValue({
+          overallScore: 85,
+          summary: 'Strong match',
+          matchedSkills: ['NestJS', 'TypeScript'],
+          missingSkills: [],
+          components: [{ name: 'SKILLS', score: 90, weight: 1.0, evidence: ['NestJS'] }],
+        }),
+        gapAnalysisCvJob: jest.fn().mockResolvedValue({
+          missingSkills: [],
+          suggestions: ['Keep up the great work'],
+          limitations: ['Self-reported'],
+        }),
+      };
+
+      aiService = new AiService(
+        mockPrisma,
+        mockAuditService,
+        mockJobsService,
+        mockMetricsService,
+        mockQueueService,
+        mockOutboxService,
+        mockIdempotencyService,
+        mockAiProvider,
+      );
+
+      processor = new CvJobAnalysisProcessor(
+        mockQueueService,
+        mockPrisma,
+        mockAuditService,
+        mockOutboxService,
+        mockAiProvider,
+        mockMetricsService,
+      );
+    });
+
+    it('returns 202 QUEUED immediately without calling AI provider inline', async () => {
+      const result = await aiService.createCvJobAnalysis(
+        mockCandidateUser,
+        {
+          cvId: 'cv-123',
+          jobId: 'job-456',
+          analyses: ['CV_JOB_MATCH'],
+        },
+        'req-123',
+        'idem-key-abc',
+      );
+
+      expect(result.status).toBe('QUEUED');
+      expect(result.progressPercent).toBe(0);
+      expect(result.id).toBe('op-789');
+
+      // AI provider must NOT be invoked synchronously
+      expect(mockAiProvider.matchCvJob).not.toHaveBeenCalled();
+      expect(mockAiProvider.gapAnalysisCvJob).not.toHaveBeenCalled();
+
+      // Enqueued to BullMQ with deterministic jobId
+      expect(mockQueueService.addJob).toHaveBeenCalledWith(
+        'ai-analysis-queue',
+        'cv-job-analysis',
+        expect.objectContaining({
+          operationId: 'op-789',
+          cvId: 'cv-123',
+          jobId: 'job-456',
+        }),
+        { jobId: 'ai-analysis:op-789' },
+      );
+
+      // Recorded Outbox event
+      expect(mockOutboxService.recordEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          eventName: 'CvJobAnalysisQueued',
+          aggregateType: 'Operation',
+          aggregateId: 'op-789',
+        }),
+      );
+
+      // Completed idempotency claim
+      expect(mockIdempotencyService.complete).toHaveBeenCalledWith(
+        'idem-rec-1',
+        202,
+        expect.objectContaining({ id: 'op-789', status: 'QUEUED' }),
+      );
+    });
+
+    it('replays cached response when idempotency claim indicates REPLAY', async () => {
+      const cachedOperation = {
+        id: 'op-cached-1',
+        type: 'CV_JOB_ANALYSIS',
+        status: 'QUEUED',
+        progressPercent: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      mockIdempotencyService.claimOrReplay.mockResolvedValueOnce({
+        type: 'REPLAY',
+        recordId: 'idem-rec-cached',
+        responseStatus: 202,
+        responseBody: cachedOperation,
+      });
+
+      const result = await aiService.createCvJobAnalysis(
+        mockCandidateUser,
+        { cvId: 'cv-123', jobId: 'job-456', analyses: ['CV_JOB_MATCH'] },
+        'req-cached',
+        'idem-key-replayed',
+      );
+
+      expect(result).toEqual(cachedOperation);
+      expect(mockPrisma.cv.findUnique).not.toHaveBeenCalled();
+      expect(mockQueueService.addJob).not.toHaveBeenCalled();
+    });
+
+    it('rejects analysis creation if CV is not READY (throws CvNotReadyException)', async () => {
+      mockPrisma.cv.findUnique.mockResolvedValueOnce({
+        ...mockCv,
+        processingStatus: 'EXTRACTING',
+      });
+
+      await expect(
+        aiService.createCvJobAnalysis(
+          mockCandidateUser,
+          { cvId: 'cv-123', jobId: 'job-456', analyses: ['CV_JOB_MATCH'] },
+          'req-fail',
+          'idem-key-fail',
+        ),
+      ).rejects.toThrow(CvNotReadyException);
+
+      expect(mockIdempotencyService.fail).toHaveBeenCalledWith('idem-rec-1');
+    });
+
+    it('CvJobAnalysisProcessor executes job, updates operation to SUCCEEDED, and releases slot', async () => {
+      const mockJobPayload: any = {
+        id: 'ai-analysis:op-789',
+        data: {
+          operationId: 'op-789',
+          cvId: 'cv-123',
+          jobId: 'job-456',
+          analyses: ['CV_JOB_MATCH', 'CV_GAP_ANALYSIS'],
+          actorId: 'candidate-user-1',
+        },
+      };
+
+      await processor.processJob(mockJobPayload);
+
+      // Concurrency slot acquired and released
+      expect(mockMetricsService.acquireSlot).toHaveBeenCalledWith('candidate-user-1');
+      expect(mockMetricsService.releaseSlot).toHaveBeenCalledTimes(1);
+
+      // AI provider executed
+      expect(mockAiProvider.matchCvJob).toHaveBeenCalled();
+      expect(mockAiProvider.gapAnalysisCvJob).toHaveBeenCalled();
+
+      // Operation transitioned to SUCCEEDED
+      expect(mockPrisma.operation.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'op-789' },
+          data: expect.objectContaining({
+            status: 'SUCCEEDED',
+            progressPercent: 100,
+          }),
+        }),
+      );
+    });
+
+    it('CvJobAnalysisProcessor marks operation FAILED and releases slot when AI provider fails', async () => {
+      mockAiProvider.matchCvJob.mockRejectedValueOnce(new Error('LLM Provider timeout'));
+
+      const mockJobPayload: any = {
+        id: 'ai-analysis:op-789',
+        data: {
+          operationId: 'op-789',
+          cvId: 'cv-123',
+          jobId: 'job-456',
+          analyses: ['CV_JOB_MATCH'],
+          actorId: 'candidate-user-1',
+        },
+      };
+
+      await processor.processJob(mockJobPayload);
+
+      // Slot must still be released in finally block
+      expect(mockMetricsService.releaseSlot).toHaveBeenCalledTimes(1);
+
+      // Operation marked FAILED with classification
+      expect(mockPrisma.operation.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'op-789' },
+          data: expect.objectContaining({
+            status: 'FAILED',
+            failureCode: 'AI_PROCESSING_FAILED',
+            failureMessage: expect.stringContaining('LLM Provider timeout'),
+          }),
+        }),
+      );
     });
   });
 });

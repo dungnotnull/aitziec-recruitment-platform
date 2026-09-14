@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class InMemoryPrismaService {
+  clock?: () => Date;
   users: any[] = [];
   refreshSessions: any[] = [];
   candidateProfiles: any[] = [];
@@ -13,6 +14,7 @@ export class InMemoryPrismaService {
   companies: any[] = [];
   companyMemberships: any[] = [];
   companyInvitations: any[] = [];
+  companyInvitationDeliverySecrets: any[] = [];
   jobs: any[] = [];
   savedJobs: any[] = [];
   applications: any[] = [];
@@ -25,6 +27,7 @@ export class InMemoryPrismaService {
   operations: any[] = [];
   aiAnalyses: any[] = [];
   recommendationPreferences: any[] = [];
+  idempotencyRecords: any[] = [];
 
   reset() {
     this.users = [];
@@ -37,6 +40,7 @@ export class InMemoryPrismaService {
     this.companies = [];
     this.companyMemberships = [];
     this.companyInvitations = [];
+    this.companyInvitationDeliverySecrets = [];
     this.jobs = [];
     this.savedJobs = [];
     this.applications = [];
@@ -49,6 +53,7 @@ export class InMemoryPrismaService {
     this.operations = [];
     this.aiAnalyses = [];
     this.recommendationPreferences = [];
+    this.idempotencyRecords = [];
   }
 
   user = {
@@ -652,6 +657,64 @@ export class InMemoryPrismaService {
     },
   };
 
+  companyInvitationDeliverySecret = {
+    findUnique: async (args: any) => {
+      if (args.where.invitationId) {
+        return (
+          this.companyInvitationDeliverySecrets.find(
+            (s) => s.invitationId === args.where.invitationId,
+          ) || null
+        );
+      }
+      if (args.where.id) {
+        return this.companyInvitationDeliverySecrets.find((s) => s.id === args.where.id) || null;
+      }
+      return null;
+    },
+    create: async (args: any) => {
+      const secret = {
+        id: args.data.id || `sec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        invitationId: args.data.invitationId,
+        encryptedToken: args.data.encryptedToken,
+        iv: args.data.iv,
+        authTag: args.data.authTag,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      this.companyInvitationDeliverySecrets.push(secret);
+      return { ...secret };
+    },
+    delete: async (args: any) => {
+      const idx = this.companyInvitationDeliverySecrets.findIndex(
+        (s) =>
+          (args.where.invitationId && s.invitationId === args.where.invitationId) ||
+          (args.where.id && s.id === args.where.id),
+      );
+      if (idx !== -1) {
+        const deleted = this.companyInvitationDeliverySecrets.splice(idx, 1)[0];
+        return deleted;
+      }
+      return null;
+    },
+    deleteMany: async (args: any) => {
+      let count = 0;
+      if (args?.where?.invitation?.expiresAt?.lt) {
+        const threshold = args.where.invitation.expiresAt.lt;
+        const remaining: any[] = [];
+        for (const sec of this.companyInvitationDeliverySecrets) {
+          const inv = this.companyInvitations.find((i) => i.id === sec.invitationId);
+          if (inv && inv.expiresAt < threshold) {
+            count++;
+          } else {
+            remaining.push(sec);
+          }
+        }
+        this.companyInvitationDeliverySecrets = remaining;
+      }
+      return { count };
+    },
+  };
+
   job = {
     findUnique: async (args: any) => {
       let found: any = null;
@@ -1210,36 +1273,20 @@ export class InMemoryPrismaService {
       return cv;
     },
     findFirst: async (args: any) => {
-      return (
-        this.cvs.find((c) => {
-          if (args.where?.id && c.id !== args.where.id) return false;
-          if (
-            args.where?.candidateProfileId &&
-            c.candidateProfileId !== args.where.candidateProfileId
-          )
+      const result = this.cvs.filter((c) => {
+        if (args.where?.id) {
+          if (typeof args.where.id === 'object' && args.where.id.not) {
+            if (c.id === args.where.id.not) return false;
+          } else if (c.id !== args.where.id) {
             return false;
-          if (args.where?.isDefault !== undefined && c.isDefault !== args.where.isDefault)
-            return false;
-          if (args.where?.processingStatus) {
-            if (
-              typeof args.where.processingStatus === 'object' &&
-              args.where.processingStatus.not
-            ) {
-              if (c.processingStatus === args.where.processingStatus.not) return false;
-            } else if (c.processingStatus !== args.where.processingStatus) {
-              return false;
-            }
           }
-          return true;
-        }) || null
-      );
-    },
-    findMany: async (args: any) => {
-      let result = this.cvs.filter((c) => {
+        }
         if (
           args.where?.candidateProfileId &&
           c.candidateProfileId !== args.where.candidateProfileId
         )
+          return false;
+        if (args.where?.isDefault !== undefined && c.isDefault !== args.where.isDefault)
           return false;
         if (args.where?.processingStatus) {
           if (typeof args.where.processingStatus === 'object' && args.where.processingStatus.not) {
@@ -1251,7 +1298,73 @@ export class InMemoryPrismaService {
         return true;
       });
 
-      result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      if (args.orderBy) {
+        const orders = Array.isArray(args.orderBy) ? args.orderBy : [args.orderBy];
+        result.sort((a, b) => {
+          for (const ord of orders) {
+            for (const [key, dir] of Object.entries(ord)) {
+              let valA = a[key];
+              let valB = b[key];
+              if (key === 'createdAt') {
+                valA = new Date(valA).getTime();
+                valB = new Date(valB).getTime();
+              }
+              if (valA < valB) return dir === 'asc' ? -1 : 1;
+              if (valA > valB) return dir === 'asc' ? 1 : -1;
+            }
+          }
+          return 0;
+        });
+      }
+
+      return result[0] || null;
+    },
+    findMany: async (args: any) => {
+      let result = this.cvs.filter((c) => {
+        if (args.where?.id) {
+          if (typeof args.where.id === 'object' && args.where.id.not) {
+            if (c.id === args.where.id.not) return false;
+          } else if (c.id !== args.where.id) {
+            return false;
+          }
+        }
+        if (
+          args.where?.candidateProfileId &&
+          c.candidateProfileId !== args.where.candidateProfileId
+        )
+          return false;
+        if (args.where?.isDefault !== undefined && c.isDefault !== args.where.isDefault)
+          return false;
+        if (args.where?.processingStatus) {
+          if (typeof args.where.processingStatus === 'object' && args.where.processingStatus.not) {
+            if (c.processingStatus === args.where.processingStatus.not) return false;
+          } else if (c.processingStatus !== args.where.processingStatus) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      if (args.orderBy) {
+        const orders = Array.isArray(args.orderBy) ? args.orderBy : [args.orderBy];
+        result.sort((a, b) => {
+          for (const ord of orders) {
+            for (const [key, dir] of Object.entries(ord)) {
+              let valA = a[key];
+              let valB = b[key];
+              if (key === 'createdAt') {
+                valA = new Date(valA).getTime();
+                valB = new Date(valB).getTime();
+              }
+              if (valA < valB) return dir === 'asc' ? -1 : 1;
+              if (valA > valB) return dir === 'asc' ? 1 : -1;
+            }
+          }
+          return 0;
+        });
+      } else {
+        result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      }
 
       if (args.cursor?.id) {
         const idx = result.findIndex((c) => c.id === args.cursor.id);
@@ -1267,6 +1380,25 @@ export class InMemoryPrismaService {
       return result;
     },
     create: async (args: any) => {
+      const isDefault = args.data.isDefault ?? false;
+      const processingStatus = args.data.processingStatus || 'UPLOADED';
+
+      if (isDefault && processingStatus !== 'DELETED') {
+        const conflict = this.cvs.find(
+          (c) =>
+            c.candidateProfileId === args.data.candidateProfileId &&
+            c.isDefault === true &&
+            c.processingStatus !== 'DELETED',
+        );
+        if (conflict) {
+          const err: any = new Error(
+            'Unique constraint failed on the fields: (`candidateProfileId`) WHERE isDefault = true AND processingStatus != DELETED',
+          );
+          err.code = 'P2002';
+          throw err;
+        }
+      }
+
       const cv = {
         id: args.data.id || uuidv4(),
         candidateProfileId: args.data.candidateProfileId,
@@ -1276,11 +1408,11 @@ export class InMemoryPrismaService {
         checksumSha256: args.data.checksumSha256,
         storageKey: args.data.storageKey,
         extractedText: args.data.extractedText ?? null,
-        processingStatus: args.data.processingStatus || 'UPLOADED',
+        processingStatus,
         failureCode: args.data.failureCode ?? null,
         latestOperationId: args.data.latestOperationId ?? null,
         extractionAttempts: args.data.extractionAttempts ?? 0,
-        isDefault: args.data.isDefault ?? false,
+        isDefault,
         version: args.data.version || 1,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -1291,10 +1423,33 @@ export class InMemoryPrismaService {
     update: async (args: any) => {
       const idx = this.cvs.findIndex((c) => c.id === args.where.id);
       if (idx !== -1) {
+        const current = this.cvs[idx];
         const data = { ...args.data };
         if (data.version && typeof data.version === 'object' && 'increment' in data.version) {
-          data.version = this.cvs[idx].version + data.version.increment;
+          data.version = current.version + data.version.increment;
         }
+
+        const nextIsDefault = data.isDefault !== undefined ? data.isDefault : current.isDefault;
+        const nextStatus =
+          data.processingStatus !== undefined ? data.processingStatus : current.processingStatus;
+
+        if (nextIsDefault && nextStatus !== 'DELETED') {
+          const conflict = this.cvs.find(
+            (c) =>
+              c.id !== current.id &&
+              c.candidateProfileId === current.candidateProfileId &&
+              c.isDefault === true &&
+              c.processingStatus !== 'DELETED',
+          );
+          if (conflict) {
+            const err: any = new Error(
+              'Unique constraint failed on the fields: (`candidateProfileId`) WHERE isDefault = true AND processingStatus != DELETED',
+            );
+            err.code = 'P2002';
+            throw err;
+          }
+        }
+
         this.cvs[idx] = {
           ...this.cvs[idx],
           ...data,
@@ -1418,6 +1573,19 @@ export class InMemoryPrismaService {
   notification = {
     findUnique: async (args: any) => {
       return this.notifications.find((n) => n.id === args.where.id) || null;
+    },
+    findFirst: async (args: any) => {
+      return (
+        this.notifications.find((n) => {
+          if (args.where?.userId && n.userId !== args.where.userId) return false;
+          if (args.where?.type && n.type !== args.where.type) return false;
+          if (args.where?.resourceType !== undefined && n.resourceType !== args.where.resourceType)
+            return false;
+          if (args.where?.resourceId !== undefined && n.resourceId !== args.where.resourceId)
+            return false;
+          return true;
+        }) || null
+      );
     },
     findMany: async (args: any) => {
       let result = this.notifications.filter((n) => {
@@ -1545,6 +1713,17 @@ export class InMemoryPrismaService {
       return this.operations.filter((o) => {
         if (args.where?.userId && o.userId !== args.where.userId) return false;
         if (args.where?.status && o.status !== args.where.status) return false;
+        if (args.where?.type && typeof args.where.type === 'object' && args.where.type.in) {
+          if (!args.where.type.in.includes(o.type)) return false;
+        } else if (args.where?.type && o.type !== args.where.type) {
+          return false;
+        }
+        if (
+          args.where?.createdAt?.lt &&
+          new Date(o.createdAt).getTime() >= new Date(args.where.createdAt.lt).getTime()
+        ) {
+          return false;
+        }
         return true;
       });
     },
@@ -1713,6 +1892,93 @@ export class InMemoryPrismaService {
           ...args.where,
         },
       });
+    },
+  };
+
+  idempotencyRecord = {
+    findUnique: async (args: any) => {
+      if (args.where.id) {
+        return this.idempotencyRecords.find((r) => r.id === args.where.id) || null;
+      }
+      if (args.where.actorId_method_route_key) {
+        const { actorId, method, route, key } = args.where.actorId_method_route_key;
+        return (
+          this.idempotencyRecords.find(
+            (r) =>
+              r.actorId === actorId && r.method === method && r.route === route && r.key === key,
+          ) || null
+        );
+      }
+      return null;
+    },
+    findFirst: async (args?: any) => {
+      return (
+        this.idempotencyRecords.find((r) => {
+          if (args?.where?.id && r.id !== args.where.id) return false;
+          if (args?.where?.actorId && r.actorId !== args.where.actorId) return false;
+          if (args?.where?.method && r.method !== args.where.method) return false;
+          if (args?.where?.route && r.route !== args.where.route) return false;
+          if (args?.where?.key && r.key !== args.where.key) return false;
+          if (args?.where?.status && r.status !== args.where.status) return false;
+          return true;
+        }) || null
+      );
+    },
+    create: async (args: any) => {
+      const { actorId, method, route, key } = args.data;
+      const conflict = this.idempotencyRecords.find(
+        (r) => r.actorId === actorId && r.method === method && r.route === route && r.key === key,
+      );
+      if (conflict) {
+        const err: any = new Error('Unique constraint failed on (actorId, method, route, key)');
+        err.code = 'P2002';
+        throw err;
+      }
+
+      const now = this.clock ? this.clock() : new Date();
+      const record = {
+        id: args.data.id || uuidv4(),
+        ...args.data,
+        status: args.data.status || 'IN_PROGRESS',
+        responseStatus: args.data.responseStatus ?? null,
+        responseBody: args.data.responseBody ?? null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.idempotencyRecords.push(record);
+      return record;
+    },
+    update: async (args: any) => {
+      const now = this.clock ? this.clock() : new Date();
+      const idx = this.idempotencyRecords.findIndex((r) => r.id === args.where.id);
+      if (idx !== -1) {
+        this.idempotencyRecords[idx] = {
+          ...this.idempotencyRecords[idx],
+          ...args.data,
+          updatedAt: now,
+        };
+        return this.idempotencyRecords[idx];
+      }
+      return null;
+    },
+    delete: async (args: any) => {
+      const idx = this.idempotencyRecords.findIndex((r) => r.id === args.where.id);
+      if (idx !== -1) {
+        return this.idempotencyRecords.splice(idx, 1)[0];
+      }
+      return null;
+    },
+    deleteMany: async (args: any) => {
+      const initialLen = this.idempotencyRecords.length;
+      this.idempotencyRecords = this.idempotencyRecords.filter((r) => {
+        if (args?.where?.expiresAt?.lt) {
+          if (new Date(r.expiresAt).getTime() < new Date(args.where.expiresAt.lt).getTime()) {
+            return false;
+          }
+        }
+        return true;
+      });
+      return { count: initialLen - this.idempotencyRecords.length };
     },
   };
 

@@ -5,6 +5,7 @@ import { ERROR_CODES } from '../common/constants/error-codes';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { PaginationQueryDto, CollectionResponse } from '../common/dto/response.dto';
 import { JobDto } from '../jobs/dto/job.dto';
+import { SavedJobCheckDto } from './dto/saved-job-check.dto';
 
 @Injectable()
 export class SavedJobsService {
@@ -24,6 +25,26 @@ export class SavedJobsService {
       });
     }
     return profile.id;
+  }
+
+  /**
+   * Kiểm tra trạng thái ứng viên đã lưu công việc hay chưa (BE-9-003, API-SAVE-004).
+   * Truy vấn chỉ đọc, dùng composite unique key candidateProfileId_jobId.
+   */
+  async checkSavedJob(jobId: string, user: AuthenticatedUser): Promise<SavedJobCheckDto> {
+    const candidateProfileId = await this.getCandidateProfileId(user.id);
+
+    const savedJob = await this.prisma.savedJob.findUnique({
+      where: {
+        candidateProfileId_jobId: {
+          candidateProfileId,
+          jobId,
+        },
+      },
+      select: { id: true },
+    });
+
+    return { isSaved: savedJob !== null };
   }
 
   async saveJob(jobId: string, user: AuthenticatedUser): Promise<void> {
@@ -100,8 +121,8 @@ export class SavedJobsService {
     const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].id : null;
 
     const mappedJobs: JobDto[] = items
-      .filter((s: any) => s.job)
-      .map((s: any) => this.jobsService.mapToDto(s.job));
+      .filter((s) => s.job)
+      .map((s) => this.jobsService.mapToDto(s.job));
 
     return {
       data: mappedJobs,
@@ -111,7 +132,7 @@ export class SavedJobsService {
           hasNextPage: hasMore,
           limit,
         },
-      } as any,
+      },
     };
   }
 }

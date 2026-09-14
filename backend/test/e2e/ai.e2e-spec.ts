@@ -9,6 +9,8 @@ import { InMemoryPrismaService } from './in-memory-prisma';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import { ContractValidationPipe } from '../../src/common/pipes/contract-validation.pipe';
 import { ResponseTransformInterceptor } from '../../src/common/interceptors/response-transform.interceptor';
+import { ERROR_CODES } from '../../src/common/constants/error-codes';
+import { CvJobAnalysisProcessor } from '../../src/ai/workers/cv-job-analysis.processor';
 
 describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
   let app: INestApplication;
@@ -182,12 +184,28 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
       expect(res.status).toBe(202);
       expect(res.body.data).toBeDefined();
       expect(res.body.data.type).toBe('CV_JOB_ANALYSIS');
-      expect(['QUEUED', 'PROCESSING', 'SUCCEEDED']).toContain(res.body.data.status);
-      expect(res.body.data.resultResource).toBeDefined();
-      expect(res.body.data.resultResource.type).toBe('AI_ANALYSIS');
+      expect(res.body.data.status).toBe('QUEUED');
+      expect(res.body.data.progressPercent).toBe(0);
 
       operationId = res.body.data.id;
-      analysisId = res.body.data.resultResource.id;
+
+      // Asynchronous BullMQ worker processes the job (BE-10-010)
+      const processor = app.get(CvJobAnalysisProcessor);
+      await processor.processJob({
+        id: `ai-analysis:${operationId}`,
+        data: {
+          operationId,
+          cvId: readyCvId,
+          jobId,
+          analyses: ['CV_JOB_MATCH', 'CV_GAP_ANALYSIS'],
+        },
+      } as any);
+
+      const opRecord = await inMemoryPrisma.operation.findUnique({
+        where: { id: operationId },
+      });
+      expect(opRecord?.status).toBe('SUCCEEDED');
+      analysisId = opRecord?.resultResourceId ?? '';
     });
 
     it('handles idempotency key replay safely', async () => {
@@ -279,7 +297,17 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
       expect(res.body.data).toBeDefined();
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.meta.page).toBeDefined();
-      expect(res.body.data.some((j: any) => j.id === jobId)).toBe(true);
+      expect(res.body.data.some((j: any) => j.job?.id === jobId)).toBe(true);
+
+      // Exact-key verification: only job, score, reasonCodes, evidence, limitations
+      const firstItem = res.body.data[0];
+      expect(Object.keys(firstItem).sort()).toEqual(
+        ['evidence', 'job', 'limitations', 'reasonCodes', 'score'].sort(),
+      );
+      expect(firstItem.id).toBeUndefined();
+      expect(firstItem.title).toBeUndefined();
+      expect(firstItem.slug).toBeUndefined();
+      expect(firstItem.companyId).toBeUndefined();
     });
 
     it('excludes jobs that candidate has already applied to', async () => {
@@ -296,7 +324,7 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
         .set('Authorization', `Bearer ${candidateToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.data.some((j: any) => j.id === jobId)).toBe(false);
+      expect(res.body.data.some((j: any) => j.job?.id === jobId)).toBe(false);
     });
 
     it('rejects non-candidate roles with 403 Forbidden', async () => {
@@ -305,6 +333,40 @@ describe('Phase 6: AI Recruitment Capabilities (E2E)', () => {
         .set('Authorization', `Bearer ${hrToken}`);
 
       expect(res.status).toBe(403);
+    });
+
+    it('BE-9-001 & BE-9-004: accepts ?limit=20 and returns 200 with meta.page', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/recommendations/jobs?limit=20')
+        .set('Authorization', `Bearer ${otherCandidateToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toBeDefined();
+      expect(res.body.meta.page.limit).toBe(20);
+      expect(res.body.meta.requestId).toBeDefined();
+    });
+
+    it('BE-9-001 & BE-9-004: rejects ?limit=0 and ?limit=51 with 400 VALIDATION_ERROR', async () => {
+      const resMin = await request(app.getHttpServer())
+        .get('/api/v1/recommendations/jobs?limit=0')
+        .set('Authorization', `Bearer ${otherCandidateToken}`);
+      expect(resMin.status).toBe(400);
+      expect(resMin.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+
+      const resMax = await request(app.getHttpServer())
+        .get('/api/v1/recommendations/jobs?limit=51')
+        .set('Authorization', `Bearer ${otherCandidateToken}`);
+      expect(resMax.status).toBe(400);
+      expect(resMax.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+    });
+
+    it('BE-9-001 & BE-9-004: rejects malformed cursor with 400 INVALID_CURSOR', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/recommendations/jobs?cursor=invalid-cursor-payload')
+        .set('Authorization', `Bearer ${otherCandidateToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe(ERROR_CODES.INVALID_CURSOR);
     });
   });
 

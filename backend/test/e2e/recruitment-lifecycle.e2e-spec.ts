@@ -149,6 +149,10 @@ describe('BE-7-021: Critical End-to-End Recruitment Suite (E2E)', () => {
       .attach('file', pdfBuffer, 'resume.pdf');
     expect(cvRes.status).toBe(202);
     cvId = cvRes.body.data.cv.id;
+    const cv1Record = inMemoryPrisma.cvs.find((c) => c.id === cvId);
+    if (cv1Record) {
+      cv1Record.processingStatus = 'READY';
+    }
 
     // Step 5: Candidate submits application
     const appRes = await request(app.getHttpServer())
@@ -370,11 +374,35 @@ describe('BE-7-021: Critical End-to-End Recruitment Suite (E2E)', () => {
         headline: 'Frontend Engineer',
       });
 
+    // BE-10-001: Deny candidate 2 from submitting another candidate's cvId (404 RESOURCE_NOT_FOUND, no existence leakage)
+    const crossOwnerAppRes = await request(app.getHttpServer())
+      .post(`/api/v1/jobs/${jobId}/applications`)
+      .set('Authorization', `Bearer ${cand2Token}`)
+      .send({
+        cvId, // Candidate 1's CV
+        candidateNote: 'Attempting to reuse candidate 1 CV',
+      });
+    expect(crossOwnerAppRes.status).toBe(404);
+    expect(crossOwnerAppRes.body.error.code).toBe('RESOURCE_NOT_FOUND');
+
+    // Candidate 2 uploads their own CV
+    const cand2CvRes = await request(app.getHttpServer())
+      .post('/api/v1/cvs')
+      .set('Authorization', `Bearer ${cand2Token}`)
+      .attach('file', pdfBuffer, 'resume-cand2.pdf');
+    expect(cand2CvRes.status).toBe(202);
+    const cand2CvId = cand2CvRes.body.data.cv.id;
+
+    const cand2CvRecord = inMemoryPrisma.cvs.find((c) => c.id === cand2CvId);
+    if (cand2CvRecord) {
+      cand2CvRecord.processingStatus = 'READY';
+    }
+
     const cand2AppRes = await request(app.getHttpServer())
       .post(`/api/v1/jobs/${jobId}/applications`)
       .set('Authorization', `Bearer ${cand2Token}`)
       .send({
-        cvId,
+        cvId: cand2CvId,
         candidateNote: 'Excited for moderation',
       });
     expect(cand2AppRes.status).toBe(201);

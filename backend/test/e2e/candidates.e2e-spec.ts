@@ -56,6 +56,32 @@ describe('Candidate Profiles E2E (BE-2-011 to BE-2-014)', () => {
       role: 'HR',
     });
     hrToken = hrRes.body.data.accessToken;
+
+    // Seed canonical skills for BE-10-002
+    await inMemoryPrisma.skill.create({
+      data: {
+        id: '11111111-1111-4111-8111-111111111111',
+        name: 'TypeScript',
+        normalizedName: 'typescript',
+        active: true,
+      },
+    });
+    await inMemoryPrisma.skill.create({
+      data: {
+        id: '22222222-2222-4222-8222-222222222222',
+        name: 'Node.js',
+        normalizedName: 'nodejs',
+        active: true,
+      },
+    });
+    await inMemoryPrisma.skill.create({
+      data: {
+        id: '33333333-3333-4333-8333-333333333333',
+        name: 'Legacy Tech',
+        normalizedName: 'legacytech',
+        active: false,
+      },
+    });
   });
 
   afterAll(async () => {
@@ -74,6 +100,112 @@ describe('Candidate Profiles E2E (BE-2-011 to BE-2-014)', () => {
     expect(Array.isArray(res.body.data.experiences)).toBe(true);
   });
 
+  describe('BE-10-002 Canonical Skills and Date Validations', () => {
+    it('rejects non-UUID skillId with 400 VALIDATION_ERROR', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/api/v1/candidates/me')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({
+          expectedVersion: 1,
+          skills: [{ skillId: 'not-a-uuid', yearsOfExperience: 3 }],
+        })
+        .expect(400);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+    });
+
+    it('rejects unknown skillId with 400 VALIDATION_ERROR', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/api/v1/candidates/me')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({
+          expectedVersion: 1,
+          skills: [{ skillId: '44444444-4444-4444-8444-444444444444', yearsOfExperience: 3 }],
+        })
+        .expect(400);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+    });
+
+    it('rejects inactive skillId with 400 VALIDATION_ERROR', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/api/v1/candidates/me')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({
+          expectedVersion: 1,
+          skills: [{ skillId: '33333333-3333-4333-8333-333333333333', yearsOfExperience: 3 }],
+        })
+        .expect(400);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+    });
+
+    it('rejects duplicate skillIds in payload with 400 VALIDATION_ERROR', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/api/v1/candidates/me')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({
+          expectedVersion: 1,
+          skills: [
+            { skillId: '11111111-1111-4111-8111-111111111111', yearsOfExperience: 2 },
+            { skillId: '11111111-1111-4111-8111-111111111111', yearsOfExperience: 5 },
+          ],
+        })
+        .expect(400);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+    });
+
+    it('rejects malformed ISO date in experience with 400 VALIDATION_ERROR', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/api/v1/candidates/me')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({
+          expectedVersion: 1,
+          experiences: [
+            {
+              companyName: 'Tech Corp',
+              title: 'Dev',
+              startDate: '2021-not-a-date',
+            },
+          ],
+        })
+        .expect(400);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+    });
+
+    it('rejects experience where endDate < startDate with 400 VALIDATION_ERROR', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/api/v1/candidates/me')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({
+          expectedVersion: 1,
+          experiences: [
+            {
+              companyName: 'Tech Corp',
+              title: 'Dev',
+              startDate: '2024-01-01T00:00:00.000Z',
+              endDate: '2022-01-01T00:00:00.000Z',
+            },
+          ],
+        })
+        .expect(400);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+    });
+
+    it('verifies profile remains unchanged at version 1 after rejected validations', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/candidates/me')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(200);
+
+      expect(res.body.data.version).toBe(1);
+      expect(res.body.data.fullName).toBe('candidate-profile');
+    });
+  });
+
   it('PATCH /api/v1/candidates/me updates profile, skills, and experiences with optimistic concurrency', async () => {
     const res = await request(app.getHttpServer())
       .patch('/api/v1/candidates/me')
@@ -86,8 +218,8 @@ describe('Candidate Profiles E2E (BE-2-011 to BE-2-014)', () => {
         location: 'Ho Chi Minh City',
         bio: 'Experienced in AWS, Kubernetes, NestJS',
         skills: [
-          { skillId: 'skill-ts', yearsOfExperience: 5 },
-          { skillId: 'skill-node', yearsOfExperience: 4 },
+          { skillId: '11111111-1111-4111-8111-111111111111', yearsOfExperience: 5 },
+          { skillId: '22222222-2222-4222-8222-222222222222', yearsOfExperience: 4 },
         ],
         experiences: [
           {

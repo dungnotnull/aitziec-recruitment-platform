@@ -8,6 +8,9 @@ import { AiMetricsService } from '../../src/ai/metrics/ai-metrics.service';
 import { AI_PROVIDER_PORT } from '../../src/ai/interfaces/ai-provider.port';
 import { InMemoryPrismaService } from '../e2e/in-memory-prisma';
 import { AuthenticatedUser } from '../../src/common/decorators/current-user.decorator';
+import { QueueService } from '../../src/queues/queue.service';
+import { OutboxService } from '../../src/outbox/outbox.service';
+import { IdempotencyService } from '../../src/idempotency';
 
 describe('AiExplainabilityAndConsent (Unit - BE-8-021 & BE-8-022)', () => {
   let service: AiService;
@@ -59,6 +62,26 @@ describe('AiExplainabilityAndConsent (Unit - BE-8-021 & BE-8-022)', () => {
           useValue: {
             recordAnalysisDuration: jest.fn(),
             incrementEvaluations: jest.fn(),
+          },
+        },
+        {
+          provide: QueueService,
+          useValue: {
+            addJob: jest.fn().mockResolvedValue({ id: 'mock-job-id' }),
+          },
+        },
+        {
+          provide: OutboxService,
+          useValue: {
+            recordEvent: jest.fn().mockResolvedValue({ id: 'mock-event-id' }),
+          },
+        },
+        {
+          provide: IdempotencyService,
+          useValue: {
+            claimOrReplay: jest.fn().mockResolvedValue({ type: 'CLAIMED', recordId: 'mock-claim' }),
+            complete: jest.fn().mockResolvedValue(undefined),
+            fail: jest.fn().mockResolvedValue(undefined),
           },
         },
         { provide: AI_PROVIDER_PORT, useValue: mockAiProvider },
@@ -181,7 +204,21 @@ describe('AiExplainabilityAndConsent (Unit - BE-8-021 & BE-8-022)', () => {
       const res = await service.getJobRecommendations(candidateUser, { limit: 10 });
 
       expect(res.data.length).toBeGreaterThanOrEqual(1);
-      const rec = res.data[0] as any;
+      const rec = res.data[0];
+
+      // Exact-key check: verify exact keys match RecommendedJobDto and no flat JobDto fields leak
+      const keys = Object.keys(rec).sort();
+      expect(keys).toEqual(['evidence', 'job', 'limitations', 'reasonCodes', 'score'].sort());
+
+      // Verify no flat JobDto compatibility fields exist on the root object
+      const flatRec = rec as unknown as Record<string, unknown>;
+      expect(flatRec.id).toBeUndefined();
+      expect(flatRec.title).toBeUndefined();
+      expect(flatRec.slug).toBeUndefined();
+      expect(flatRec.companyId).toBeUndefined();
+      expect(flatRec.company).toBeUndefined();
+      expect(flatRec.status).toBeUndefined();
+      expect(flatRec.technologyNames).toBeUndefined();
 
       expect(rec.job.id).toBe(eligibleJob.id);
       expect(rec.score).toBeGreaterThanOrEqual(50);
@@ -202,7 +239,7 @@ describe('AiExplainabilityAndConsent (Unit - BE-8-021 & BE-8-022)', () => {
       const res = await service.getJobRecommendations(candidateUser, { limit: 10 });
 
       expect(res.data).toHaveLength(0);
-      expect((res.meta as any).optedOut).toBe(true);
+      expect(res.meta.optedOut).toBe(true);
     });
 
     it('does not recommend jobs from suspended companies', async () => {
@@ -245,6 +282,114 @@ describe('AiExplainabilityAndConsent (Unit - BE-8-021 & BE-8-022)', () => {
           cursor: staleCursor,
         }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    describe('BE-9-001: Comprehensive stability, pagination, and edge-case investigation', () => {
+      it('handles 0 jobs dataset gracefully with empty array and null nextCursor', async () => {
+        // Clear all jobs
+        inMemoryPrisma.jobs = [];
+
+        const res = await service.getJobRecommendations(candidateUser, { limit: 20 });
+        expect(res.data).toHaveLength(0);
+        expect(res.meta.page.nextCursor).toBeNull();
+        expect(res.meta.page.hasNextPage).toBe(false);
+      });
+
+      it('handles >20 jobs dataset (e.g. 25 jobs) with limit=20 deterministically across 20 iterations', async () => {
+        // Clear existing jobs and seed 25 published jobs
+        inMemoryPrisma.jobs = [];
+        for (let i = 1; i <= 25; i++) {
+          await inMemoryPrisma.job.create({
+            data: {
+              id: `job-bulk-${String(i).padStart(3, '0')}`,
+              companyId: activeCompany.id,
+              title: `Engineer Role ${i}`,
+              slug: `engineer-role-${i}`,
+              description: `Description ${i}`,
+              requirements: 'TypeScript',
+              technologyNames: ['TypeScript', 'Node.js'],
+              location: 'Remote',
+              workplaceType: 'REMOTE',
+              experienceLevel: 'MID',
+              employmentType: 'FULL_TIME',
+              applicationDeadline: new Date(Date.now() + 86400000),
+              publishedAt: new Date(Date.now() - i * 1000),
+              status: 'PUBLISHED',
+              company: activeCompany,
+            },
+          });
+        }
+
+        // Loop 20 times to detect any intermittent failure or instability
+        for (let iter = 0; iter < 20; iter++) {
+          const res = await service.getJobRecommendations(candidateUser, { limit: 20 });
+          expect(res.data).toHaveLength(20);
+          expect(res.meta.page.hasNextPage).toBe(true);
+          expect(res.meta.page.nextCursor).toBeDefined();
+
+          // Fetch page 2 using cursor
+          const page2 = await service.getJobRecommendations(candidateUser, {
+            limit: 20,
+            cursor: res.meta.page.nextCursor!,
+          });
+          expect(page2.data).toHaveLength(5);
+          expect(page2.meta.page.hasNextPage).toBe(false);
+          expect(page2.meta.page.nextCursor).toBeNull();
+
+          // Ensure no duplicate IDs between page 1 and page 2
+          const page1Ids = new Set(res.data.map((j: any) => j.job.id));
+          for (const item of page2.data as any[]) {
+            expect(page1Ids.has(item.job.id)).toBe(false);
+          }
+        }
+      });
+
+      it('rejects cursor with non-numeric score with 400 INVALID_CURSOR', async () => {
+        const invalidCursor = Buffer.from('notanumber:job-id-1').toString('base64');
+        await expect(
+          service.getJobRecommendations(candidateUser, { cursor: invalidCursor }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects cursor with missing jobId with 400 INVALID_CURSOR', async () => {
+        const invalidCursor = Buffer.from('50:').toString('base64');
+        await expect(
+          service.getJobRecommendations(candidateUser, { cursor: invalidCursor }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects cursor with extra components (length > 2) with 400 INVALID_CURSOR', async () => {
+        const invalidCursor = Buffer.from('50:job-id-1:extra').toString('base64');
+        await expect(
+          service.getJobRecommendations(candidateUser, { cursor: invalidCursor }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('handles job technologyNames containing null safely without throwing 500 / TypeError', async () => {
+        inMemoryPrisma.jobs = [];
+        await inMemoryPrisma.job.create({
+          data: {
+            id: 'job-null-tech',
+            companyId: activeCompany.id,
+            title: 'Engineer with Dirty Data',
+            slug: 'engineer-dirty-data',
+            description: 'Description',
+            requirements: 'TypeScript',
+            technologyNames: ['TypeScript', null as any, 'Node.js'],
+            location: 'Remote',
+            workplaceType: 'REMOTE',
+            experienceLevel: 'MID',
+            employmentType: 'FULL_TIME',
+            applicationDeadline: new Date(Date.now() + 86400000),
+            status: 'PUBLISHED',
+            company: activeCompany,
+          },
+        });
+
+        const res = await service.getJobRecommendations(candidateUser, { limit: 20 });
+        expect(res.data).toHaveLength(1);
+        expect((res.data[0] as any).job.id).toBe('job-null-tech');
+      });
     });
   });
 });
