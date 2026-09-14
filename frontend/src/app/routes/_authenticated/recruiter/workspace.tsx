@@ -7,7 +7,7 @@ import { Badge } from '@/shared/ui/badge';
 import { JobEditor } from '@/features/job/components/JobEditor';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getCompany, listMembers } from '@/features/company/api';
+import { getCompany, listMyCompanies } from '@/features/company/api';
 import { StateBoundary } from '@/shared/ui/state-boundary';
 import { normalizeCompanyTarget } from '@/features/company/company-context';
 import { useAuth } from '@/features/auth/context';
@@ -45,20 +45,25 @@ function RecruiterWorkspacePage() {
   
   const { session } = useAuth();
   
-  const membersQuery = useQuery({
-    queryKey: ['company-members', companyId],
-    queryFn: () => listMembers(companyId!),
-    enabled: Boolean(companyId),
+  const myCompaniesQuery = useQuery({
+    queryKey: ['my-companies'],
+    queryFn: () => listMyCompanies(),
   });
-  const members = membersQuery.data?.data || [];
-  const currentUserRole = members.find(m => m.user.id === session?.user.id)?.role;
+  const currentUserRole = myCompaniesQuery.data?.find(c => c.company.id === companyId)?.membership.role;
   const isOwnerOrAdmin = currentUserRole === 'OWNER' || currentUserRole === 'ADMIN' || session?.user.role === 'ADMIN';
 
   const handlePublish = (jobId: string, version: number) => {
     publishMutation.mutate(
       { jobId, expectedVersion: version },
       {
-        onSuccess: () => alert('Job published successfully'),
+        onSuccess: (data) => {
+          const returnedStatus = data.data.status;
+          if (returnedStatus === 'PENDING_APPROVAL') {
+            alert('Job submitted for approval. The company owner will be notified to review it.');
+          } else {
+            alert('Job published successfully.');
+          }
+        },
         onError: (err) => alert(`Failed to publish job: ${err.message}`),
       }
     );

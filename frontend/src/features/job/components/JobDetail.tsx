@@ -82,7 +82,7 @@ export const JobDetail: React.FC<JobDetailProps> = ({ jobIdOrSlug }) => {
               <DialogTrigger asChild>
                 <Button size="lg" className="w-full">Apply Now</Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="sm:max-w-2xl">
                 <DialogHeader>
                   <DialogTitle>Apply for {job.title}</DialogTitle>
                 </DialogHeader>

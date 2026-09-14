@@ -2,8 +2,25 @@ import React, { useState, useRef } from 'react';
 import { useSubmitApplication } from '../hooks/useApplication';
 import { useCvs, useUploadCv } from '@/features/cv/hooks/useCv';
 import { Button } from '@/shared/ui/button';
+import { Label } from '@/shared/ui/label';
 import { Alert, AlertDescription } from '@/shared/ui/alert';
-import { UploadCloud, FileText, CheckCircle2, FileUp, Sparkles, AlertCircle } from 'lucide-react';
+import { UploadCloud, FileText, CheckCircle2, FileUp, Sparkles, AlertCircle, Loader2, XCircle } from 'lucide-react';
+import type { CvProcessingStatus } from '@/api/types';
+
+function getCvStatusInfo(status: CvProcessingStatus) {
+  switch (status) {
+    case 'READY':
+      return { label: 'Ready to use', color: 'text-emerald-600 dark:text-emerald-400', selectable: true, icon: null };
+    case 'EXTRACTING':
+      return { label: 'Extracting text...', color: 'text-amber-500', selectable: false, icon: 'spinner' };
+    case 'UPLOADED':
+      return { label: 'Queued for processing...', color: 'text-amber-500', selectable: false, icon: 'spinner' };
+    case 'FAILED':
+      return { label: 'Extraction failed', color: 'text-red-500 dark:text-red-400', selectable: false, icon: 'error' };
+    default:
+      return { label: status, color: 'text-slate-400', selectable: false, icon: null };
+  }
+}
 
 interface ApplyFormProps {
   jobId: string;
@@ -39,7 +56,12 @@ export const ApplyForm: React.FC<ApplyFormProps> = ({ jobId, onSuccess, onCancel
       {
         onSuccess,
         onError: (err: any) => {
-          setError(err.response?.data?.error?.message || 'Failed to submit application.');
+          const code = err.response?.data?.error?.code;
+          if (code === 'CV_NOT_READY') {
+            setError('Your CV is still being processed. Please wait until it shows "Ready to use" before applying.');
+          } else {
+            setError(err.response?.data?.error?.message || 'Failed to submit application.');
+          }
         }
       }
     );
@@ -95,59 +117,72 @@ export const ApplyForm: React.FC<ApplyFormProps> = ({ jobId, onSuccess, onCancel
 
         {cvs.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {cvs.map(cv => (
-              <label
-                key={cv.id}
-                onClick={() => setSelectedCvId(cv.id)}
-                className={`group relative flex flex-col p-5 rounded-2xl border-2 cursor-pointer transition-all duration-300 ease-out hover:shadow-md ${
-                  selectedCvId === cv.id
-                    ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-500/10 shadow-sm'
-                    : 'border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-700 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900'
-                }`}
-              >
-                <input 
-                  type="radio" 
-                  name="cvSelect" 
-                  className="sr-only" 
-                  checked={selectedCvId === cv.id}
-                  onChange={() => setSelectedCvId(cv.id)} 
-                />
-                <div className="flex items-start justify-between mb-3">
-                  <div className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                    selectedCvId === cv.id ? 'border-blue-500 bg-blue-500' : 'border-slate-300 dark:border-slate-700 group-hover:border-blue-400'
-                  }`}>
-                    {selectedCvId === cv.id && <div className="w-2.5 h-2.5 rounded-full bg-white scale-in" />}
-                  </div>
-                  {selectedCvId === cv.id && (
-                    <span className="flex items-center text-blue-600 dark:text-blue-400 text-xs font-semibold uppercase tracking-wider animate-in fade-in zoom-in">
-                      <CheckCircle2 className="w-4 h-4 mr-1" />
-                      Selected
-                    </span>
-                  )}
-                </div>
-                
-                <div className="mt-auto">
-                  <p className="font-semibold text-slate-900 dark:text-white text-base truncate pr-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                    {cv.originalFileName}
-                  </p>
-                  <div className="flex items-center gap-2 mt-2">
-                    {cv.isDefault && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
-                        Default
+            {cvs.map(cv => {
+              const statusInfo = getCvStatusInfo(cv.processingStatus);
+              const isSelected = selectedCvId === cv.id;
+              const isSelectable = statusInfo.selectable;
+              return (
+                <label
+                  key={cv.id}
+                  onClick={() => isSelectable && setSelectedCvId(cv.id)}
+                  className={`group relative flex flex-col p-5 rounded-2xl border-2 transition-all duration-300 ease-out ${
+                    !isSelectable
+                      ? 'cursor-not-allowed opacity-60 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900'
+                      : isSelected
+                        ? 'cursor-pointer border-blue-500 bg-blue-50/50 dark:bg-blue-500/10 shadow-sm'
+                        : 'cursor-pointer border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-700 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900 hover:shadow-md'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="cvSelect"
+                    className="sr-only"
+                    checked={isSelected}
+                    disabled={!isSelectable}
+                    onChange={() => isSelectable && setSelectedCvId(cv.id)}
+                  />
+                  <div className="flex items-start justify-between mb-3">
+                    <div className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      isSelected ? 'border-blue-500 bg-blue-500' : 'border-slate-300 dark:border-slate-700'
+                    }`}>
+                      {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
+                    </div>
+                    {isSelected && (
+                      <span className="flex items-center text-blue-600 dark:text-blue-400 text-xs font-semibold uppercase tracking-wider animate-in fade-in zoom-in">
+                        <CheckCircle2 className="w-4 h-4 mr-1" />
+                        Selected
                       </span>
                     )}
-                    <span className="text-sm text-slate-500 dark:text-slate-400">
-                      {cv.processingStatus === 'READY' ? 'Ready to use' : <span className="text-amber-500 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Processing...</span>}
-                    </span>
                   </div>
-                </div>
-                
-                {/* Decorative background glow when selected */}
-                {selectedCvId === cv.id && (
-                  <div className="absolute inset-0 rounded-2xl ring-4 ring-blue-500/10 pointer-events-none" />
-                )}
-              </label>
-            ))}
+
+                  <div className="mt-auto">
+                    <p className="font-semibold text-slate-900 dark:text-white text-base truncate pr-2 transition-colors">
+                      {cv.originalFileName}
+                    </p>
+                    <div className="flex items-center gap-2 mt-2">
+                      {cv.isDefault && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                          Default
+                        </span>
+                      )}
+                      <span className={`text-sm flex items-center gap-1 ${statusInfo.color}`}>
+                        {statusInfo.icon === 'spinner' && <Loader2 className="w-3 h-3 animate-spin" />}
+                        {statusInfo.icon === 'error' && <XCircle className="w-3 h-3" />}
+                        {statusInfo.icon === null && cv.processingStatus === 'READY' && <Sparkles className="w-3 h-3" />}
+                        {statusInfo.label}
+                      </span>
+                    </div>
+                    {cv.processingStatus === 'FAILED' && cv.failureCode && (
+                      <p className="text-xs text-red-400 mt-1">({cv.failureCode})</p>
+                    )}
+                  </div>
+
+                  {isSelected && (
+                    <div className="absolute inset-0 rounded-2xl ring-4 ring-blue-500/10 pointer-events-none" />
+                  )}
+                </label>
+              );
+            })}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center p-8 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl border-dashed">
@@ -243,7 +278,7 @@ export const ApplyForm: React.FC<ApplyFormProps> = ({ jobId, onSuccess, onCancel
           )}
           <Button 
             type="submit" 
-            disabled={submitApplication.isPending || (!selectedCvId && cvs.length === 0)}
+            disabled={submitApplication.isPending || (!selectedCvId && cvs.length === 0) || (!!selectedCvId && !getCvStatusInfo(cvs.find(c => c.id === selectedCvId)?.processingStatus ?? 'UPLOADED').selectable)}
             className="h-12 px-8 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20 hover:shadow-xl hover:shadow-blue-600/30 transition-all font-semibold text-base w-full sm:w-auto disabled:opacity-50 disabled:hover:shadow-none"
           >
             {submitApplication.isPending ? (

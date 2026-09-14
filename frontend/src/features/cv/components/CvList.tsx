@@ -3,8 +3,17 @@ import { useCvs, useSetDefaultCv, useDeleteCv, useDownloadCv } from '../hooks/us
 import { Card, CardContent } from '@/shared/ui/card';
 import { Button } from '@/shared/ui/button';
 import { Badge } from '@/shared/ui/badge';
-import type { Cv } from '@/api/types';
+import type { Cv, CvProcessingStatus } from '@/api/types';
 import { Alert, AlertDescription } from '@/shared/ui/alert';
+import { Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
+
+const STATUS_CONFIG: Record<CvProcessingStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: React.ReactNode }> = {
+  READY:      { label: 'Ready',                variant: 'default',     icon: <CheckCircle2 className="w-3 h-3" /> },
+  EXTRACTING: { label: 'Extracting text...',   variant: 'secondary',   icon: <Loader2 className="w-3 h-3 animate-spin" /> },
+  UPLOADED:   { label: 'Queued...',            variant: 'outline',     icon: <Clock className="w-3 h-3" /> },
+  FAILED:     { label: 'Extraction failed',    variant: 'destructive', icon: <XCircle className="w-3 h-3" /> },
+  DELETED:    { label: 'Deleted',              variant: 'outline',     icon: null },
+};
 
 export const CvList: React.FC = () => {
   const { data, isLoading, isError, error } = useCvs();
@@ -62,14 +71,6 @@ export const CvList: React.FC = () => {
     return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'READY': return 'default';
-      case 'FAILED': return 'destructive';
-      case 'EXTRACTING': return 'secondary';
-      default: return 'outline';
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -87,9 +88,19 @@ export const CvList: React.FC = () => {
               </div>
               <div className="mt-2 flex items-center gap-2 text-sm">
                 <span className="font-medium">Status:</span>
-                <Badge variant={getStatusColor(cv.processingStatus)}>{cv.processingStatus}</Badge>
-                {cv.failureCode && (
-                  <span className="text-destructive text-xs ml-2">Error: {cv.failureCode}</span>
+                {(() => {
+                  const cfg = STATUS_CONFIG[cv.processingStatus] ?? STATUS_CONFIG.UPLOADED;
+                  return (
+                    <Badge variant={cfg.variant} className="flex items-center gap-1">
+                      {cfg.icon}
+                      {cfg.label}
+                    </Badge>
+                  );
+                })()}
+                {cv.processingStatus === 'FAILED' && cv.failureCode && (
+                  <span className="text-destructive text-xs ml-1" title={cv.failureCode}>
+                    — {cv.failureCode.replace(/_/g, ' ').toLowerCase()}
+                  </span>
                 )}
               </div>
             </div>

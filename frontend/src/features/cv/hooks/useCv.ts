@@ -9,10 +9,17 @@ export const cvKeys = {
   detail: (id: string) => [...cvKeys.details(), id] as const,
 };
 
+const PROCESSING_STATUSES = new Set(['UPLOADED', 'EXTRACTING']);
+
 export const useCvs = (cursor?: string) => {
   return useQuery({
     queryKey: cvKeys.list(cursor),
     queryFn: () => cvApi.getCvs(cursor),
+    refetchInterval: (query) => {
+      const cvs = query.state.data?.data ?? [];
+      const hasProcessing = cvs.some((cv) => PROCESSING_STATUSES.has(cv.processingStatus));
+      return hasProcessing ? 3000 : false;
+    },
   });
 };
 
