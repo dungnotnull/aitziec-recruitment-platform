@@ -1,3 +1,4 @@
+import React, { useState } from "react"
 import { useAuth } from "@/features/auth/context"
 import { useQuery } from "@tanstack/react-query"
 import { getMyProfile } from "../api"
@@ -10,10 +11,21 @@ import { ProfileVisibilityControl } from "./ProfileVisibilityControl"
 import { SkillCombobox } from "./SkillCombobox"
 import { Avatar } from "@/shared/ui/avatar"
 import { Progress } from "@/shared/ui/progress"
-import { Mail, Phone, MapPin } from "lucide-react"
+import { Mail, Phone, MapPin, Camera } from "lucide-react"
 
 export function ProfileOverview() {
   const { session } = useAuth()
+  const [localAvatar, setLocalAvatar] = useState<string | null>(null)
+
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = (e) => setLocalAvatar(e.target?.result as string)
+      reader.readAsDataURL(file)
+      alert("Tính năng Upload Avatar hiện chưa có API hỗ trợ từ Backend. Vui lòng gửi yêu cầu cho team Backend bổ sung API này nhé!")
+    }
+  }
 
   const { data: profile, isLoading, isError, refetch } = useQuery({
     queryKey: ['candidate-profile'],
@@ -39,11 +51,27 @@ export function ProfileOverview() {
           <div className="h-32 bg-action/10" />
           <CardContent className="relative px-6 pb-8 sm:px-8 sm:pb-10">
             <div className="flex flex-col sm:flex-row gap-6 items-start sm:items-end -mt-16 sm:-mt-20 mb-6">
-              <Avatar 
-                size="xl" 
-                fallback={profile?.fullName || session.user.email} 
-                className="border-4 border-surface shadow-sm bg-white"
-              />
+              
+              {/* Interactive Avatar Upload */}
+              <div className="relative group cursor-pointer shrink-0">
+                <input 
+                  type="file" 
+                  accept="image/png, image/jpeg, image/jpg" 
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                  onChange={handleAvatarUpload}
+                  title="Upload Avatar"
+                />
+                <Avatar 
+                  size="xl" 
+                  src={localAvatar || undefined}
+                  fallback={profile?.fullName || session.user.email} 
+                  className="border-4 border-surface shadow-sm bg-white relative z-10 transition-opacity group-hover:opacity-90"
+                />
+                <div className="absolute inset-0 z-10 flex items-center justify-center rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none border-4 border-transparent">
+                  <Camera className="w-8 h-8 text-white" />
+                </div>
+              </div>
+
               <div className="flex-1 w-full flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
                 <div>
                   <h1 className="text-3xl font-display font-bold text-ink">
