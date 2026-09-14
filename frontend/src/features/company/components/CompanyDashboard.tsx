@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { getCompany, listMyCompanies } from "../api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { Button } from "@/shared/ui/button"
-import { Building, Users, Briefcase, Edit, Globe, MapPin, ChevronDown } from "lucide-react"
+import { Building, Users, Briefcase, Edit, Globe, MapPin } from "lucide-react"
 
 import { MemberDirectory } from "./MemberDirectory"
 import { StateBoundary } from "@/shared/ui/state-boundary"

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useCompanyJobs, usePublishJob, useUnpublishJob, useDeleteJob, useApproveJob } from '@/features/job/hooks/useJobs';
-import type { Job, CompanyMembership } from '@/api/types';
+import type { Job } from '@/api/types';
 import { Button } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
 import { Badge } from '@/shared/ui/badge';
@@ -12,7 +12,7 @@ import { StateBoundary } from '@/shared/ui/state-boundary';
 import { normalizeCompanyTarget } from '@/features/company/company-context';
 import { useAuth } from '@/features/auth/context';
 import { useRouter } from '@tanstack/react-router';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CheckCircle, AlertCircle, X } from 'lucide-react';
 
 export const Route = createFileRoute('/_authenticated/recruiter/workspace')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -22,8 +22,14 @@ export const Route = createFileRoute('/_authenticated/recruiter/workspace')({
 });
 
 function RecruiterWorkspacePage() {
-  const { companyId } = Route.useSearch();
+  const searchCompanyId = Route.useSearch().companyId;
   const router = useRouter();
+
+  const myCompaniesQuery = useQuery({
+    queryKey: ['my-companies'],
+    queryFn: () => listMyCompanies(),
+  });
+  const companyId = searchCompanyId || myCompaniesQuery.data?.[0]?.company.id;
   
   const companyQuery = useQuery({
     queryKey: ['company', companyId],
@@ -45,12 +51,13 @@ function RecruiterWorkspacePage() {
   
   const { session } = useAuth();
   
-  const myCompaniesQuery = useQuery({
-    queryKey: ['my-companies'],
-    queryFn: () => listMyCompanies(),
-  });
   const currentUserRole = myCompaniesQuery.data?.find(c => c.company.id === companyId)?.membership.role;
   const isOwnerOrAdmin = currentUserRole === 'OWNER' || currentUserRole === 'ADMIN' || session?.user.role === 'ADMIN';
+
+  const [flash, setFlash] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const showFlash = (type: 'success' | 'error', message: string) => {
+    setFlash({ type, message });
+  };
 
   const handlePublish = (jobId: string, version: number) => {
     publishMutation.mutate(
@@ -59,12 +66,12 @@ function RecruiterWorkspacePage() {
         onSuccess: (data) => {
           const returnedStatus = data.data.status;
           if (returnedStatus === 'PENDING_APPROVAL') {
-            alert('Job submitted for approval. The company owner will be notified to review it.');
+            showFlash('success', 'Job submitted for approval. The company owner will be notified to review it.');
           } else {
-            alert('Job published successfully.');
+            showFlash('success', 'Job published successfully.');
           }
         },
-        onError: (err) => alert(`Failed to publish job: ${err.message}`),
+        onError: (err) => showFlash('error', `Failed to publish job: ${err.message}`),
       }
     );
   };
@@ -73,8 +80,8 @@ function RecruiterWorkspacePage() {
     unpublishMutation.mutate(
       { jobId, expectedVersion: version },
       {
-        onSuccess: () => alert('Job unpublished successfully'),
-        onError: (err) => alert(`Failed to unpublish job: ${err.message}`),
+        onSuccess: () => showFlash('success', 'Job unpublished successfully'),
+        onError: (err) => showFlash('error', `Failed to unpublish job: ${err.message}`),
       }
     );
   };
@@ -131,6 +138,35 @@ function RecruiterWorkspacePage() {
           Back to Dashboard
         </Button>
       </div>
+
+      {flash && (
+        <div
+          role="alert"
+          className={`p-4 rounded-lg flex items-center justify-between transition-all ${
+            flash.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              : 'bg-rose-50 text-rose-800 border border-rose-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {flash.type === 'success' ? (
+              <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-rose-600 shrink-0" />
+            )}
+            <span className="text-sm font-medium">{flash.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFlash(null)}
+            className="text-slate-500 hover:text-slate-800 ml-4"
+            aria-label="Dismiss notification"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Jobs Workspace</h2>
         <Button onClick={() => setIsCreating(true)} disabled={!company}>Create New Job</Button>

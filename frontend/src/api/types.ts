@@ -391,7 +391,7 @@ export type Operation = {
 };
 
 export type CompanyStatus = "ACTIVE" | "SUSPENDED";
-export type CompanyMemberRole = "OWNER" | "RECRUITER";
+export type CompanyMemberRole = "OWNER" | "RECRUITER" | "ADMIN";
 export type AiAnalysisType = "CV_JOB_MATCH" | "CV_GAP_ANALYSIS" | "CV_JOB_ANALYSIS";
 export type NotificationType =
   | "APPLICATION_SUBMITTED"
@@ -399,7 +399,10 @@ export type NotificationType =
   | "INTERVIEW_SCHEDULED"
   | "INTERVIEW_RESCHEDULED"
   | "INTERVIEW_CANCELLED"
-  | "APPLICATION_OUTCOME";
+  | "APPLICATION_OUTCOME"
+  | "COMPANY_INVITATION_CREATED"
+  | "COMPANY_MEMBER_ADDED"
+  | "JOB_PENDING_APPROVAL";
 
 export type ScoreComponent = {
   name: "SKILLS" | "EXPERIENCE" | "REQUIREMENTS" | "KEYWORDS";

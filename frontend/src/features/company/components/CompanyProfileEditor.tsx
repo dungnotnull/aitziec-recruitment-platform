@@ -174,7 +174,7 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
               />
               {company?.logoUrl || watch('logoUrl') ? (
                 <div className="mt-2">
-                  <img src={watch('logoUrl') || company?.logoUrl} alt="Logo preview" className="h-16 w-16 object-cover rounded border" />
+                  <img src={watch('logoUrl') || company?.logoUrl || undefined} alt="Logo preview" className="h-16 w-16 object-cover rounded border" />
                 </div>
               ) : null}
               {errors.logoUrl && (

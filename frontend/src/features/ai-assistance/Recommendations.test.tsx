@@ -33,6 +33,6 @@ describe('Recommendations', () => {
     expect(await screen.findByRole('heading', { name: 'Platform Engineer' })).toBeVisible()
     expect(screen.getByText('Recommended by the server')).toBeVisible()
     expect(screen.queryByText(/because you/i)).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Save job' })).toBeVisible()
+    expect(await screen.findByRole('button', { name: 'Save job' })).toBeVisible()
   })
 })

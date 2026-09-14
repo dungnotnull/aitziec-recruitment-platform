@@ -16,7 +16,7 @@ function ApplicantsPage() {
       <Button
         variant="ghost"
         className="mb-6 gap-2"
-        onClick={() => router.back()}
+        onClick={() => router.history.back()}
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Dashboard

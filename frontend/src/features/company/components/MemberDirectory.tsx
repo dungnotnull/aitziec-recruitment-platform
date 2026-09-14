@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { listMembers, addMember, removeMember } from "../api"
+import { listMembers, removeMember } from "../api"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card"
 import { Button } from "@/shared/ui/button"
 import { Input } from "@/shared/ui/input"
@@ -15,7 +15,7 @@ export function MemberDirectory({ companyId }: { companyId: string }) {
   const { session } = useAuth()
   const [isAddOpen, setIsAddOpen] = React.useState(false)
   const [newEmail, setNewEmail] = React.useState("")
-  const [newRole, setNewRole] = React.useState<"RECRUITER">("RECRUITER")
+  const [newRole] = React.useState<"RECRUITER">("RECRUITER")
   
   // Mock State for Pending Invites
   const [mockPending, setMockPending] = React.useState([

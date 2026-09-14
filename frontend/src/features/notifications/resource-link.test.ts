@@ -9,8 +9,10 @@ describe('notificationResourceHref', () => {
     expect(notificationResourceHref({ type: 'CV', id: 'cv-1' })).toBe('/candidate/cvs?cvId=cv-1')
   })
 
-  it('supports interview resources and rejects unknown or unsafe links', () => {
+  it('supports interview and company resources and rejects unknown or unsafe links', () => {
     expect(notificationResourceHref({ type: 'INTERVIEW', id: 'int-1' })).toBe('/interviews/int-1')
+    expect(notificationResourceHref({ type: 'COMPANY', id: 'comp-1' })).toBe('/company')
+    expect(notificationResourceHref({ type: 'JOB', id: 'job-1' }, 'JOB_PENDING_APPROVAL')).toBe('/recruiter/workspace')
     expect(notificationResourceHref({ type: 'UNKNOWN', id: 'private' })).toBeNull()
     expect(notificationResourceHref({ type: 'JOB', id: '../admin' })).toBeNull()
   })
