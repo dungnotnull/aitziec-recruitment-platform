@@ -52,8 +52,12 @@ apiClient.interceptors.response.use(
 
     // If 401 and not already retried
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
-      // Don't retry if the request itself was the refresh attempt
-      if (originalRequest.url === '/auth/refresh') {
+      // Don't retry if the request itself was the refresh attempt, login, or register
+      if (
+        originalRequest.url === '/auth/refresh' ||
+        originalRequest.url === '/auth/login' ||
+        originalRequest.url === '/auth/register'
+      ) {
         return Promise.reject(error);
       }
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useJobDetail } from '../hooks/useJobs';
+import { useAuth } from '@/features/auth/context';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
@@ -13,6 +14,8 @@ interface JobDetailProps {
 }
 
 export const JobDetail: React.FC<JobDetailProps> = ({ jobIdOrSlug }) => {
+  const { session } = useAuth();
+  const isHR = session?.user?.role === 'HR';
   const { data, isLoading, isError, error } = useJobDetail(jobIdOrSlug);
   const [isApplyOpen, setIsApplyOpen] = useState(false);
 
@@ -54,7 +57,7 @@ export const JobDetail: React.FC<JobDetailProps> = ({ jobIdOrSlug }) => {
           className="text-muted-foreground hover:text-foreground pl-0 group"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2 transition-transform group-hover:-translate-x-1"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
-          Back to Jobs
+          {isHR ? "Back to Jobs Workspace" : "Back to Job Search"}
         </Button>
       </div>
 
@@ -73,27 +76,29 @@ export const JobDetail: React.FC<JobDetailProps> = ({ jobIdOrSlug }) => {
             <Badge>{job.experienceLevel}</Badge>
           </div>
         </div>
-        <div className="flex flex-col gap-2 min-w-[200px]">
-          <Dialog open={isApplyOpen} onOpenChange={setIsApplyOpen}>
-            <DialogTrigger asChild>
-              <Button size="lg" className="w-full">Apply Now</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Apply for {job.title}</DialogTitle>
-              </DialogHeader>
-              <ApplyForm 
-                jobId={job.id} 
-                onSuccess={() => {
-                  alert('Application submitted successfully!');
-                  setIsApplyOpen(false);
-                }} 
-                onCancel={() => setIsApplyOpen(false)} 
-              />
-            </DialogContent>
-          </Dialog>
-          <SavedJobButton jobId={job.id} />
-        </div>
+        {!isHR && (
+          <div className="flex flex-col gap-2 min-w-[200px]">
+            <Dialog open={isApplyOpen} onOpenChange={setIsApplyOpen}>
+              <DialogTrigger asChild>
+                <Button size="lg" className="w-full">Apply Now</Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Apply for {job.title}</DialogTitle>
+                </DialogHeader>
+                <ApplyForm 
+                  jobId={job.id} 
+                  onSuccess={() => {
+                    alert('Application submitted successfully!');
+                    setIsApplyOpen(false);
+                  }} 
+                  onCancel={() => setIsApplyOpen(false)} 
+                />
+              </DialogContent>
+            </Dialog>
+            <SavedJobButton jobId={job.id} />
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

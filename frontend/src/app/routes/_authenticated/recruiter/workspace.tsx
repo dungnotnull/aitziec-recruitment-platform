@@ -1,14 +1,18 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useCompanyJobs, usePublishJob, useUnpublishJob } from '@/features/job/hooks/useJobs';
+import { useCompanyJobs, usePublishJob, useUnpublishJob, useDeleteJob, useApproveJob } from '@/features/job/hooks/useJobs';
+import type { Job, CompanyMembership } from '@/api/types';
 import { Button } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
 import { Badge } from '@/shared/ui/badge';
 import { JobEditor } from '@/features/job/components/JobEditor';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getCompany } from '@/features/company/api';
+import { getCompany, listMyCompanies } from '@/features/company/api';
 import { StateBoundary } from '@/shared/ui/state-boundary';
 import { normalizeCompanyTarget } from '@/features/company/company-context';
+import { useAuth } from '@/features/auth/context';
+import { useRouter } from '@tanstack/react-router';
+import { ArrowLeft } from 'lucide-react';
 
 export const Route = createFileRoute('/_authenticated/recruiter/workspace')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -19,6 +23,8 @@ export const Route = createFileRoute('/_authenticated/recruiter/workspace')({
 
 function RecruiterWorkspacePage() {
   const { companyId } = Route.useSearch();
+  const router = useRouter();
+  
   const companyQuery = useQuery({
     queryKey: ['company', companyId],
     queryFn: () => getCompany(companyId!),
@@ -34,12 +40,30 @@ function RecruiterWorkspacePage() {
   
   const publishMutation = usePublishJob();
   const unpublishMutation = useUnpublishJob();
+  const deleteMutation = useDeleteJob();
+  const approveMutation = useApproveJob();
+  
+  const { session } = useAuth();
+  
+  const myCompaniesQuery = useQuery({
+    queryKey: ['my-companies'],
+    queryFn: () => listMyCompanies(),
+  });
+  const currentUserRole = myCompaniesQuery.data?.find(c => c.company.id === companyId)?.membership.role;
+  const isOwnerOrAdmin = currentUserRole === 'OWNER' || currentUserRole === 'ADMIN' || session?.user.role === 'ADMIN';
 
   const handlePublish = (jobId: string, version: number) => {
     publishMutation.mutate(
       { jobId, expectedVersion: version },
       {
-        onSuccess: () => alert('Job published successfully'),
+        onSuccess: (data) => {
+          const returnedStatus = data.data.status;
+          if (returnedStatus === 'PENDING_APPROVAL') {
+            alert('Job submitted for approval. The company owner will be notified to review it.');
+          } else {
+            alert('Job published successfully.');
+          }
+        },
         onError: (err) => alert(`Failed to publish job: ${err.message}`),
       }
     );
@@ -55,12 +79,42 @@ function RecruiterWorkspacePage() {
     );
   };
 
+  const handleDelete = (jobId: string) => {
+    if (confirm('Are you sure you want to delete this job?')) {
+      deleteMutation.mutate(jobId, {
+        onSuccess: () => showFlash('success', 'Job deleted successfully'),
+        onError: (err) => showFlash('error', `Failed to delete job: ${err.message}`),
+      });
+    }
+  };
+
+  const handleApprove = (jobId: string, version: number) => {
+    if (companyId) {
+      approveMutation.mutate({ companyId, jobId, expectedVersion: version }, {
+        onSuccess: () => showFlash('success', 'Job approved and published successfully'),
+        onError: (err) => showFlash('error', `Failed to approve job: ${err.message}`),
+      });
+    }
+  };
+
   const [isCreating, setIsCreating] = useState(false);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
 
   if (isCreating && company) {
     return (
       <div className="container mx-auto py-8 px-4 max-w-4xl">
         <JobEditor companyId={company.id} onSuccess={() => setIsCreating(false)} />
+        <Button variant="ghost" onClick={() => setIsCreating(false)} className="mt-4">Cancel</Button>
+      </div>
+    );
+  }
+
+  if (editingJob && company) {
+    return (
+      <div className="container mx-auto py-8 px-4 max-w-4xl">
+        <h2 className="text-2xl font-bold mb-4">Edit Job</h2>
+        <JobEditor companyId={company.id} initialJob={editingJob} onSuccess={() => setEditingJob(null)} />
+        <Button variant="ghost" onClick={() => setEditingJob(null)} className="mt-4">Cancel</Button>
       </div>
     );
   }
@@ -71,6 +125,12 @@ function RecruiterWorkspacePage() {
 
   return (
     <div className="container mx-auto py-8 px-4 max-w-5xl space-y-6">
+      <div className="mb-4">
+        <Button variant="ghost" onClick={() => router.navigate({ to: '/company', search: { companyId } })} className="text-muted-foreground hover:text-foreground -ml-4">
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Dashboard
+        </Button>
+      </div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Jobs Workspace</h2>
         <Button onClick={() => setIsCreating(true)} disabled={!company}>Create New Job</Button>
@@ -109,12 +169,37 @@ function RecruiterWorkspacePage() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {job.status === 'DRAFT' || job.status === 'UNPUBLISHED' ? (
-                        <Button 
-                          variant="default" 
-                          onClick={() => handlePublish(job.id, job.version)}
-                          disabled={publishMutation.isPending}
+                        <>
+                          <Button 
+                            variant="default" 
+                            onClick={() => handlePublish(job.id, job.version)}
+                            disabled={publishMutation.isPending}
+                          >
+                            Publish
+                          </Button>
+                          <Button 
+                            variant="outline"
+                            onClick={() => setEditingJob(job)}
+                          >
+                            Edit
+                          </Button>
+                          <Button 
+                            variant="destructive"
+                            onClick={() => handleDelete(job.id)}
+                            disabled={deleteMutation.isPending}
+                          >
+                            Delete
+                          </Button>
+                        </>
+                      ) : null}
+                      
+                      {job.status === 'PENDING_APPROVAL' && isOwnerOrAdmin ? (
+                        <Button
+                          variant="default"
+                          onClick={() => handleApprove(job.id, job.version)}
+                          disabled={approveMutation.isPending}
                         >
-                          Publish
+                          Approve Job
                         </Button>
                       ) : null}
                       

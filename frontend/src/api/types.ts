@@ -175,6 +175,15 @@ export type CompanyMembership = {
   createdAt: string;
 };
 
+export type CallerCompanyMembership = {
+  membership: {
+    id: string;
+    role: CompanyMemberRole;
+    createdAt: string;
+  };
+  company: Company;
+};
+
 export type AddCompanyMemberInput = {
   userEmail: string;
   role?: 'RECRUITER';
@@ -195,7 +204,7 @@ export type PaginatedResponse<T> = {
 
 // --- Job Module Types ---
 
-export type JobStatus = "DRAFT" | "PUBLISHED" | "UNPUBLISHED" | "CLOSED";
+export type JobStatus = "DRAFT" | "PENDING_APPROVAL" | "PUBLISHED" | "UNPUBLISHED" | "CLOSED" | "EXPIRED";
 export type ExperienceLevel = "INTERN" | "FRESHER" | "JUNIOR" | "MID" | "SENIOR" | "LEAD" | "MANAGER";
 export type EmploymentType = "FULL_TIME" | "PART_TIME" | "CONTRACT" | "INTERNSHIP";
 export type WorkplaceType = "ONSITE" | "HYBRID" | "REMOTE";

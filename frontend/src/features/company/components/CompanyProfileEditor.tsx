@@ -14,7 +14,7 @@ const companySchema = z.object({
   slug: z.string().min(2, "Slug is required for new companies").optional(),
   description: z.string().optional().nullable(),
   websiteUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")).nullable(),
-  logoUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")).nullable(),
+  logoUrl: z.string().optional().or(z.literal("")).nullable(),
   location: z.string().optional().nullable(),
 })
 
@@ -32,6 +32,8 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
   const {
     register,
     handleSubmit,
+    watch,
+    setValue,
     formState: { errors },
     setError
   } = useForm<CompanyValues>({
@@ -154,8 +156,27 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="logoUrl">Logo URL</Label>
-              <Input id="logoUrl" type="url" {...register("logoUrl")} placeholder="https://example.com/logo.png" />
+              <Label htmlFor="logoUrl">Company Logo</Label>
+              <Input 
+                id="logoUrl" 
+                type="file" 
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      setValue('logoUrl', reader.result as string, { shouldValidate: true, shouldDirty: true });
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }} 
+              />
+              {company?.logoUrl || watch('logoUrl') ? (
+                <div className="mt-2">
+                  <img src={watch('logoUrl') || company?.logoUrl} alt="Logo preview" className="h-16 w-16 object-cover rounded border" />
+                </div>
+              ) : null}
               {errors.logoUrl && (
                 <p className="text-sm text-danger">{errors.logoUrl.message}</p>
               )}

@@ -1,20 +1,41 @@
 import { useAuth } from "@/features/auth/context"
 import { useQuery } from "@tanstack/react-query"
-import { getCompany } from "../api"
+import { getCompany, listMyCompanies } from "../api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { Button } from "@/shared/ui/button"
-import { Building, Users, Briefcase, Edit, Globe, MapPin } from "lucide-react"
+import { Building, Users, Briefcase, Edit, Globe, MapPin, ChevronDown } from "lucide-react"
 
 import { MemberDirectory } from "./MemberDirectory"
 import { StateBoundary } from "@/shared/ui/state-boundary"
-import { Link } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { useCompanyJobs } from "@/features/job/hooks/useJobs"
 
 export function CompanyDashboard({ companyId }: { companyId?: string }) {
   const { session } = useAuth()
+  const navigate = useNavigate()
 
   const parsedCompanyId = companyId === 'undefined' ? undefined : companyId;
-  const activeCompanyId = parsedCompanyId || localStorage.getItem('hr_company_id') || undefined;
+  const cachedId = localStorage.getItem('hr_company_id') || undefined;
+
+  const myCompaniesQuery = useQuery({
+    queryKey: ['my-companies'],
+    queryFn: () => listMyCompanies(),
+    enabled: !!session && session.user.role === 'HR',
+  })
+
+  const myCompanies = myCompaniesQuery.data;
+  let activeCompanyId: string | undefined = undefined;
+
+  if (myCompanies) {
+    if (parsedCompanyId && myCompanies.some(m => m.company.id === parsedCompanyId)) {
+      activeCompanyId = parsedCompanyId;
+    } else if (cachedId && myCompanies.some(m => m.company.id === cachedId)) {
+      activeCompanyId = cachedId;
+    } else if (myCompanies.length > 0) {
+      activeCompanyId = myCompanies[0].company.id;
+      localStorage.setItem('hr_company_id', activeCompanyId);
+    }
+  }
 
   const { data: company, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['company', activeCompanyId],
@@ -40,10 +61,33 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-display font-bold text-ink">Company Dashboard</h2>
-          <p className="text-slate">Manage your organization, jobs, and team members.</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div>
+            <h2 className="text-2xl font-display font-bold text-ink">Company Dashboard</h2>
+            <p className="text-slate">Manage your organization, jobs, and team members.</p>
+          </div>
+          
+          {myCompaniesQuery.data && myCompaniesQuery.data.length > 0 && (
+            <div className="ml-4 pl-4 border-l">
+              <select 
+                className="h-10 rounded-md border border-border bg-surface px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
+                value={activeCompanyId || ''}
+                onChange={(e) => {
+                  const newId = e.target.value;
+                  localStorage.setItem('hr_company_id', newId);
+                  navigate({ to: '/company', search: { companyId: newId } });
+                }}
+              >
+                <option value="" disabled>Select a company</option>
+                {myCompaniesQuery.data.map((item) => (
+                  <option key={item.company.id} value={item.company.id}>
+                    {item.company.name} ({item.membership.role})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
           {company && (
@@ -120,7 +164,7 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {jobsQuery.isLoading ? '—' : jobsQuery.data?.data.length ?? 0}
+                    {jobsQuery.isLoading ? '—' : jobsQuery.data?.data.filter(j => j.status === 'PUBLISHED').length ?? 0}
                   </div>
                   <p className="text-xs text-slate mt-1">
                     {jobsQuery.isError ? 'Unable to load jobs' : 'Published jobs returned by the API'}

@@ -58,6 +58,10 @@ export const JobEditor: React.FC<JobEditorProps> = ({ companyId, initialJob, onS
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (formData.technologyNames.length === 0) {
+      alert('Please enter at least one technology.');
+      return;
+    }
     if (isEditing && initialJob) {
       updateJob.mutate(
         { jobId: initialJob.id, data: { ...formData, expectedVersion: initialJob.version } },
@@ -154,7 +158,7 @@ export const JobEditor: React.FC<JobEditorProps> = ({ companyId, initialJob, onS
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="technologyNames">Technologies (comma separated)</Label>
+          <Label htmlFor="technologyNames">Technologies (comma separated) *</Label>
           <Input
             id="technologyNames"
             name="technologyNames"
@@ -171,11 +175,11 @@ export const JobEditor: React.FC<JobEditorProps> = ({ companyId, initialJob, onS
           </div>
           <div className="space-y-2">
             <Label htmlFor="salaryMin">Min Salary (optional)</Label>
-            <Input id="salaryMin" name="salaryMin" type="number" value={formData.salaryMin || ''} onChange={handleNumberChange} />
+            <Input id="salaryMin" name="salaryMin" type="number" min={0} max={2147483647} value={formData.salaryMin || ''} onChange={handleNumberChange} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="salaryMax">Max Salary (optional)</Label>
-            <Input id="salaryMax" name="salaryMax" type="number" value={formData.salaryMax || ''} onChange={handleNumberChange} />
+            <Input id="salaryMax" name="salaryMax" type="number" min={0} max={2147483647} value={formData.salaryMax || ''} onChange={handleNumberChange} />
           </div>
         </div>
 
