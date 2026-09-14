@@ -9,7 +9,7 @@ import {
   UnsupportedMediaTypeException,
   Logger,
 } from '@nestjs/common';
-import { Company, CompanyMemberRole, CompanyMembership, User } from '@prisma/client';
+import { Company, CompanyMemberRole, CompanyMembership, User, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from './company-scope.service';
 import { AuditService } from '../audit/audit.service';
@@ -422,7 +422,7 @@ export class CompaniesService {
     companyId: string,
     user: AuthenticatedUser,
     dto: AddCompanyMemberDto,
-  ): Promise<CompanyMembershipDto | CompanyInvitationDto> {
+  ): Promise<CompanyInvitationDto> {
     await this.scopeService.assertOwnerOrAdmin(companyId, user);
 
     const company = await this.prisma.company.findUnique({
@@ -443,6 +443,13 @@ export class CompaniesService {
     const targetRole: CompanyMemberRole = (dto.role as CompanyMemberRole) || 'RECRUITER';
 
     if (targetUser) {
+      if (targetUser.role !== 'HR' || targetUser.status !== 'ACTIVE') {
+        throw new BadRequestException({
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: 'Only active HR accounts can be invited to a company.',
+        });
+      }
+
       const existingMembership = await this.prisma.companyMembership.findUnique({
         where: {
           companyId_userId: {
@@ -458,49 +465,9 @@ export class CompaniesService {
           message: 'User is already a member of this company.',
         });
       }
-
-      const membership = await this.prisma.$transaction(async (tx) => {
-        const created = await tx.companyMembership.create({
-          data: {
-            companyId,
-            userId: targetUser.id,
-            role: targetRole,
-          },
-          include: { user: true },
-        });
-
-        await this.auditService.record(
-          {
-            actorId: user.id,
-            action: 'COMPANY_MEMBER_ADDED',
-            targetType: 'CompanyMembership',
-            targetId: created.id,
-            metadata: { targetUserId: targetUser.id, role: created.role },
-          },
-          tx,
-        );
-
-        await this.outboxService.recordEvent(tx, {
-          eventName: 'CompanyMemberAdded',
-          aggregateType: 'Company',
-          aggregateId: companyId,
-          actorId: user.id,
-          payload: {
-            companyId,
-            companyName: company.name,
-            userId: targetUser.id,
-            role: created.role,
-            addedById: user.id,
-          },
-        });
-
-        return created;
-      });
-
-      return this.mapMemberToDto(membership);
     }
 
-    // User not registered: create pending CompanyInvitation
+    // Check existing pending invitation
     const existingInvitation = await this.prisma.companyInvitation.findFirst({
       where: {
         companyId,
@@ -509,11 +476,19 @@ export class CompaniesService {
       },
     });
 
-    if (existingInvitation && existingInvitation.expiresAt > new Date()) {
-      throw new ConflictException({
-        code: ERROR_CODES.INVITATION_ALREADY_PENDING,
-        message: 'An active invitation already exists for this email address.',
-      });
+    if (existingInvitation) {
+      if (existingInvitation.expiresAt > new Date()) {
+        throw new ConflictException({
+          code: ERROR_CODES.INVITATION_ALREADY_PENDING,
+          message: 'An active invitation already exists for this email address.',
+        });
+      } else {
+        // Mark expired pending invitation so partial unique index doesn't conflict
+        await this.prisma.companyInvitation.update({
+          where: { id: existingInvitation.id },
+          data: { status: 'EXPIRED' },
+        });
+      }
     }
 
     const rawToken = crypto.randomBytes(32).toString('hex');
@@ -521,70 +496,80 @@ export class CompaniesService {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const encryptedSecret = this.secretAdapter.encryptToken(rawToken);
 
-    const invitation = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.companyInvitation.create({
-        data: {
-          companyId,
-          email: normalizedEmail,
-          role: targetRole,
-          invitedById: user.id,
-          tokenHash,
-          status: 'PENDING',
-          expiresAt,
-        },
-      });
-
-      await tx.companyInvitationDeliverySecret.create({
-        data: {
-          invitationId: created.id,
-          encryptedToken: encryptedSecret.encryptedToken,
-          iv: encryptedSecret.iv,
-          authTag: encryptedSecret.authTag,
-        },
-      });
-
-      await this.auditService.record(
-        {
-          actorId: user.id,
-          action: 'COMPANY_INVITATION_CREATED',
-          targetType: 'CompanyInvitation',
-          targetId: created.id,
-          metadata: {
+    try {
+      const invitation = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.companyInvitation.create({
+          data: {
             companyId,
-            maskedEmail: maskEmail(normalizedEmail),
-            role: created.role,
+            email: normalizedEmail,
+            role: targetRole,
+            invitedById: user.id,
+            tokenHash,
+            status: 'PENDING',
+            expiresAt,
           },
-        },
-        tx,
-      );
+        });
 
-      await this.outboxService.recordEvent(tx, {
-        eventName: 'CompanyInvitationCreated',
-        aggregateType: 'CompanyInvitation',
-        aggregateId: created.id,
-        actorId: user.id,
-        payload: {
-          companyId,
-          companyName: company.name,
-          email: normalizedEmail,
-          role: created.role,
-          invitedById: user.id,
-          invitationId: created.id,
-        },
+        await tx.companyInvitationDeliverySecret.create({
+          data: {
+            invitationId: created.id,
+            encryptedToken: encryptedSecret.encryptedToken,
+            iv: encryptedSecret.iv,
+            authTag: encryptedSecret.authTag,
+          },
+        });
+
+        await this.auditService.record(
+          {
+            actorId: user.id,
+            action: 'COMPANY_INVITATION_CREATED',
+            targetType: 'CompanyInvitation',
+            targetId: created.id,
+            metadata: {
+              companyId,
+              maskedEmail: maskEmail(normalizedEmail),
+              role: created.role,
+            },
+          },
+          tx,
+        );
+
+        await this.outboxService.recordEvent(tx, {
+          eventName: 'CompanyInvitationCreated',
+          aggregateType: 'CompanyInvitation',
+          aggregateId: created.id,
+          actorId: user.id,
+          payload: {
+            companyId,
+            companyName: company.name,
+            email: normalizedEmail,
+            role: created.role,
+            invitedById: user.id,
+            invitationId: created.id,
+          },
+        });
+
+        return created;
       });
 
-      return created;
-    });
-
-    return {
-      id: invitation.id,
-      companyId: invitation.companyId,
-      email: maskEmail(invitation.email),
-      role: invitation.role,
-      status: invitation.status,
-      expiresAt: invitation.expiresAt.toISOString(),
-      createdAt: invitation.createdAt.toISOString(),
-    };
+      return {
+        id: invitation.id,
+        companyId: invitation.companyId,
+        email: maskEmail(invitation.email),
+        role: invitation.role,
+        status: invitation.status,
+        expiresAt: invitation.expiresAt.toISOString(),
+        createdAt: invitation.createdAt.toISOString(),
+      };
+    } catch (err: unknown) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException({
+          code: ERROR_CODES.INVITATION_ALREADY_PENDING,
+          message: 'An active invitation already exists for this email address.',
+        });
+      }
+      throw err;
+    }
   }
 
   async removeMember(companyId: string, memberId: string, user: AuthenticatedUser): Promise<void> {
@@ -668,6 +653,24 @@ export class CompaniesService {
   }
 
   async acceptInvitation(token: string, user: AuthenticatedUser): Promise<CompanyMembershipDto> {
+    if (user.role !== 'HR') {
+      throw new ForbiddenException({
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'Only active HR accounts can accept company invitations.',
+      });
+    }
+
+    const userEntity = await this.prisma.user.findUnique({
+      where: { id: user.id },
+    });
+
+    if (!userEntity || userEntity.role !== 'HR' || userEntity.status !== 'ACTIVE') {
+      throw new ForbiddenException({
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'Only active HR accounts can accept company invitations.',
+      });
+    }
+
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
     const invitation = await this.prisma.companyInvitation.findUnique({
@@ -709,11 +712,7 @@ export class CompaniesService {
       });
     }
 
-    const userEntity = await this.prisma.user.findUnique({
-      where: { id: user.id },
-    });
-
-    if (!userEntity || userEntity.email.toLowerCase() !== invitation.email.toLowerCase()) {
+    if (userEntity.email.toLowerCase() !== invitation.email.toLowerCase()) {
       throw new ForbiddenException({
         code: ERROR_CODES.INVITATION_EMAIL_MISMATCH,
         message: 'This invitation was issued to a different email address.',
@@ -744,56 +743,88 @@ export class CompaniesService {
       where: { id: invitation.companyId },
     });
 
-    const membership = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.companyMembership.create({
-        data: {
-          companyId: invitation.companyId,
-          userId: user.id,
-          role: invitation.role,
-        },
-        include: { user: true },
+    if (!company || company.status !== 'ACTIVE') {
+      throw new ForbiddenException({
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'Company is suspended or unavailable.',
       });
+    }
 
-      await tx.companyInvitation.update({
-        where: { id: invitation.id },
-        data: {
-          status: 'ACCEPTED',
-          acceptedAt: now,
-        },
-      });
-
-      await this.auditService.record(
-        {
-          actorId: user.id,
-          action: 'COMPANY_MEMBER_ADDED',
-          targetType: 'CompanyMembership',
-          targetId: created.id,
-          metadata: {
-            companyId: invitation.companyId,
-            invitationId: invitation.id,
-            role: created.role,
+    try {
+      const membership = await this.prisma.$transaction(async (tx) => {
+        // Atomic conditional update: only update if status is still PENDING
+        const updatedInv = await tx.companyInvitation.updateMany({
+          where: {
+            id: invitation.id,
+            status: 'PENDING',
           },
-        },
-        tx,
-      );
+          data: {
+            status: 'ACCEPTED',
+            acceptedAt: now,
+          },
+        });
 
-      await this.outboxService.recordEvent(tx, {
-        eventName: 'CompanyMemberAdded',
-        aggregateType: 'Company',
-        aggregateId: invitation.companyId,
-        actorId: user.id,
-        payload: {
-          companyId: invitation.companyId,
-          companyName: company?.name || 'Company',
-          userId: user.id,
-          role: created.role,
-          addedById: invitation.invitedById || user.id,
-        },
+        if (updatedInv.count === 0) {
+          throw new ConflictException({
+            code: ERROR_CODES.INVITATION_ALREADY_ACCEPTED,
+            message: 'This invitation has already been accepted.',
+          });
+        }
+
+        const created = await tx.companyMembership.create({
+          data: {
+            companyId: invitation.companyId,
+            userId: user.id,
+            role: invitation.role,
+          },
+          include: { user: true },
+        });
+
+        await this.auditService.record(
+          {
+            actorId: user.id,
+            action: 'COMPANY_MEMBER_ADDED',
+            targetType: 'CompanyMembership',
+            targetId: created.id,
+            metadata: {
+              companyId: invitation.companyId,
+              invitationId: invitation.id,
+              role: created.role,
+            },
+          },
+          tx,
+        );
+
+        await this.outboxService.recordEvent(tx, {
+          eventName: 'CompanyMemberAdded',
+          aggregateType: 'Company',
+          aggregateId: invitation.companyId,
+          actorId: user.id,
+          payload: {
+            companyId: invitation.companyId,
+            companyName: company.name,
+            userId: user.id,
+            role: created.role,
+            addedById: invitation.invitedById || user.id,
+          },
+        });
+
+        await tx.companyInvitationDeliverySecret.deleteMany({
+          where: { invitationId: invitation.id },
+        });
+
+        return created;
       });
 
-      return created;
-    });
-
-    return this.mapMemberToDto(membership);
+      return this.mapMemberToDto(membership);
+    } catch (err: unknown) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException({
+          code: ERROR_CODES.MEMBERSHIP_ALREADY_EXISTS,
+          message: 'User is already a member of this company.',
+        });
+      }
+      throw err;
+    }
   }
 }

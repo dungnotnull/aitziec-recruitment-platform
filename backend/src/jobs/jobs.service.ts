@@ -9,6 +9,7 @@ import { Prisma, Job, Company, JobStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../companies/company-scope.service';
 import { AuditService } from '../audit/audit.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { ERROR_CODES } from '../common/constants/error-codes';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { CollectionResponse } from '../common/dto/response.dto';
@@ -31,6 +32,7 @@ export class JobsService {
     private readonly prisma: PrismaService,
     private readonly companyScopeService: CompanyScopeService,
     private readonly auditService: AuditService,
+    private readonly outboxService?: OutboxService,
   ) {}
 
   private slugify(text: string): string {
@@ -467,27 +469,75 @@ export class JobsService {
     const publishedAt = isRecruiter ? null : new Date();
     const action = isRecruiter ? 'JOB_PENDING_APPROVAL' : 'JOB_PUBLISHED';
 
-    const updated = await this.prisma.job.update({
-      where: { id: jobId },
-      data: {
-        status: targetStatus,
-        publishedAt,
-        version: job.version + 1,
-      },
-      include: { company: true },
-    });
+    let ownerUserIds: string[] = [];
+    if (isRecruiter) {
+      const ownerMemberships = await this.prisma.companyMembership.findMany({
+        where: {
+          companyId: job.companyId,
+          role: 'OWNER',
+          user: { status: 'ACTIVE' },
+        },
+        select: { userId: true },
+      });
 
-    await this.auditService.record({
-      actorId: user.id,
-      action,
-      targetType: 'JOB',
-      targetId: job.id,
-      metadata: {
-        previousStatus: job.status,
-        newStatus: updated.status,
-        publishedAt: updated.publishedAt,
-        version: updated.version,
-      },
+      ownerUserIds = Array.from(new Set(ownerMemberships.map((m) => m.userId)));
+
+      if (ownerUserIds.length === 0) {
+        throw new BadRequestException({
+          code: ERROR_CODES.JOB_NOT_PUBLISHABLE,
+          message: 'Company has no active owner to approve this job.',
+        });
+      }
+    }
+
+    const now = new Date();
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updatedJob = await tx.job.update({
+        where: { id: jobId },
+        data: {
+          status: targetStatus,
+          publishedAt,
+          version: job.version + 1,
+        },
+        include: { company: true },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: user.id,
+          action,
+          targetType: 'JOB',
+          targetId: job.id,
+          metadata: {
+            previousStatus: job.status,
+            newStatus: updatedJob.status,
+            publishedAt: updatedJob.publishedAt,
+            version: updatedJob.version,
+          },
+          occurredAt: now,
+        },
+      });
+
+      if (isRecruiter && this.outboxService) {
+        await this.outboxService.recordEvent(tx, {
+          eventName: 'JobPendingApproval',
+          aggregateType: 'Job',
+          aggregateId: job.id,
+          actorId: user.id,
+          payload: {
+            jobId: job.id,
+            jobTitle: updatedJob.title,
+            companyId: job.companyId,
+            companyName: job.company?.name ?? '',
+            requesterUserId: user.id,
+            ownerUserIds,
+            jobVersion: updatedJob.version,
+            submittedAt: now.toISOString(),
+          },
+        });
+      }
+
+      return updatedJob;
     });
 
     return this.mapToDto(updated);

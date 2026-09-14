@@ -1,4 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import * as fs from 'fs';
+import * as path from 'path';
 import { CvsService } from '../../src/cvs/cvs.service';
 import { StorageService } from '../../src/storage/storage.service';
 import { PrismaService } from '../../src/database/prisma.service';
@@ -811,13 +813,8 @@ describe('CvsService (Unit)', () => {
         },
       });
 
-      await storageService.uploadFile(
-        cv.storageKey,
-        Buffer.from(
-          '%PDF-1.4\n1 0 obj\n<< /Title (My CV) >>\nendobj\n%%EOF Hello World CV Text Content',
-        ),
-        'application/pdf',
-      );
+      const samplePdfBuffer = fs.readFileSync(path.join(__dirname, '../fixtures/sample-cv.pdf'));
+      await storageService.uploadFile(cv.storageKey, samplePdfBuffer, 'application/pdf');
 
       const op = await inMemoryPrisma.operation.create({
         data: {
@@ -848,9 +845,205 @@ describe('CvsService (Unit)', () => {
 
       const updatedCv = await inMemoryPrisma.cv.findUnique({ where: { id: cv.id } });
       expect(updatedCv.processingStatus).toBe('READY');
+      expect(updatedCv.extractedText.length).toBeGreaterThan(50);
 
       const updatedOp = await inMemoryPrisma.operation.findUnique({ where: { id: op.id } });
       expect(updatedOp.status).toBe('SUCCEEDED');
+    });
+
+    it('should extract and preserve Vietnamese Unicode text from PDF', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv-vi.pdf',
+          sizeBytes: 200,
+          checksumSha256: 'sha-proc-vi',
+          storageKey: 'cvs/test-vi.pdf',
+          processingStatus: 'UPLOADED',
+          extractionAttempts: 0,
+        },
+      });
+
+      const samplePdfBuffer = fs.readFileSync(path.join(__dirname, '../fixtures/sample-cv.pdf'));
+      await storageService.uploadFile(cv.storageKey, samplePdfBuffer, 'application/pdf');
+
+      jest
+        .spyOn(processor, 'parsePdfBuffer')
+        .mockResolvedValueOnce(
+          'Nguyễn Văn An - Kỹ sư phần mềm Backend NestJS & TypeScript với 5 năm kinh nghiệm',
+        );
+
+      const op = await inMemoryPrisma.operation.create({
+        data: {
+          type: 'CV_TEXT_EXTRACTION',
+          status: 'QUEUED',
+          resultResourceType: 'CV',
+          resultResourceId: cv.id,
+          idempotencyKey: 'op-proc-vi-test',
+        },
+      });
+
+      const job = {
+        id: `cv-extraction:${op.id}`,
+        data: {
+          cvId: cv.id,
+          operationId: op.id,
+          actorId: candidateUser.id,
+        },
+      };
+
+      await processor.processJob(job as any);
+
+      const updatedCv = await inMemoryPrisma.cv.findUnique({ where: { id: cv.id } });
+      expect(updatedCv.processingStatus).toBe('READY');
+      expect(updatedCv.extractedText).toContain(
+        'Nguyễn Văn An - Kỹ sư phần mềm Backend NestJS & TypeScript với 5 năm kinh nghiệm',
+      );
+
+      jest.restoreAllMocks();
+    });
+
+    it('should fail with EXTRACTION_FAILED if PDF has invalid structure', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv-invalid.pdf',
+          sizeBytes: 50,
+          checksumSha256: 'sha-invalid',
+          storageKey: 'cvs/test-invalid.pdf',
+          processingStatus: 'UPLOADED',
+          extractionAttempts: 0,
+        },
+      });
+
+      await storageService.uploadFile(
+        cv.storageKey,
+        Buffer.from('%PDF-1.4 completely corrupted binary non-pdf content'),
+        'application/pdf',
+      );
+
+      const op = await inMemoryPrisma.operation.create({
+        data: {
+          type: 'CV_TEXT_EXTRACTION',
+          status: 'QUEUED',
+          resultResourceType: 'CV',
+          resultResourceId: cv.id,
+          idempotencyKey: 'op-invalid-test',
+        },
+      });
+
+      const job = {
+        id: `cv-extraction:${op.id}`,
+        data: {
+          cvId: cv.id,
+          operationId: op.id,
+          actorId: candidateUser.id,
+        },
+      };
+
+      await processor.processJob(job as any);
+
+      const failedCv = await inMemoryPrisma.cv.findUnique({ where: { id: cv.id } });
+      expect(failedCv.processingStatus).toBe('FAILED');
+      expect(failedCv.failureCode).toBe('EXTRACTION_FAILED');
+
+      const failedOp = await inMemoryPrisma.operation.findUnique({ where: { id: op.id } });
+      expect(failedOp.status).toBe('FAILED');
+      expect(failedOp.failureCode).toBe('EXTRACTION_FAILED');
+    });
+
+    it('should fail with EXTRACTION_EMPTY_TEXT when parsed text is empty', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv-empty-text.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-empty',
+          storageKey: 'cvs/test-empty.pdf',
+          processingStatus: 'UPLOADED',
+          extractionAttempts: 0,
+        },
+      });
+
+      const samplePdfBuffer = fs.readFileSync(path.join(__dirname, '../fixtures/sample-cv.pdf'));
+      await storageService.uploadFile(cv.storageKey, samplePdfBuffer, 'application/pdf');
+
+      jest.spyOn(processor, 'parsePdfBuffer').mockResolvedValueOnce('   \n\n\t  ');
+
+      const op = await inMemoryPrisma.operation.create({
+        data: {
+          type: 'CV_TEXT_EXTRACTION',
+          status: 'QUEUED',
+          resultResourceType: 'CV',
+          resultResourceId: cv.id,
+          idempotencyKey: 'op-empty-test',
+        },
+      });
+
+      const job = {
+        id: `cv-extraction:${op.id}`,
+        data: {
+          cvId: cv.id,
+          operationId: op.id,
+          actorId: candidateUser.id,
+        },
+      };
+
+      await processor.processJob(job as any);
+
+      const failedCv = await inMemoryPrisma.cv.findUnique({ where: { id: cv.id } });
+      expect(failedCv.processingStatus).toBe('FAILED');
+      expect(failedCv.failureCode).toBe('EXTRACTION_EMPTY_TEXT');
+
+      jest.restoreAllMocks();
+    });
+
+    it('should fail with PDF_PASSWORD_PROTECTED when PDF is encrypted with password', async () => {
+      const cv = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          originalFileName: 'cv-password.pdf',
+          sizeBytes: 100,
+          checksumSha256: 'sha-pwd',
+          storageKey: 'cvs/test-pwd.pdf',
+          processingStatus: 'UPLOADED',
+          extractionAttempts: 0,
+        },
+      });
+
+      const samplePdfBuffer = fs.readFileSync(path.join(__dirname, '../fixtures/sample-cv.pdf'));
+      await storageService.uploadFile(cv.storageKey, samplePdfBuffer, 'application/pdf');
+
+      jest
+        .spyOn(processor, 'parsePdfBuffer')
+        .mockRejectedValueOnce(new Error('PasswordException: Need password to open file'));
+
+      const op = await inMemoryPrisma.operation.create({
+        data: {
+          type: 'CV_TEXT_EXTRACTION',
+          status: 'QUEUED',
+          resultResourceType: 'CV',
+          resultResourceId: cv.id,
+          idempotencyKey: 'op-pwd-test',
+        },
+      });
+
+      const job = {
+        id: `cv-extraction:${op.id}`,
+        data: {
+          cvId: cv.id,
+          operationId: op.id,
+          actorId: candidateUser.id,
+        },
+      };
+
+      await processor.processJob(job as any);
+
+      const failedCv = await inMemoryPrisma.cv.findUnique({ where: { id: cv.id } });
+      expect(failedCv.processingStatus).toBe('FAILED');
+      expect(failedCv.failureCode).toBe('PDF_PASSWORD_PROTECTED');
+
+      jest.restoreAllMocks();
     });
 
     it('should handle extraction failure, set cv to FAILED and operation to FAILED', async () => {

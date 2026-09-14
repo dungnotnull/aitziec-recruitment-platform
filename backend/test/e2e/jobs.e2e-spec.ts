@@ -12,11 +12,13 @@ import { ResponseTransformInterceptor } from '../../src/common/interceptors/resp
 import { ERROR_CODES } from '../../src/common/constants/error-codes';
 import { JwtService } from '@nestjs/jwt';
 import { JobExpirationScheduler } from '../../src/jobs/job-expiration.scheduler';
+import { NotificationsService } from '../../src/notifications/notifications.service';
 
 describe('Jobs, Search & Saved Jobs E2E (BE-3-001 to BE-3-022)', () => {
   let app: INestApplication;
   let inMemoryPrisma: InMemoryPrismaService;
   let hrToken = '';
+  let hrUserId = '';
   let candidateToken = '';
   let adminToken = '';
   let companyId = '';
@@ -53,6 +55,7 @@ describe('Jobs, Search & Saved Jobs E2E (BE-3-001 to BE-3-022)', () => {
       role: 'HR',
     });
     hrToken = hrRes.body.data.accessToken;
+    hrUserId = hrRes.body.data.user.id;
 
     // 2. Register Candidate
     const candRes = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
@@ -643,6 +646,46 @@ describe('Jobs, Search & Saved Jobs E2E (BE-3-001 to BE-3-022)', () => {
       expect(publishRes.body.data.status).toBe('PENDING_APPROVAL');
       expect(publishRes.body.data.publishedAt).toBeNull();
       expect(publishRes.body.data.version).toBe(2);
+
+      // 4b. Verify JobPendingApproval outbox event was recorded and route notification (BE-14-001)
+      const outboxEvt = inMemoryPrisma.outboxEvents.find(
+        (e) => e.eventName === 'JobPendingApproval' && e.aggregateId === pendingJobId,
+      );
+      expect(outboxEvt).toBeDefined();
+      const outboxPayload = outboxEvt!.payload as any;
+      expect(outboxPayload.jobId).toBe(pendingJobId);
+      expect(outboxPayload.companyId).toBe(companyId);
+      expect(outboxPayload.ownerUserIds).toContain(hrUserId);
+
+      // Route event to notifications service
+      const notifService = app.get(NotificationsService);
+      await notifService.routeEvent('JobPendingApproval', outboxPayload);
+
+      // Company owner receives in-app notification
+      const ownerNotifs = await request(app.getHttpServer())
+        .get('/api/v1/notifications')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(200);
+
+      const ownerPendingNotif = ownerNotifs.body.data.find(
+        (n: any) => n.type === 'JOB_PENDING_APPROVAL' && n.resource?.id === pendingJobId,
+      );
+      expect(ownerPendingNotif).toBeDefined();
+      expect(ownerPendingNotif.resource.type).toBe('JOB');
+      expect(ownerPendingNotif.readAt).toBeNull();
+
+      // Recruiter and candidate do not receive this notification
+      const recNotifs = await request(app.getHttpServer())
+        .get('/api/v1/notifications')
+        .set('Authorization', `Bearer ${rec3Token}`)
+        .expect(200);
+      expect(recNotifs.body.data.some((n: any) => n.resource?.id === pendingJobId)).toBe(false);
+
+      const candNotifs = await request(app.getHttpServer())
+        .get('/api/v1/notifications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(200);
+      expect(candNotifs.body.data.some((n: any) => n.resource?.id === pendingJobId)).toBe(false);
 
       // 5. Public search does NOT find PENDING_APPROVAL job
       const searchRes = await request(app.getHttpServer())

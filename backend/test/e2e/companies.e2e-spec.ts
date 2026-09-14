@@ -13,6 +13,7 @@ import { ResponseTransformInterceptor } from '../../src/common/interceptors/resp
 import { ERROR_CODES } from '../../src/common/constants/error-codes';
 import { EmailService } from '../../src/email/email.service';
 import { NotificationsService } from '../../src/notifications/notifications.service';
+import { InvitationSecretAdapter } from '../../src/companies/adapters/invitation-secret.adapter';
 
 describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
   let app: INestApplication;
@@ -239,7 +240,7 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
       .expect(415);
   });
 
-  it('POST /api/v1/companies/:companyId/members adds a recruiter member to the company', async () => {
+  it('POST /api/v1/companies/:companyId/members creates pending invitation with 202 for registered HR and accepts', async () => {
     const res = await request(app.getHttpServer())
       .post(`/api/v1/companies/${companyId}/members`)
       .set('Authorization', `Bearer ${hrOwnerToken}`)
@@ -247,11 +248,33 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
         userEmail: 'hr-recruiter@itziec.com',
         role: 'RECRUITER',
       })
-      .expect(201);
+      .expect(202);
 
     expect(res.body.data.role).toBe('RECRUITER');
-    expect(res.body.data.user.email).toBe('hr-recruiter@itziec.com');
-    createdRecruiterMemberId = res.body.data.id;
+    expect(res.body.data.status).toBe('PENDING');
+    const invitationId = res.body.data.id;
+
+    // Decrypt the raw token to accept
+    const secretRow = inMemoryPrisma.companyInvitationDeliverySecrets.find(
+      (s) => s.invitationId === invitationId,
+    );
+    expect(secretRow).toBeDefined();
+    const secretAdapter = app.get(InvitationSecretAdapter);
+    const rawToken = secretAdapter.decryptToken(
+      secretRow.encryptedToken,
+      secretRow.iv,
+      secretRow.authTag,
+    );
+
+    // HR Recruiter accepts the invitation
+    const acceptRes = await request(app.getHttpServer())
+      .post(`/api/v1/company-invitations/${rawToken}/accept`)
+      .set('Authorization', `Bearer ${hrRecruiterToken}`)
+      .expect(201);
+
+    expect(acceptRes.body.data.role).toBe('RECRUITER');
+    expect(acceptRes.body.data.user.email).toBe('hr-recruiter@itziec.com');
+    createdRecruiterMemberId = acceptRes.body.data.id;
   });
 
   it('POST /api/v1/companies/:companyId/members rejects duplicate member with 409 MEMBERSHIP_ALREADY_EXISTS', async () => {
@@ -264,6 +287,18 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
       .expect(409);
 
     expect(res.body.error.code).toBe(ERROR_CODES.MEMBERSHIP_ALREADY_EXISTS);
+  });
+
+  it('POST /api/v1/companies/:companyId/members rejects non-HR user with 400 VALIDATION_ERROR', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/companies/${companyId}/members`)
+      .set('Authorization', `Bearer ${hrOwnerToken}`)
+      .send({
+        userEmail: 'candidate-comp@itziec.com',
+      })
+      .expect(400);
+
+    expect(res.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
   });
 
   it('GET /api/v1/companies/:companyId/members lists memberships for member', async () => {
@@ -498,10 +533,19 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
     it('POST /api/v1/company-invitations/:token/accept rejects non-existent token with 404 INVITATION_NOT_FOUND', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/company-invitations/non-existent-token-xyz/accept')
-        .set('Authorization', `Bearer ${candidateToken}`)
+        .set('Authorization', `Bearer ${hrRecruiterToken}`)
         .expect(404);
 
       expect(res.body.error.code).toBe(ERROR_CODES.INVITATION_NOT_FOUND);
+    });
+
+    it('POST /api/v1/company-invitations/:token/accept rejects CANDIDATE caller with 403 FORBIDDEN', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/company-invitations/any-token/accept')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(403);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.FORBIDDEN);
     });
 
     it('POST /api/v1/company-invitations/:token/accept rejects email mismatch with 403 INVITATION_EMAIL_MISMATCH', async () => {
@@ -520,10 +564,10 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
         },
       });
 
-      // candidateToken belongs to candidate@itziec.com != intended-invitee@itziec.com
+      // hrOwnerToken belongs to hr-owner@itziec.com != intended-invitee@itziec.com
       const res = await request(app.getHttpServer())
         .post(`/api/v1/company-invitations/${rawToken}/accept`)
-        .set('Authorization', `Bearer ${candidateToken}`)
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
         .expect(403);
 
       expect(res.body.error.code).toBe(ERROR_CODES.INVITATION_EMAIL_MISMATCH);
@@ -536,7 +580,7 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
       await inMemoryPrisma.companyInvitation.create({
         data: {
           companyId,
-          email: 'candidate@itziec.com',
+          email: 'hr-owner@itziec.com',
           role: 'RECRUITER',
           tokenHash,
           status: 'PENDING',
@@ -546,7 +590,7 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
 
       const res = await request(app.getHttpServer())
         .post(`/api/v1/company-invitations/${rawToken}/accept`)
-        .set('Authorization', `Bearer ${candidateToken}`)
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
         .expect(409);
 
       expect(res.body.error.code).toBe(ERROR_CODES.INVITATION_EXPIRED);
@@ -608,7 +652,7 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
       await inMemoryPrisma.companyInvitation.create({
         data: {
           companyId,
-          email: 'candidate@itziec.com',
+          email: 'hr-owner@itziec.com',
           role: 'RECRUITER',
           tokenHash,
           status: 'ACCEPTED',
@@ -619,10 +663,113 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
 
       const res = await request(app.getHttpServer())
         .post(`/api/v1/company-invitations/${rawToken}/accept`)
-        .set('Authorization', `Bearer ${candidateToken}`)
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
         .expect(409);
 
       expect(res.body.error.code).toBe(ERROR_CODES.INVITATION_ALREADY_ACCEPTED);
+    });
+  });
+
+  describe('HR Personal Profile & Invitations Inbox (Phase 13)', () => {
+    it('GET /api/v1/hr/me returns HR profile and excludes other users / company fields', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/hr/me')
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .expect(200);
+
+      expect(res.body.data).toBeDefined();
+      expect(res.body.data.userId).toBeDefined();
+      expect(res.body.data.version).toBe(1);
+      // Ensure company fields are not leaked
+      expect(res.body.data.companyId).toBeUndefined();
+      expect(res.body.data.company).toBeUndefined();
+    });
+
+    it('GET /api/v1/hr/me rejects CANDIDATE with 403 FORBIDDEN', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/hr/me')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(403);
+    });
+
+    it('PATCH /api/v1/hr/me updates profile fields and increments version', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/api/v1/hr/me')
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .send({
+          firstName: 'Alice',
+          lastName: 'Smith',
+          phone: '+84987654321',
+          expectedVersion: 1,
+        })
+        .expect(200);
+
+      expect(res.body.data.firstName).toBe('Alice');
+      expect(res.body.data.lastName).toBe('Smith');
+      expect(res.body.data.phone).toBe('+84987654321');
+      expect(res.body.data.version).toBe(2);
+
+      // Subsequent update with stale version fails with 409
+      const conflictRes = await request(app.getHttpServer())
+        .patch('/api/v1/hr/me')
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .send({
+          firstName: 'Bob',
+          expectedVersion: 1,
+        })
+        .expect(409);
+
+      expect(conflictRes.body.error.code).toBe(ERROR_CODES.VERSION_CONFLICT);
+    });
+
+    it('GET /api/v1/hr/invitations returns pending invitations for authenticated HR', async () => {
+      // Create a pending invitation for hr-owner@itziec.com
+      const rawToken = 'secret-raw-token-for-inbox-test';
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+      await inMemoryPrisma.companyInvitation.create({
+        data: {
+          companyId,
+          email: 'hr-owner@itziec.com',
+          role: 'RECRUITER',
+          tokenHash,
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 7 * 86400000),
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/hr/invitations')
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .expect(200);
+
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+      const inv = res.body.data[0];
+      expect(inv.id).toBeDefined();
+      expect(inv.company).toBeDefined();
+      expect(inv.company.id).toBe(companyId);
+      expect(inv.role).toBe('RECRUITER');
+      expect(inv.status).toBe('PENDING');
+      // Token or hash must never be in projection
+      expect(inv.token).toBeUndefined();
+      expect(inv.tokenHash).toBeUndefined();
+    });
+
+    it('GET /api/v1/hr/invitations rejects CANDIDATE with 403', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/hr/invitations')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(403);
+    });
+
+    it('GET /api/v1/hr/invitations rejects malformed cursor with 400 INVALID_CURSOR', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/hr/invitations?cursor=invalid-cursor-string')
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .expect(400);
+
+      expect(res.body.error.code).toBe(ERROR_CODES.INVALID_CURSOR);
     });
   });
 });

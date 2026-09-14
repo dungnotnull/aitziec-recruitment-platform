@@ -24,6 +24,7 @@ import { AdminModule } from './admin/admin.module';
 import { SkillsModule } from './skills/skills.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
+import { HrModule } from './hr/hr.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 
 @Module({
@@ -38,6 +39,7 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
     UsersModule,
     AuthModule,
     CandidatesModule,
+    HrModule,
     CompaniesModule,
     JobsModule,
     SearchModule,

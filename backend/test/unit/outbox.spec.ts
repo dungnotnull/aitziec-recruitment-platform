@@ -116,6 +116,46 @@ describe('OutboxService (BE-1-012, BE-10-007)', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
+  it('records JobPendingApproval event and rejects prohibited fields (BE-14-001)', async () => {
+    const mockTx: any = {
+      outboxEvent: { create: jest.fn().mockImplementation((args) => args.data) },
+    };
+
+    const validPayload = {
+      jobId: 'job-1',
+      jobTitle: 'Backend Lead',
+      companyId: 'comp-1',
+      companyName: 'Acme',
+      requesterUserId: 'user-rec',
+      ownerUserIds: ['user-owner'],
+      jobVersion: 2,
+      submittedAt: new Date().toISOString(),
+    };
+
+    const event = await service.recordEvent(mockTx, {
+      eventName: 'JobPendingApproval',
+      aggregateType: 'Job',
+      aggregateId: 'job-1',
+      payload: validPayload,
+      actorId: 'user-rec',
+    });
+
+    expect(event).toBeDefined();
+    expect(mockTx.outboxEvent.create).toHaveBeenCalled();
+
+    await expect(
+      service.recordEvent(mockTx, {
+        eventName: 'JobPendingApproval',
+        aggregateType: 'Job',
+        aggregateId: 'job-1',
+        payload: {
+          ...validPayload,
+          secret: 'private-secret-token',
+        } as any,
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
   it('dispatches pending events to the queue and marks them dispatched', async () => {
     const mockEvents = [
       {

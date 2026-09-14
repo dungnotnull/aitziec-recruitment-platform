@@ -514,5 +514,115 @@ describe('NotificationsService (Unit)', () => {
       ).length;
       expect(afterCount).toBe(initialCount);
     });
+
+    it('should route JobPendingApproval event: creates in-app notification for each unique owner (BE-14-001)', async () => {
+      const owner1Id = 'owner-user-1';
+      const owner2Id = 'owner-user-2';
+
+      await service.routeEvent('JobPendingApproval', {
+        jobId: 'job-101',
+        jobTitle: 'Principal Architect',
+        companyId: 'comp-1',
+        companyName: 'Tech Corp',
+        requesterUserId: 'recruiter-1',
+        ownerUserIds: [owner1Id, owner2Id, owner1Id], // intentional duplicate to test dedupe
+        jobVersion: 2,
+        submittedAt: new Date().toISOString(),
+      });
+
+      const notifsOwner1 = await inMemoryPrisma.notification.findMany({
+        where: { userId: owner1Id },
+      });
+      const notifsOwner2 = await inMemoryPrisma.notification.findMany({
+        where: { userId: owner2Id },
+      });
+
+      expect(notifsOwner1.length).toBe(1);
+      expect(notifsOwner1[0].type).toBe(NotificationType.JOB_PENDING_APPROVAL);
+      expect(notifsOwner1[0].title).toBe('Job Approval Required');
+      expect(notifsOwner1[0].body).toContain('Principal Architect');
+      expect(notifsOwner1[0].body).toContain('version 2');
+      expect(notifsOwner1[0].resourceType).toBe('JOB');
+      expect(notifsOwner1[0].resourceId).toBe('job-101');
+      expect(notifsOwner1[0].readAt).toBeNull();
+
+      expect(notifsOwner2.length).toBe(1);
+      expect(notifsOwner2[0].type).toBe(NotificationType.JOB_PENDING_APPROVAL);
+      expect(notifsOwner2[0].resourceId).toBe('job-101');
+    });
+
+    it('should be idempotent on replay of same JobPendingApproval event (BE-14-001)', async () => {
+      const ownerId = 'owner-user-replay';
+      const submittedAt = new Date().toISOString();
+
+      const payload = {
+        jobId: 'job-102',
+        jobTitle: 'Senior Dev',
+        companyId: 'comp-1',
+        companyName: 'Tech Corp',
+        requesterUserId: 'recruiter-1',
+        ownerUserIds: [ownerId],
+        jobVersion: 1,
+        submittedAt,
+      };
+
+      await service.routeEvent('JobPendingApproval', payload);
+      await service.routeEvent('JobPendingApproval', payload);
+
+      const notifs = await inMemoryPrisma.notification.findMany({
+        where: { userId: ownerId },
+      });
+      expect(notifs.length).toBe(1);
+    });
+
+    it('should create new notification for a subsequent transition of the same job with a newer version (BE-14-001)', async () => {
+      const ownerId = 'owner-user-subsequent';
+      const now = Date.now();
+
+      await service.routeEvent('JobPendingApproval', {
+        jobId: 'job-103',
+        jobTitle: 'Senior Dev',
+        companyId: 'comp-1',
+        companyName: 'Tech Corp',
+        requesterUserId: 'recruiter-1',
+        ownerUserIds: [ownerId],
+        jobVersion: 2,
+        submittedAt: new Date(now).toISOString(),
+      });
+
+      await service.routeEvent('JobPendingApproval', {
+        jobId: 'job-103',
+        jobTitle: 'Senior Dev',
+        companyId: 'comp-1',
+        companyName: 'Tech Corp',
+        requesterUserId: 'recruiter-1',
+        ownerUserIds: [ownerId],
+        jobVersion: 3,
+        submittedAt: new Date(now + 60000).toISOString(),
+      });
+
+      const notifs = await inMemoryPrisma.notification.findMany({
+        where: { userId: ownerId },
+      });
+      expect(notifs.length).toBe(2);
+    });
+
+    it('should propagate errors when notification creation fails so worker can retry (BE-14-001)', async () => {
+      jest
+        .spyOn(inMemoryPrisma.notification, 'create')
+        .mockRejectedValueOnce(new Error('Database connection lost'));
+
+      await expect(
+        service.routeEvent('JobPendingApproval', {
+          jobId: 'job-err',
+          jobTitle: 'Fail Job',
+          companyId: 'comp-1',
+          requesterUserId: 'recruiter-1',
+          ownerUserIds: ['owner-fail'],
+          jobVersion: 1,
+          submittedAt: new Date().toISOString(),
+        }),
+      ).rejects.toThrow('Database connection lost');
+    });
   });
 });

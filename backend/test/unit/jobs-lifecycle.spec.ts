@@ -12,6 +12,7 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
   let mockPrisma: any;
   let mockScopeService: any;
   let mockAuditService: any;
+  let mockOutboxService: any;
 
   const hrUser: AuthenticatedUser = {
     id: 'user-hr-1',
@@ -40,6 +41,7 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
 
   beforeEach(() => {
     mockPrisma = {
+      $transaction: jest.fn().mockImplementation((fn: any) => fn(mockPrisma)),
       job: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
@@ -48,6 +50,10 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
       },
       companyMembership: {
         findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([{ userId: 'owner-user-1' }]),
+      },
+      auditLog: {
+        create: jest.fn().mockResolvedValue({ id: 'audit-1' }),
       },
     };
     mockScopeService = {
@@ -61,8 +67,11 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
     mockAuditService = {
       record: jest.fn().mockResolvedValue({ id: 'audit-1' }),
     };
+    mockOutboxService = {
+      recordEvent: jest.fn().mockResolvedValue({ id: 'evt-1' }),
+    };
 
-    service = new JobsService(mockPrisma, mockScopeService, mockAuditService);
+    service = new JobsService(mockPrisma, mockScopeService, mockAuditService, mockOutboxService);
   });
 
   describe('createDraftJob (BE-3-002)', () => {
@@ -299,12 +308,15 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
       expect(result.status).toBe('PUBLISHED');
       expect(result.publishedAt).toBeDefined();
       expect(result.version).toBe(2);
-      expect(mockAuditService.record).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'JOB_PUBLISHED' }),
+      expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: 'JOB_PUBLISHED' }),
+        }),
       );
+      expect(mockOutboxService.recordEvent).not.toHaveBeenCalled();
     });
 
-    it('transitions to PENDING_APPROVAL when caller is RECRUITER (BE-11-003)', async () => {
+    it('transitions to PENDING_APPROVAL and records JobPendingApproval outbox event when caller is RECRUITER (BE-11-003, BE-14-001)', async () => {
       mockScopeService.assertMemberOrAdminWithRole.mockResolvedValue({
         company: activeCompany,
         role: 'RECRUITER',
@@ -320,9 +332,42 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
       expect(result.status).toBe('PENDING_APPROVAL');
       expect(result.publishedAt).toBeNull();
       expect(result.version).toBe(2);
-      expect(mockAuditService.record).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'JOB_PENDING_APPROVAL' }),
+      expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: 'JOB_PENDING_APPROVAL' }),
+        }),
       );
+      expect(mockOutboxService.recordEvent).toHaveBeenCalledWith(
+        mockPrisma,
+        expect.objectContaining({
+          eventName: 'JobPendingApproval',
+          aggregateType: 'Job',
+          aggregateId: 'job-1',
+          actorId: hrUser.id,
+          payload: expect.objectContaining({
+            jobId: 'job-1',
+            jobTitle: 'Senior Backend Engineer',
+            companyId: 'comp-1',
+            requesterUserId: hrUser.id,
+            ownerUserIds: ['owner-user-1'],
+            jobVersion: 2,
+          }),
+        }),
+      );
+    });
+
+    it('rejects recruiter publishing when company has no active owners (BE-14-001)', async () => {
+      mockScopeService.assertMemberOrAdminWithRole.mockResolvedValue({
+        company: activeCompany,
+        role: 'RECRUITER',
+      });
+      mockPrisma.job.findUnique.mockResolvedValue(validDraftJob);
+      mockPrisma.companyMembership.findMany.mockResolvedValue([]);
+
+      await expect(service.publishJob('job-1', hrUser, { expectedVersion: 1 })).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mockOutboxService.recordEvent).not.toHaveBeenCalled();
     });
 
     it('rejects recruiter publishing when job is already PENDING_APPROVAL (BE-11-003)', async () => {

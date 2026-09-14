@@ -3,6 +3,8 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { CompaniesService } from './companies.service';
 import { CompanyMembershipDto } from './dto/company.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Company Invitations')
@@ -11,7 +13,8 @@ export class CompanyInvitationsController {
   constructor(private readonly companiesService: CompaniesService) {}
 
   @ApiBearerAuth('bearer')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('HR')
   @Post(':token/accept')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Accept a company invitation using a secure one-time token' })

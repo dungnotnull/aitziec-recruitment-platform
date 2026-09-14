@@ -40,6 +40,11 @@ export interface EventRoutingPayload {
   role?: string;
   email?: string;
   invitationId?: string;
+  jobId?: string;
+  requesterUserId?: string;
+  ownerUserIds?: string[];
+  jobVersion?: number;
+  submittedAt?: string;
   [key: string]: unknown;
 }
 
@@ -447,6 +452,46 @@ export class NotificationsService {
           break;
         }
 
+        case 'JobPendingApproval': {
+          const ownerIds = payload.ownerUserIds;
+          if (Array.isArray(ownerIds) && ownerIds.length > 0 && payload.jobId) {
+            const uniqueOwnerIds = Array.from(new Set(ownerIds));
+            const submittedAtDate = payload.submittedAt
+              ? new Date(payload.submittedAt)
+              : new Date();
+            for (const ownerId of uniqueOwnerIds) {
+              const existing = await this.prisma.notification.findFirst({
+                where: {
+                  userId: ownerId,
+                  type: NotificationType.JOB_PENDING_APPROVAL,
+                  resourceType: 'JOB',
+                  resourceId: payload.jobId,
+                  OR: [
+                    payload.jobVersion !== undefined
+                      ? { body: { contains: `version ${payload.jobVersion}` } }
+                      : { createdAt: { gte: submittedAtDate } },
+                    { createdAt: { gte: submittedAtDate } },
+                  ],
+                },
+              });
+
+              if (!existing) {
+                await this.prisma.notification.create({
+                  data: {
+                    userId: ownerId,
+                    type: NotificationType.JOB_PENDING_APPROVAL,
+                    title: 'Job Approval Required',
+                    body: `A job posting "${payload.jobTitle || 'Job'}" (version ${payload.jobVersion ?? 1}) requires your approval.`,
+                    resourceType: 'JOB',
+                    resourceId: payload.jobId,
+                  },
+                });
+              }
+            }
+          }
+          break;
+        }
+
         default:
           this.logger.debug(`Unhandled event type in NotificationsService: ${eventType}`);
       }
@@ -454,6 +499,7 @@ export class NotificationsService {
       const msg = err instanceof Error ? err.message : String(err);
       const stack = err instanceof Error ? err.stack : undefined;
       this.logger.error(`Error routing notification event ${eventType}: ${msg}`, stack);
+      throw err;
     }
   }
 

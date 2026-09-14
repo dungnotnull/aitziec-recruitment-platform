@@ -11,12 +11,10 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
-  Res,
   UploadedFile,
   UseInterceptors,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CompaniesService } from './companies.service';
@@ -25,7 +23,6 @@ import {
   CreateCompanyDto,
   UpdateCompanyDto,
   AddCompanyMemberDto,
-  CompanyMembershipDto,
   CallerCompanyMembershipDto,
   UploadedLogoFile,
   UploadCompanyLogoDto,
@@ -148,27 +145,22 @@ export class CompaniesController {
   @ApiBearerAuth('bearer')
   @UseGuards(JwtAuthGuard)
   @Post(':companyId/members')
-  @ApiOperation({ summary: 'Add a recruiter to company directly or create pending invitation' })
-  @ApiResponse({ status: 201, type: CompanyMembershipDto, description: 'Member added directly' })
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({ summary: 'Create pending invitation for a company recruiter' })
   @ApiResponse({
     status: 202,
     type: CompanyInvitationDto,
     description: 'Pending invitation created',
   })
+  @ApiResponse({ status: 400, description: 'Target user is not an active HR account' })
+  @ApiResponse({ status: 404, description: 'Company not found' })
   @ApiResponse({ status: 409, description: 'User already a member or invitation already pending' })
   async addMember(
     @Param('companyId') companyId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: AddCompanyMemberDto,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<CompanyMembershipDto | CompanyInvitationDto> {
-    const result = await this.companiesService.addMember(companyId, user, dto);
-    if ('status' in result && result.status === 'PENDING') {
-      res.status(HttpStatus.ACCEPTED);
-    } else {
-      res.status(HttpStatus.CREATED);
-    }
-    return result;
+  ): Promise<CompanyInvitationDto> {
+    return this.companiesService.addMember(companyId, user, dto);
   }
 
   @ApiBearerAuth('bearer')

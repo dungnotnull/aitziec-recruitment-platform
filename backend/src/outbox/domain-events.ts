@@ -126,6 +126,17 @@ export interface AiAnalysisCompletedPayload {
   overallScore: number;
 }
 
+export interface JobPendingApprovalPayload {
+  jobId: string;
+  jobTitle: string;
+  companyId: string;
+  companyName: string;
+  requesterUserId: string;
+  ownerUserIds: string[];
+  jobVersion: number;
+  submittedAt: string;
+}
+
 export interface DomainEventPayloadMap {
   ApplicationSubmitted: ApplicationSubmittedPayload;
   ApplicationStatusChanged: ApplicationStatusChangedPayload;
@@ -141,6 +152,7 @@ export interface DomainEventPayloadMap {
   CompanyInvitationCreated: CompanyInvitationCreatedPayload;
   CvJobAnalysisQueued: CvJobAnalysisQueuedPayload;
   AiAnalysisCompleted: AiAnalysisCompletedPayload;
+  JobPendingApproval: JobPendingApprovalPayload;
 }
 
 export type DomainEventName = keyof DomainEventPayloadMap;

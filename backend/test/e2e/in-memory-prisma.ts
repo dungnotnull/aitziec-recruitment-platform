@@ -7,6 +7,7 @@ export class InMemoryPrismaService {
   users: any[] = [];
   refreshSessions: any[] = [];
   candidateProfiles: any[] = [];
+  hrProfiles: any[] = [];
   skills: any[] = [];
   skillAliases: any[] = [];
   candidateSkills: any[] = [];
@@ -33,6 +34,7 @@ export class InMemoryPrismaService {
     this.users = [];
     this.refreshSessions = [];
     this.candidateProfiles = [];
+    this.hrProfiles = [];
     this.skills = [];
     this.skillAliases = [];
     this.candidateSkills = [];
@@ -218,6 +220,53 @@ export class InMemoryPrismaService {
           skills,
           experiences,
         };
+      }
+      return null;
+    },
+  };
+
+  hrProfile = {
+    findUnique: async (args: any) => {
+      const profile = this.hrProfiles.find((p) => {
+        if (args.where.id) return p.id === args.where.id;
+        if (args.where.userId) return p.userId === args.where.userId;
+        return false;
+      });
+      return profile ? { ...profile } : null;
+    },
+    create: async (args: any) => {
+      const profile = {
+        id: args.data.id || uuidv4(),
+        firstName: null,
+        lastName: null,
+        avatarUrl: null,
+        phone: null,
+        version: 1,
+        ...args.data,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      this.hrProfiles.push(profile);
+      return { ...profile };
+    },
+    update: async (args: any) => {
+      const idx = this.hrProfiles.findIndex((p) => {
+        if (args.where.id) return p.id === args.where.id;
+        if (args.where.userId) return p.userId === args.where.userId;
+        return false;
+      });
+      if (idx !== -1) {
+        const current = this.hrProfiles[idx];
+        const data = { ...args.data };
+        if (data.version && typeof data.version === 'object' && 'increment' in data.version) {
+          data.version = (current.version || 1) + data.version.increment;
+        }
+        this.hrProfiles[idx] = {
+          ...current,
+          ...data,
+          updatedAt: new Date(),
+        };
+        return { ...this.hrProfiles[idx] };
       }
       return null;
     },
@@ -544,6 +593,15 @@ export class InMemoryPrismaService {
         if (args.where.userId) {
           rows = rows.filter((m) => m.userId === args.where.userId);
         }
+        if (args.where.role) {
+          rows = rows.filter((m) => m.role === args.where.role);
+        }
+        if (args.where.user?.status) {
+          rows = rows.filter((m) => {
+            const u = this.users.find((user) => user.id === m.userId);
+            return u && u.status === args.where.user.status;
+          });
+        }
       }
 
       rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -627,6 +685,50 @@ export class InMemoryPrismaService {
         if (args.where.status) {
           rows = rows.filter((i) => i.status === args.where.status);
         }
+        if (args.where.expiresAt?.gt) {
+          rows = rows.filter((i) => new Date(i.expiresAt) > new Date(args.where.expiresAt.gt));
+        }
+        if (args.where.OR) {
+          rows = rows.filter((i) =>
+            args.where.OR.some((cond: any) => {
+              if (cond.createdAt?.lt && new Date(i.createdAt) < new Date(cond.createdAt.lt))
+                return true;
+              if (
+                cond.createdAt &&
+                new Date(i.createdAt).getTime() === new Date(cond.createdAt).getTime() &&
+                cond.id?.lt &&
+                i.id < cond.id.lt
+              )
+                return true;
+              return false;
+            }),
+          );
+        }
+      }
+      if (args?.orderBy) {
+        rows.sort((a, b) => {
+          const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          if (diff !== 0) return diff;
+          return b.id.localeCompare(a.id);
+        });
+      }
+      if (args?.cursor?.id) {
+        const idx = rows.findIndex((r) => r.id === args.cursor.id);
+        if (idx !== -1) {
+          rows = rows.slice(idx);
+        }
+      }
+      if (args?.skip) {
+        rows = rows.slice(args.skip);
+      }
+      if (args?.take) {
+        rows = rows.slice(0, args.take);
+      }
+      if (args?.include?.company) {
+        rows = rows.map((r) => {
+          const company = this.companies.find((c) => c.id === r.companyId);
+          return { ...r, company };
+        });
       }
       return rows;
     },
@@ -660,6 +762,24 @@ export class InMemoryPrismaService {
       }
       return null;
     },
+    updateMany: async (args: any) => {
+      let count = 0;
+      for (let i = 0; i < this.companyInvitations.length; i++) {
+        const inv = this.companyInvitations[i];
+        let matches = true;
+        if (args.where?.id && inv.id !== args.where.id) matches = false;
+        if (args.where?.status && inv.status !== args.where.status) matches = false;
+        if (matches) {
+          this.companyInvitations[i] = {
+            ...inv,
+            ...args.data,
+            updatedAt: new Date(),
+          };
+          count++;
+        }
+      }
+      return { count };
+    },
     delete: async (args: any) => {
       const idx = this.companyInvitations.findIndex((i) => i.id === args.where.id);
       if (idx !== -1) {
@@ -683,6 +803,27 @@ export class InMemoryPrismaService {
         return this.companyInvitationDeliverySecrets.find((s) => s.id === args.where.id) || null;
       }
       return null;
+    },
+    deleteMany: async (args?: any) => {
+      const initial = this.companyInvitationDeliverySecrets.length;
+      if (args?.where?.invitationId) {
+        this.companyInvitationDeliverySecrets = this.companyInvitationDeliverySecrets.filter(
+          (s) => s.invitationId !== args.where.invitationId,
+        );
+      } else if (args?.where?.invitation?.expiresAt?.lt) {
+        const threshold = args.where.invitation.expiresAt.lt;
+        const remaining: any[] = [];
+        for (const sec of this.companyInvitationDeliverySecrets) {
+          const inv = this.companyInvitations.find((i) => i.id === sec.invitationId);
+          if (inv && inv.expiresAt < threshold) {
+            // pruned
+          } else {
+            remaining.push(sec);
+          }
+        }
+        this.companyInvitationDeliverySecrets = remaining;
+      }
+      return { count: initial - this.companyInvitationDeliverySecrets.length };
     },
     create: async (args: any) => {
       const secret = {
@@ -708,23 +849,6 @@ export class InMemoryPrismaService {
         return deleted;
       }
       return null;
-    },
-    deleteMany: async (args: any) => {
-      let count = 0;
-      if (args?.where?.invitation?.expiresAt?.lt) {
-        const threshold = args.where.invitation.expiresAt.lt;
-        const remaining: any[] = [];
-        for (const sec of this.companyInvitationDeliverySecrets) {
-          const inv = this.companyInvitations.find((i) => i.id === sec.invitationId);
-          if (inv && inv.expiresAt < threshold) {
-            count++;
-          } else {
-            remaining.push(sec);
-          }
-        }
-        this.companyInvitationDeliverySecrets = remaining;
-      }
-      return { count };
     },
   };
 
@@ -1627,6 +1751,25 @@ export class InMemoryPrismaService {
             return false;
           if (args.where?.resourceId !== undefined && n.resourceId !== args.where.resourceId)
             return false;
+          if (args.where?.body?.contains && !n.body.includes(args.where.body.contains))
+            return false;
+          if (
+            args.where?.createdAt?.gte &&
+            new Date(n.createdAt).getTime() < new Date(args.where.createdAt.gte).getTime()
+          )
+            return false;
+          if (args.where?.OR && Array.isArray(args.where.OR)) {
+            const orMatched = args.where.OR.some((clause: any) => {
+              if (clause.body?.contains && n.body.includes(clause.body.contains)) return true;
+              if (
+                clause.createdAt?.gte &&
+                new Date(n.createdAt).getTime() >= new Date(clause.createdAt.gte).getTime()
+              )
+                return true;
+              return false;
+            });
+            if (!orMatched) return false;
+          }
           return true;
         }) || null
       );

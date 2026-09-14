@@ -92,6 +92,13 @@ export class AuthService {
             version: 1,
           },
         });
+      } else if (dto.role === 'HR') {
+        await tx.hrProfile.create({
+          data: {
+            userId: createdUser.id,
+            version: 1,
+          },
+        });
       }
 
       await this.auditService.record(

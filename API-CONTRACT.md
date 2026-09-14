@@ -255,7 +255,8 @@ type NotificationType =
   | "INTERVIEW_CANCELLED"
   | "APPLICATION_OUTCOME"
   | "COMPANY_INVITATION"
-  | "COMPANY_MEMBER_ADDED";
+  | "COMPANY_MEMBER_ADDED"
+  | "JOB_PENDING_APPROVAL";
 ```
 
 ## 7. Application State Machine
@@ -370,6 +371,28 @@ type UpdateCandidateProfileRequest = {
     endDate: string | null;
     description: string | null;
   }>;
+};
+```
+
+### 8.2b HR Profile
+
+```ts
+type HrProfile = {
+  id: string;
+  userId: string;
+  fullName: string;
+  phone: string | null;
+  avatarUrl: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type UpdateHrProfileRequest = {
+  expectedVersion: number;
+  fullName?: string;
+  phone?: string | null;
+  avatarUrl?: string | null;
 };
 ```
 
@@ -691,6 +714,22 @@ type RecruiterCompanyMembership = {
   };
   company: Company;
 };
+
+type HrInvitationCompanySummary = {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl: string | null;
+};
+
+type HrInvitationItem = {
+  id: string;
+  role: CompanyMemberRole;
+  status: CompanyInvitationStatus;
+  expiresAt: string;
+  createdAt: string;
+  company: HrInvitationCompanySummary;
+};
 ```
 
 ### 8.12 Recommendation Preferences and Recommendations
@@ -796,6 +835,15 @@ account exists beyond the explicit registration conflict.
 
 The candidate ID comes from the authenticated user, never from a body field.
 
+### 9.2b HR Profile
+
+| Method and path | Access | Request | Success |
+| --- | --- | --- | --- |
+| `GET /hr/me` | HR | None | `200 SuccessResponse<HrProfile>` |
+| `PATCH /hr/me` | HR | `UpdateHrProfileRequest` | `200 SuccessResponse<HrProfile>` |
+
+The HR profile represents the recruiter's individual account details, decoupled from any Company entity. Optimistic concurrency requires `expectedVersion`. Changes emit safe `HR_PROFILE_UPDATED` audit events with modified field names (no PII values).
+
 ### 9.3 Companies and Memberships
 
 | Method and path | Access | Request | Success |
@@ -806,12 +854,13 @@ The candidate ID comes from the authenticated user, never from a body field.
 | `PATCH /companies/:companyId` | Owner/admin | Mutable fields + `expectedVersion` | `200 SuccessResponse<Company>` |
 | `POST /companies/:companyId/logo` | Owner/admin | `multipart/form-data` field `logo` (max 5 MiB, PNG/JPEG/WebP), optional `expectedVersion` | `200 SuccessResponse<UploadCompanyLogoResponse>` |
 | `GET /companies/:companyId/members` | Company member/admin | Cursor query | `200 CollectionResponse<CompanyMembership>` |
-| `POST /companies/:companyId/members` | Owner/admin | `{ userEmail, role }` | `201 SuccessResponse<CompanyMembership>` for registered user; `202 SuccessResponse<CompanyInvitation>` for unknown user |
+| `POST /companies/:companyId/members` | Owner/admin | `{ userEmail, role }` | `202 SuccessResponse<CompanyInvitation>` |
 | `DELETE /companies/:companyId/members/:memberId` | Owner/admin | None | `204` |
-| `POST /company-invitations/:token/accept` | Authenticated invited user | Empty | `201 SuccessResponse<CompanyMembership>` |
+| `GET /hr/invitations` | HR | Cursor query | `200 CollectionResponse<HrInvitationItem>` |
+| `POST /company-invitations/:token/accept` | Authenticated HR invited user | Empty | `201 SuccessResponse<CompanyMembership>` |
 | `GET /companies/:companyId/jobs` | Scoped HR or admin | Status/filter/cursor query | `200 CollectionResponse<Job>` |
 
-The final active owner cannot be removed. Membership changes and invitations are audited. `POST /companies/:companyId/logo` uploads a public company logo to isolated public asset storage, validates binary magic bytes, enforces optimistic concurrency, and increments aggregate version.
+The final active owner cannot be removed. Membership changes and invitations are audited. All member additions require explicit invitation and consent (returning `202 Accepted` with `CompanyInvitation`), preventing direct membership creation without recruiter approval. Acceptance (`POST /company-invitations/:token/accept`) is strictly guarded for active `HR` users matching the invitation email; non-HR callers are rejected with `403 FORBIDDEN`. The target company must be in `ACTIVE` status. `POST /companies/:companyId/logo` uploads a public company logo to isolated public asset storage, validates binary magic bytes, enforces optimistic concurrency, and increments aggregate version.
 
 ### 9.4 Jobs and Search
 
@@ -1018,6 +1067,9 @@ type ErrorCode =
   | "INVITATION_NOT_FOUND"
   | "INVITATION_EXPIRED"
   | "INVITATION_ALREADY_ACCEPTED"
+  | "INVITATION_REVOKED"
+  | "INVITATION_EMAIL_MISMATCH"
+  | "INVITATION_ALREADY_PENDING"
   | "RECOMMENDATION_OPTED_OUT"
   | "INTERVIEW_TIME_INVALID"
   | "INTERVIEW_STATUS_INVALID"

@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { Prisma } from '@prisma/client';
+import pdfParse from 'pdf-parse';
 import { QueueService, QUEUES } from '../../queues/queue.service';
 import { PrismaService } from '../../database/prisma.service';
 import { StorageService } from '../../storage/storage.service';
@@ -36,6 +37,11 @@ export class CvExtractionProcessor implements OnModuleInit {
       this.processJob.bind(this),
     );
     this.logger.log('Registered BullMQ worker for CV extraction queue');
+  }
+
+  async parsePdfBuffer(buffer: Buffer): Promise<string> {
+    const parsed = await pdfParse(buffer);
+    return parsed?.text || '';
   }
 
   async processJob(job: Job<CvExtractionJobData | Record<string, unknown>>): Promise<void> {
@@ -110,12 +116,22 @@ export class CvExtractionProcessor implements OnModuleInit {
       // Download private PDF from storage
       const buffer = await this.storageService.getFile(cv.storageKey);
 
-      // Extract text
-      const rawText = buffer.toString('utf8');
-      const cleanText = rawText
-        .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+      // Extract text using pdf-parse
+      let cleanText = '';
+      try {
+        const rawText = await this.parsePdfBuffer(buffer);
+        cleanText = (rawText || '')
+          .replace(/\0/g, '')
+          .replace(/[^\P{C}\n\r\t]/gu, ' ')
+          .replace(/\r\n/g, '\n')
+          .replace(/[ \t]+/g, ' ')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+      } catch (parseErr: unknown) {
+        const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+        this.logger.warn(`pdf-parse failed for cvId=${cvId}: ${parseMsg}`);
+        throw new Error(`PDF parsing failed: ${parseMsg}`);
+      }
 
       if (!cleanText || cleanText.length < 5) {
         throw new Error('PDF extracted text is empty or unreadable');
@@ -177,9 +193,12 @@ export class CvExtractionProcessor implements OnModuleInit {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`CV extraction failed for cvId=${cvId}: ${msg}`);
       const now = new Date();
-      const failureCode = msg.includes('empty or unreadable')
-        ? 'EXTRACTION_EMPTY_TEXT'
-        : 'EXTRACTION_FAILED';
+      let failureCode = 'EXTRACTION_FAILED';
+      if (msg.includes('empty or unreadable')) {
+        failureCode = 'EXTRACTION_EMPTY_TEXT';
+      } else if (msg.toLowerCase().includes('password')) {
+        failureCode = 'PDF_PASSWORD_PROTECTED';
+      }
 
       await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         await tx.cv.update({
