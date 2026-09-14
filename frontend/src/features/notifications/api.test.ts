@@ -57,8 +57,8 @@ describe('notificationApi', () => {
     })
   })
 
-  it('marks read through the bodyless backend patch route', async () => {
-    let requestData: unknown = 'not-empty'
+  it('marks read through the backend patch route with { read: true }', async () => {
+    let requestData: unknown = null
     apiClient.defaults.adapter = (async (config) => {
       requestData = config.data
       const notification = {
@@ -75,6 +75,7 @@ describe('notificationApi', () => {
 
     await notificationApi.markRead('notification-1')
 
-    expect(requestData).toBeUndefined()
+    const parsedData = typeof requestData === 'string' ? JSON.parse(requestData) : requestData
+    expect(parsedData).toEqual({ read: true })
   })
 })

@@ -27,6 +27,7 @@ import { Route as AuthenticatedInterviewsInterviewIdRouteImport } from './routes
 import { Route as AuthenticatedJobsIndexRouteImport } from './routes/_authenticated/jobs/index'
 import { Route as AuthenticatedJobsJobIdOrSlugRouteImport } from './routes/_authenticated/jobs/$jobIdOrSlug'
 import { Route as AuthenticatedRecruiterWorkspaceRouteImport } from './routes/_authenticated/recruiter/workspace'
+import { Route as AuthenticatedCompanyInvitationsTokenAcceptRouteImport } from './routes/_authenticated/company-invitations.$token.accept'
 import { Route as AuthenticatedRecruiterJobsJobIdApplicantsRouteImport } from './routes/_authenticated/recruiter/jobs.$jobId.applicants'
 
 const AuthenticatedProfileLazyRouteImport = createFileRoute(
@@ -175,6 +176,12 @@ const AuthenticatedRecruiterWorkspaceRoute =
     path: '/recruiter/workspace',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedCompanyInvitationsTokenAcceptRoute =
+  AuthenticatedCompanyInvitationsTokenAcceptRouteImport.update({
+    id: '/company-invitations/$token/accept',
+    path: '/company-invitations/$token/accept',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedRecruiterJobsJobIdApplicantsRoute =
   AuthenticatedRecruiterJobsJobIdApplicantsRouteImport.update({
     id: '/recruiter/jobs/$jobId/applicants',
@@ -204,6 +211,7 @@ export interface FileRoutesByFullPath {
   '/jobs/': typeof AuthenticatedJobsIndexRoute
   '/admin/': typeof AuthenticatedAdminIndexLazyRoute
   '/company/': typeof AuthenticatedCompanyIndexLazyRoute
+  '/company-invitations/$token/accept': typeof AuthenticatedCompanyInvitationsTokenAcceptRoute
   '/recruiter/jobs/$jobId/applicants': typeof AuthenticatedRecruiterJobsJobIdApplicantsRoute
 }
 export interface FileRoutesByTo {
@@ -226,6 +234,7 @@ export interface FileRoutesByTo {
   '/jobs': typeof AuthenticatedJobsIndexRoute
   '/admin': typeof AuthenticatedAdminIndexLazyRoute
   '/company': typeof AuthenticatedCompanyIndexLazyRoute
+  '/company-invitations/$token/accept': typeof AuthenticatedCompanyInvitationsTokenAcceptRoute
   '/recruiter/jobs/$jobId/applicants': typeof AuthenticatedRecruiterJobsJobIdApplicantsRoute
 }
 export interface FileRoutesById {
@@ -252,6 +261,7 @@ export interface FileRoutesById {
   '/_authenticated/jobs/': typeof AuthenticatedJobsIndexRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexLazyRoute
   '/_authenticated/company/': typeof AuthenticatedCompanyIndexLazyRoute
+  '/_authenticated/company-invitations/$token/accept': typeof AuthenticatedCompanyInvitationsTokenAcceptRoute
   '/_authenticated/recruiter/jobs/$jobId/applicants': typeof AuthenticatedRecruiterJobsJobIdApplicantsRoute
 }
 export interface FileRouteTypes {
@@ -278,6 +288,7 @@ export interface FileRouteTypes {
     | '/jobs/'
     | '/admin/'
     | '/company/'
+    | '/company-invitations/$token/accept'
     | '/recruiter/jobs/$jobId/applicants'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -300,6 +311,7 @@ export interface FileRouteTypes {
     | '/jobs'
     | '/admin'
     | '/company'
+    | '/company-invitations/$token/accept'
     | '/recruiter/jobs/$jobId/applicants'
   id:
     | '__root__'
@@ -325,6 +337,7 @@ export interface FileRouteTypes {
     | '/_authenticated/jobs/'
     | '/_authenticated/admin/'
     | '/_authenticated/company/'
+    | '/_authenticated/company-invitations/$token/accept'
     | '/_authenticated/recruiter/jobs/$jobId/applicants'
   fileRoutesById: FileRoutesById
 }
@@ -489,6 +502,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRecruiterWorkspaceRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/company-invitations/$token/accept': {
+      id: '/_authenticated/company-invitations/$token/accept'
+      path: '/company-invitations/$token/accept'
+      fullPath: '/company-invitations/$token/accept'
+      preLoaderRoute: typeof AuthenticatedCompanyInvitationsTokenAcceptRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/recruiter/jobs/$jobId/applicants': {
       id: '/_authenticated/recruiter/jobs/$jobId/applicants'
       path: '/recruiter/jobs/$jobId/applicants'
@@ -560,6 +580,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedJobsJobIdOrSlugRoute: typeof AuthenticatedJobsJobIdOrSlugRoute
   AuthenticatedRecruiterWorkspaceRoute: typeof AuthenticatedRecruiterWorkspaceRoute
   AuthenticatedJobsIndexRoute: typeof AuthenticatedJobsIndexRoute
+  AuthenticatedCompanyInvitationsTokenAcceptRoute: typeof AuthenticatedCompanyInvitationsTokenAcceptRoute
   AuthenticatedRecruiterJobsJobIdApplicantsRoute: typeof AuthenticatedRecruiterJobsJobIdApplicantsRoute
 }
 
@@ -581,6 +602,8 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedJobsJobIdOrSlugRoute: AuthenticatedJobsJobIdOrSlugRoute,
   AuthenticatedRecruiterWorkspaceRoute: AuthenticatedRecruiterWorkspaceRoute,
   AuthenticatedJobsIndexRoute: AuthenticatedJobsIndexRoute,
+  AuthenticatedCompanyInvitationsTokenAcceptRoute:
+    AuthenticatedCompanyInvitationsTokenAcceptRoute,
   AuthenticatedRecruiterJobsJobIdApplicantsRoute:
     AuthenticatedRecruiterJobsJobIdApplicantsRoute,
 }

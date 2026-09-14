@@ -1,14 +1,18 @@
+import { useState } from "react"
 import { useAuth } from "@/features/auth/context"
 import { useQuery } from "@tanstack/react-query"
 import { getCompany, listMyCompanies } from "../api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { Button } from "@/shared/ui/button"
-import { Building, Users, Briefcase, Edit, Globe, MapPin } from "lucide-react"
+import { Building, Users, Briefcase, Edit, Globe, MapPin, MailCheck } from "lucide-react"
 
 import { MemberDirectory } from "./MemberDirectory"
+import { AcceptInvitationModal } from "./AcceptInvitationModal"
 import { StateBoundary } from "@/shared/ui/state-boundary"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { useCompanyJobs } from "@/features/job/hooks/useJobs"
+import { listMyHrInvitations } from "@/features/hr/api"
+import type { HrInvitationItem } from "@/api/types"
 
 export function CompanyDashboard({ companyId }: { companyId?: string }) {
   const { session } = useAuth()
@@ -49,6 +53,14 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
     undefined,
     { enabled: Boolean(company) },
   )
+
+  const { data: hrInvData } = useQuery({
+    queryKey: ['hr-invitations'],
+    queryFn: () => listMyHrInvitations(),
+    enabled: !!session && session.user.role === 'HR',
+  })
+  const pendingInvitations = hrInvData?.data || []
+  const [acceptModalInvite, setAcceptModalInvite] = useState<HrInvitationItem | null>(null)
 
   if (!session || session.user.role !== 'HR') {
     return (
@@ -101,6 +113,26 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
           {company ? <Button asChild><Link to="/recruiter/workspace" search={{ companyId: company.id }}>Manage jobs</Link></Button> : null}
         </div>
       </div>
+
+      {/* Notification banner when user has pending invitations for another company */}
+      {company && pendingInvitations.length > 0 && (
+        <div className="rounded-lg border border-action/30 bg-action/5 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <MailCheck className="h-5 w-5 text-action shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-ink">
+                You have {pendingInvitations.length} pending company invitation{pendingInvitations.length > 1 ? 's' : ''}.
+              </p>
+              <p className="text-xs text-slate">
+                {pendingInvitations[0].company.name} invited you to join as {pendingInvitations[0].role}.
+              </p>
+            </div>
+          </div>
+          <Button size="sm" onClick={() => setAcceptModalInvite(pendingInvitations[0])}>
+            Review Invitation
+          </Button>
+        </div>
+      )}
 
       <StateBoundary isLoading={Boolean(companyId) && isLoading} isError={isError} error={error} onRetry={() => refetch()}>
         {company ? (
@@ -164,11 +196,9 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {jobsQuery.isLoading ? '—' : jobsQuery.data?.data.filter(j => j.status === 'PUBLISHED').length ?? 0}
+                    {jobsQuery.data?.data?.length ?? 0}
                   </div>
-                  <p className="text-xs text-slate mt-1">
-                    {jobsQuery.isError ? 'Unable to load jobs' : 'Published jobs returned by the API'}
-                  </p>
+                  <p className="text-xs text-slate mt-1">Managed jobs</p>
                 </CardContent>
               </Card>
 
@@ -188,8 +218,51 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
               <MemberDirectory companyId={company.id} />
             </div>
           </>
+        ) : pendingInvitations.length > 0 ? (
+          <div className="space-y-6">
+            <div className="rounded-xl border border-action/40 bg-action/5 p-6 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <MailCheck className="h-5 w-5 text-action" />
+                <h3 className="text-lg font-bold text-ink">Pending Company Invitations</h3>
+              </div>
+              <p className="text-sm text-slate mb-6">
+                You have received the following invitation(s) to join an existing organization as a Recruiter. Accept your invitation below to access the company workspace.
+              </p>
+              <div className="space-y-4">
+                {pendingInvitations.map((inv) => (
+                  <div key={inv.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-lg bg-surface border border-border shadow-xs">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 bg-action/10 rounded-full text-action shrink-0">
+                        <Building className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-ink text-base">{inv.company.name}</h4>
+                        <p className="text-sm text-slate">
+                          Role: <span className="font-semibold text-action">{inv.role}</span>
+                        </p>
+                        <p className="text-xs text-slate mt-0.5">
+                          Expires: {new Date(inv.expiresAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    <Button onClick={() => setAcceptModalInvite(inv)}>
+                      Accept Invitation
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="text-center p-6 border border-dashed border-border rounded-md">
+              <h4 className="text-base font-medium text-ink mb-1">Want to create your own company instead?</h4>
+              <p className="text-sm text-slate mb-4">You can also register a brand new organization profile.</p>
+              <Link to="/company/edit" search={{ companyId: undefined }}>
+                <Button variant="outline">Create New Company</Button>
+              </Link>
+            </div>
+          </div>
         ) : (
-           <div className="text-center p-8 border border-dashed border-border rounded-md">
+          <div className="text-center p-8 border border-dashed border-border rounded-md">
             <h3 className="text-lg font-medium text-ink mb-2">No Company Profile Found</h3>
             <p className="text-slate mb-6">You haven't set up a company profile yet.</p>
             <p className="text-slate mb-6">Create a company profile to get started with posting jobs and managing your team.</p>
@@ -199,6 +272,14 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
           </div>
         )}
       </StateBoundary>
+
+      <AcceptInvitationModal
+        open={Boolean(acceptModalInvite)}
+        onOpenChange={(open) => {
+          if (!open) setAcceptModalInvite(null)
+        }}
+        companyName={acceptModalInvite?.company.name}
+      />
     </div>
   )
 }

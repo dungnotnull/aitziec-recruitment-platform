@@ -6,6 +6,7 @@ import type {
   CompanyMembership, 
   CallerCompanyMembership,
   AddCompanyMemberInput,
+  CompanyInvitation,
   PaginatedResponse,
   SuccessResponse
 } from '@/api/types';
@@ -37,8 +38,13 @@ export const listMembers = async (companyId: string, cursor?: string): Promise<P
   return response.data;
 };
 
-export const addMember = async (companyId: string, data: AddCompanyMemberInput): Promise<CompanyMembership> => {
-  const response = await apiClient.post<SuccessResponse<CompanyMembership>>(`/companies/${companyId}/members`, data);
+export const addMember = async (companyId: string, data: AddCompanyMemberInput): Promise<CompanyInvitation> => {
+  const response = await apiClient.post<SuccessResponse<CompanyInvitation>>(`/companies/${companyId}/members`, data);
+  return response.data.data;
+};
+
+export const acceptCompanyInvitation = async (token: string): Promise<CompanyMembership> => {
+  const response = await apiClient.post<SuccessResponse<CompanyMembership>>(`/company-invitations/${token}/accept`);
   return response.data.data;
 };
 

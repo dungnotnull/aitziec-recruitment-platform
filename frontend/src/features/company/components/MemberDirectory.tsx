@@ -1,6 +1,8 @@
 import * as React from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { listMembers, removeMember } from "../api"
+import { listMembers, addMember, removeMember } from "../api"
+import type { CompanyInvitation } from "@/api/types"
+import { getApiErrorDetails } from "@/shared/lib/api-error"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card"
 import { Button } from "@/shared/ui/button"
 import { Input } from "@/shared/ui/input"
@@ -8,19 +10,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/shared/ui/badge"
 import { StateBoundary } from "@/shared/ui/state-boundary"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/shared/ui/dialog"
-import { Plus, UserMinus, XCircle, MailWarning } from "lucide-react"
+import { Plus, UserMinus, MailCheck, AlertCircle } from "lucide-react"
 import { useAuth } from "@/features/auth/context"
 
 export function MemberDirectory({ companyId }: { companyId: string }) {
   const { session } = useAuth()
   const [isAddOpen, setIsAddOpen] = React.useState(false)
   const [newEmail, setNewEmail] = React.useState("")
-  const [newRole] = React.useState<"RECRUITER">("RECRUITER")
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+  const [successNotice, setSuccessNotice] = React.useState<string | null>(null)
   
-  // Mock State for Pending Invites
-  const [mockPending, setMockPending] = React.useState([
-    { id: 'inv-1', email: 'alice.candidate@example.com', role: 'RECRUITER', sentAt: new Date(Date.now() - 86400000).toLocaleDateString() }
-  ])
+  // Pending invitations created during this session
+  const [pendingInvites, setPendingInvites] = React.useState<CompanyInvitation[]>([])
 
   const queryClient = useQueryClient()
 
@@ -35,23 +36,19 @@ export function MemberDirectory({ companyId }: { companyId: string }) {
   const currentUserRole = members.find(m => m.user.id === session?.user.id)?.role;
   const isOwner = currentUserRole === 'OWNER' || currentUserRole === 'ADMIN' || session?.user.role === 'ADMIN';
 
-  // We mock the addMutation to push to the local state to demonstrate the flow without backend auto-adding
   const addMutation = useMutation({
-    mutationFn: async () => {
-      // Simulate network request
-      await new Promise(r => setTimeout(r, 500))
-      return { email: newEmail, role: newRole }
-    },
-    onSuccess: (data) => {
-      setMockPending(prev => [...prev, {
-        id: `inv-${Date.now()}`,
-        email: data.email,
-        role: data.role,
-        sentAt: new Date().toLocaleDateString()
-      }])
+    mutationFn: (email: string) => addMember(companyId, { userEmail: email, role: 'RECRUITER' }),
+    onSuccess: (invitation) => {
+      setPendingInvites(prev => [invitation, ...prev.filter(p => p.id !== invitation.id)])
       setIsAddOpen(false)
       setNewEmail("")
-      alert(`[Mock UI] Lời mời đã được đưa vào danh sách Pending cho ${data.email}.`)
+      setErrorMessage(null)
+      setSuccessNotice(`Invitation sent to ${newEmail}! An invitation email has been sent to the recruiter.`)
+      queryClient.invalidateQueries({ queryKey: ['company-members', companyId] })
+    },
+    onError: (error) => {
+      const details = getApiErrorDetails(error)
+      setErrorMessage(details.message)
     }
   })
 
@@ -64,6 +61,13 @@ export function MemberDirectory({ companyId }: { companyId: string }) {
 
   return (
     <div className="space-y-6">
+      {successNotice && (
+        <div className="flex items-center gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-emerald-800 dark:text-emerald-300">
+          <MailCheck className="h-5 w-5 shrink-0 text-emerald-600" />
+          <p className="text-sm font-medium">{successNotice}</p>
+        </div>
+      )}
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
@@ -71,7 +75,12 @@ export function MemberDirectory({ companyId }: { companyId: string }) {
             <CardDescription className="mt-1">Active members in your organization.</CardDescription>
           </div>
           {isOwner && (
-            <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+            <Dialog open={isAddOpen} onOpenChange={(open) => {
+              setIsAddOpen(open)
+              if (!open) {
+                setErrorMessage(null)
+              }
+            }}>
               <DialogTrigger asChild>
                 <Button size="sm">
                   <Plus className="mr-2 h-4 w-4" />
@@ -83,17 +92,28 @@ export function MemberDirectory({ companyId }: { companyId: string }) {
                   <DialogTitle>Invite new member</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 pt-4">
+                  {errorMessage && (
+                    <div className="flex items-start gap-2 rounded-md border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span>{errorMessage}</span>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Input 
-                      placeholder="Email address" 
+                      placeholder="Recruiter email address (e.g. hr@domain.com)" 
+                      type="email"
                       value={newEmail}
                       onChange={(e) => setNewEmail(e.target.value)}
+                      disabled={addMutation.isPending}
                     />
+                    <p className="text-xs text-slate">
+                      The invited user must have an active HR account. An invitation link will be emailed to them.
+                    </p>
                   </div>
                   <Button 
                     className="w-full" 
-                    onClick={() => addMutation.mutate()}
-                    disabled={!newEmail || addMutation.isPending}
+                    onClick={() => addMutation.mutate(newEmail.trim())}
+                    disabled={!newEmail.trim() || addMutation.isPending}
                   >
                     {addMutation.isPending ? 'Sending...' : 'Send Invite'}
                   </Button>
@@ -154,17 +174,16 @@ export function MemberDirectory({ companyId }: { companyId: string }) {
         </CardContent>
       </Card>
 
-      {/* Mock Pending Invitations Section */}
-      {isOwner && mockPending.length > 0 && (
-        <Card className="border-warning/30 bg-warning/5">
+      {/* Pending Invitations Section */}
+      {isOwner && pendingInvites.length > 0 && (
+        <Card className="border-action/30 bg-action/5">
           <CardHeader className="pb-2">
             <div className="flex items-center gap-2">
-              <MailWarning className="h-5 w-5 text-warning" />
-              <CardTitle className="text-lg">Pending Invitations (Mock UI)</CardTitle>
+              <MailCheck className="h-5 w-5 text-action" />
+              <CardTitle className="text-lg">Pending Invitations</CardTitle>
             </div>
             <CardDescription>
-              These users have been invited but have not accepted yet. 
-              (This is a UI mock to demonstrate the 2-step flow)
+              These recruiters have been sent an invitation email. Once they accept via their email link, they will appear in the active member directory.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -173,34 +192,26 @@ export function MemberDirectory({ companyId }: { companyId: string }) {
                 <TableRow>
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
-                  <TableHead>Sent At</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Expires</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {mockPending.map(invite => (
+                {pendingInvites.map(invite => (
                   <TableRow key={invite.id}>
                     <TableCell className="font-medium">{invite.email}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="border-warning text-warning">
+                      <Badge variant="outline" className="border-action text-action">
                         {invite.role}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-slate">{invite.sentAt}</TableCell>
-                    <TableCell className="text-right">
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        className="text-danger hover:text-danger hover:bg-danger/10"
-                        onClick={() => {
-                          if (confirm('Revoke this invitation?')) {
-                            setMockPending(prev => prev.filter(p => p.id !== invite.id))
-                          }
-                        }}
-                      >
-                        <XCircle className="h-4 w-4 mr-2" />
-                        Revoke
-                      </Button>
+                    <TableCell>
+                      <Badge variant="secondary">
+                        {invite.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-slate">
+                      {new Date(invite.expiresAt).toLocaleDateString()}
                     </TableCell>
                   </TableRow>
                 ))}

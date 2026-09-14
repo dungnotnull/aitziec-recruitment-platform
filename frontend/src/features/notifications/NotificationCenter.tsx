@@ -1,12 +1,16 @@
 import * as React from 'react'
-import { Bell, Check, CheckCheck, ChevronRight, LoaderCircle, Mail } from 'lucide-react'
-import type { Notification } from '@/api/types'
+import { Bell, Check, CheckCheck, ChevronRight, LoaderCircle, Mail, Building } from 'lucide-react'
+import type { Notification, HrInvitationItem } from '@/api/types'
 import { Alert, AlertDescription, AlertTitle } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { formatUtcDate, formatUtcDateTime } from '@/shared/lib/date-time'
 import { getApiErrorDetails } from '@/shared/lib/api-error'
 import { useMarkNotificationRead, useNotifications } from './hooks'
 import { notificationResourceHref } from './resource-link'
+import { AuthContext } from '@/features/auth/context'
+import { listMyHrInvitations } from '@/features/hr/api'
+import { AcceptInvitationModal } from '@/features/company/components/AcceptInvitationModal'
+import { useQuery } from '@tanstack/react-query'
 
 type ReadFilter = 'all' | 'unread' | 'read'
 
@@ -26,6 +30,17 @@ export function NotificationCenter() {
   const markRead = useMarkNotificationRead()
   const notifications = query.data?.pages.flatMap((page) => page.data) ?? []
   const error = query.error ? getApiErrorDetails(query.error) : null
+
+  const auth = React.useContext(AuthContext)
+  const isHr = auth?.session?.user.role === 'HR'
+  const [acceptModalInvite, setAcceptModalInvite] = React.useState<HrInvitationItem | null>(null)
+
+  const hrInvQuery = useQuery({
+    queryKey: ['hr-invitations'],
+    queryFn: () => listMyHrInvitations(),
+    enabled: Boolean(isHr),
+  })
+  const pendingInvitations = isHr ? (hrInvQuery.data?.data || []) : []
 
   return (
     <section className="mx-auto max-w-4xl space-y-6" aria-labelledby="notifications-title">
@@ -50,6 +65,41 @@ export function NotificationCenter() {
         </label>
       </header>
 
+      {/* Pending Company Invitations for HR */}
+      {pendingInvitations.length > 0 && (
+        <section className="space-y-3" aria-labelledby="invitations-heading">
+          <div className="flex items-center justify-between">
+            <h2 id="invitations-heading" className="font-mono text-xs font-semibold uppercase tracking-wider text-action">
+              Company Invitations ({pendingInvitations.length})
+            </h2>
+            <span className="text-xs text-slate">Action required</span>
+          </div>
+          <div className="divide-y divide-border overflow-hidden rounded-xl border border-action/30 bg-action/5">
+            {pendingInvitations.map((inv) => (
+              <article key={inv.id} className="grid gap-3 p-4 sm:grid-cols-[auto_1fr_auto] sm:items-center">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-action/10 text-action">
+                  <Building className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-ink">
+                    Invitation to join {inv.company.name}
+                  </h3>
+                  <p className="mt-0.5 text-sm text-ink-muted">
+                    You have been invited to join as a <strong className="text-action">{inv.role}</strong>.
+                  </p>
+                  <p className="mt-1 font-mono text-xs text-slate">
+                    Expires: {formatUtcDateTime(inv.expiresAt)}
+                  </p>
+                </div>
+                <Button size="sm" onClick={() => setAcceptModalInvite(inv)}>
+                  Accept Invitation
+                </Button>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       {query.isPending ? (
         <div role="status" className="grid gap-3" aria-label="Loading notifications">
           {[0, 1, 2].map((item) => <div key={item} className="h-28 animate-pulse rounded-lg bg-surface-raised" />)}
@@ -67,7 +117,7 @@ export function NotificationCenter() {
         </Alert>
       ) : null}
 
-      {!query.isPending && !error && notifications.length === 0 ? (
+      {!query.isPending && !error && notifications.length === 0 && pendingInvitations.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-surface p-10 text-center">
           <Bell className="mx-auto h-8 w-8 text-slate" aria-hidden="true" />
           <h2 className="mt-4 font-display text-xl font-semibold text-ink">No notifications here</h2>
@@ -121,6 +171,14 @@ export function NotificationCenter() {
       <p className="sr-only" role="status" aria-live="polite">
         {markRead.isSuccess ? `${markRead.data.data.title} marked as read.` : ''}
       </p>
+
+      <AcceptInvitationModal
+        open={Boolean(acceptModalInvite)}
+        onOpenChange={(open) => {
+          if (!open) setAcceptModalInvite(null)
+        }}
+        companyName={acceptModalInvite?.company.name}
+      />
     </section>
   )
 }

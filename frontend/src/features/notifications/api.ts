@@ -12,8 +12,14 @@ type NotificationTransportPage = {
   }
 }
 
-export function toNotification(dto: NotificationTransport): Notification {
-  const { userId: _userId, resourceType, resourceId, ...notification } = dto
+export function toNotification(
+  dto: NotificationTransport | (Omit<Notification, 'resource'> & { resource?: { type: string; id: string } | null; userId?: string; resourceType?: string | null; resourceId?: string | null })
+): Notification {
+  if ('resource' in dto && dto.resource !== undefined) {
+    const { userId: _userId, resourceType: _rt, resourceId: _ri, ...rest } = dto as any
+    return rest as Notification
+  }
+  const { userId: _userId, resourceType, resourceId, ...notification } = dto as NotificationTransport
   return {
     ...notification,
     resource: resourceType && resourceId ? { type: resourceType, id: resourceId } : null,
@@ -42,9 +48,10 @@ export const notificationApi = {
     }
   },
 
-  async markRead(notificationId: string): Promise<SuccessResponse<Notification>> {
+  async markRead(notificationId: string, read = true): Promise<SuccessResponse<Notification>> {
     const response = await apiClient.patch<SuccessResponse<NotificationTransport>>(
       `/notifications/${encodeURIComponent(notificationId)}/read`,
+      { read },
     )
     return { ...response.data, data: toNotification(response.data.data) }
   },

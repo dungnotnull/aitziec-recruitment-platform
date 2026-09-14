@@ -202,6 +202,54 @@ export type PaginatedResponse<T> = {
   meta: PaginationMeta & { requestId?: string };
 };
 
+export type CompanyInvitationStatus = 'PENDING' | 'ACCEPTED' | 'REVOKED' | 'EXPIRED';
+
+export type CompanyInvitation = {
+  id: string;
+  companyId: string;
+  email: string;
+  role: CompanyMemberRole;
+  status: CompanyInvitationStatus;
+  expiresAt: string;
+  createdAt: string;
+};
+
+export type HrInvitationCompanySummary = {
+  id: string;
+  slug: string;
+  name: string;
+  logoUrl: string | null;
+};
+
+export type HrInvitationItem = {
+  id: string;
+  company: HrInvitationCompanySummary;
+  role: CompanyMemberRole;
+  status: CompanyInvitationStatus;
+  expiresAt: string;
+  createdAt: string;
+};
+
+export type HrProfile = {
+  id: string;
+  userId: string;
+  firstName: string | null;
+  lastName: string | null;
+  avatarUrl: string | null;
+  phone: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UpdateHrProfileInput = {
+  expectedVersion?: number;
+  firstName?: string | null;
+  lastName?: string | null;
+  avatarUrl?: string | null;
+  phone?: string | null;
+};
+
 // --- Job Module Types ---
 
 export type JobStatus = "DRAFT" | "PENDING_APPROVAL" | "PUBLISHED" | "UNPUBLISHED" | "CLOSED" | "EXPIRED";

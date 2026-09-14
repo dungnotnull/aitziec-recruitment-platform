@@ -43,26 +43,47 @@ export function useNotifications(filters: Omit<NotificationFilters, 'cursor'>) {
 export function useMarkNotificationRead() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (notificationId: string) => notificationApi.markRead(notificationId),
+    mutationFn: (notificationId: string) => notificationApi.markRead(notificationId, true),
     onMutate: async (notificationId) => {
       await queryClient.cancelQueries({ queryKey: notificationKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: notificationKeys.unreadSummary() })
+
       const snapshots = queryClient.getQueriesData<NotificationPages>({ queryKey: notificationKeys.lists() })
+      const unreadSnapshot = queryClient.getQueryData<NotificationPageResponse>(notificationKeys.unreadSummary())
+
       queryClient.setQueriesData<NotificationPages>({ queryKey: notificationKeys.lists() }, (current) =>
         replaceNotification(current, notificationId, (notification) => ({
           ...notification,
           readAt: new Date().toISOString(),
         })),
       )
-      return { snapshots }
+
+      queryClient.setQueryData<NotificationPageResponse>(notificationKeys.unreadSummary(), (current) => {
+        if (!current) return current
+        return {
+          ...current,
+          meta: {
+            ...current.meta,
+            unreadCount: Math.max(0, current.meta.unreadCount - 1),
+          },
+        }
+      })
+
+      return { snapshots, unreadSnapshot }
     },
     onError: (_error, _variables, context) => {
       context?.snapshots.forEach(([key, data]) => queryClient.setQueryData(key, data))
+      if (context?.unreadSnapshot) {
+        queryClient.setQueryData(notificationKeys.unreadSummary(), context.unreadSnapshot)
+      }
     },
     onSuccess: ({ data }) => {
       queryClient.setQueriesData<NotificationPages>({ queryKey: notificationKeys.lists() }, (current) =>
         replaceNotification(current, data.id, () => data),
       )
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: notificationKeys.all }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: notificationKeys.all })
+    },
   })
 }

@@ -15,7 +15,7 @@ interface AuthContextValue {
   getSession: () => AuthSession | null
 }
 
-const AuthContext = React.createContext<AuthContextValue | undefined>(undefined)
+export const AuthContext = React.createContext<AuthContextValue | undefined>(undefined)
 
 function createSessionStore() {
   let current: AuthSession | null = null
