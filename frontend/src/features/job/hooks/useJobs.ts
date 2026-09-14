@@ -107,6 +107,28 @@ export const useCloseJob = () => {
   });
 };
 
+export const useApproveJob = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ companyId, jobId, expectedVersion }: { companyId: string; jobId: string; expectedVersion: number }) =>
+      jobApi.approveJob(companyId, jobId, expectedVersion),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: jobKeys.detail(data.data.id) });
+      queryClient.invalidateQueries({ queryKey: jobKeys.lists() });
+    },
+  });
+};
+
+export const useDeleteJob = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => jobApi.deleteJob(jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: jobKeys.lists() });
+    },
+  });
+};
+
 export const useParseSearchQuery = () => {
   return useMutation({
     mutationFn: (query: string) => jobApi.parseSearchQuery(query),

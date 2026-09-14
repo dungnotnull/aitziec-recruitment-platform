@@ -110,6 +110,28 @@ export const jobApi = {
   },
 
   /**
+   * HR (Owner/Admin): Approve a pending job
+   */
+  approveJob: async (
+    companyId: string,
+    jobId: string,
+    expectedVersion: number
+  ): Promise<SuccessResponse<Job>> => {
+    const response = await apiClient.post<SuccessResponse<Job>>(`/companies/${companyId}/jobs/${jobId}/approve`, {
+      expectedVersion,
+    });
+    return response.data;
+  },
+
+  /**
+   * HR: Delete a draft job
+   */
+  deleteJob: async (jobId: string): Promise<SuccessResponse<null>> => {
+    const response = await apiClient.delete<SuccessResponse<null>>(`/jobs/${jobId}`);
+    return response.data;
+  },
+
+  /**
    * Public: Parse natural language query to filters
    */
   parseSearchQuery: async (

@@ -195,7 +195,7 @@ export type PaginatedResponse<T> = {
 
 // --- Job Module Types ---
 
-export type JobStatus = "DRAFT" | "PUBLISHED" | "UNPUBLISHED" | "CLOSED";
+export type JobStatus = "DRAFT" | "PENDING_APPROVAL" | "PUBLISHED" | "UNPUBLISHED" | "CLOSED" | "EXPIRED";
 export type ExperienceLevel = "INTERN" | "FRESHER" | "JUNIOR" | "MID" | "SENIOR" | "LEAD" | "MANAGER";
 export type EmploymentType = "FULL_TIME" | "PART_TIME" | "CONTRACT" | "INTERNSHIP";
 export type WorkplaceType = "ONSITE" | "HYBRID" | "REMOTE";
