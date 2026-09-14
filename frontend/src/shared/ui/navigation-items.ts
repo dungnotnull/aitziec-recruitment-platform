@@ -17,9 +17,14 @@ export function getNavigationItems(role: UserRole): NavigationItem[] {
     { href: '/candidate/recommendations', label: 'Recommendations', icon: 'sparkles' },
     { href: '/candidate/ai', label: 'CV analysis', icon: 'brain' },
   ]
-  if (role === 'HR') return [...common, { href: '/company', label: 'Company dashboard', icon: 'building' }]
+  if (role === 'HR') return [
+    ...common, 
+    { href: '/company', label: 'Company dashboard', icon: 'building' },
+    { href: '/profile', label: 'Account Settings', icon: 'user' }
+  ]
   return [
     ...common,
+    { href: '/profile', label: 'Account Settings', icon: 'user' },
     { href: '/admin', label: 'Admin', icon: 'shield' },
     { href: '/admin/audit', label: 'Audit log', icon: 'audit' },
   ]

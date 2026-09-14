@@ -11,6 +11,8 @@ import { getCompany, listMembers } from '@/features/company/api';
 import { StateBoundary } from '@/shared/ui/state-boundary';
 import { normalizeCompanyTarget } from '@/features/company/company-context';
 import { useAuth } from '@/features/auth/context';
+import { useRouter } from '@tanstack/react-router';
+import { ArrowLeft } from 'lucide-react';
 
 export const Route = createFileRoute('/_authenticated/recruiter/workspace')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -21,6 +23,8 @@ export const Route = createFileRoute('/_authenticated/recruiter/workspace')({
 
 function RecruiterWorkspacePage() {
   const { companyId } = Route.useSearch();
+  const router = useRouter();
+  
   const companyQuery = useQuery({
     queryKey: ['company', companyId],
     queryFn: () => getCompany(companyId!),
@@ -116,6 +120,12 @@ function RecruiterWorkspacePage() {
 
   return (
     <div className="container mx-auto py-8 px-4 max-w-5xl space-y-6">
+      <div className="mb-4">
+        <Button variant="ghost" onClick={() => router.navigate({ to: '/company', search: { companyId } })} className="text-muted-foreground hover:text-foreground -ml-4">
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Dashboard
+        </Button>
+      </div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Jobs Workspace</h2>
         <Button onClick={() => setIsCreating(true)} disabled={!company}>Create New Job</Button>

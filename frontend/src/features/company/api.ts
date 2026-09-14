@@ -4,6 +4,7 @@ import type {
   CreateCompanyInput, 
   UpdateCompanyInput, 
   CompanyMembership, 
+  CallerCompanyMembership,
   AddCompanyMemberInput,
   PaginatedResponse,
   SuccessResponse
@@ -21,6 +22,11 @@ export async function getCompany(idOrSlug: string): Promise<Company> {
 
 export const updateCompany = async (id: string, data: UpdateCompanyInput): Promise<Company> => {
   const response = await apiClient.patch<SuccessResponse<Company>>(`/companies/${id}`, data);
+  return response.data.data;
+};
+
+export const listMyCompanies = async (): Promise<CallerCompanyMembership[]> => {
+  const response = await apiClient.get<SuccessResponse<CallerCompanyMembership[]>>(`/companies/mine`);
   return response.data.data;
 };
 

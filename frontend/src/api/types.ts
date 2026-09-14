@@ -175,6 +175,15 @@ export type CompanyMembership = {
   createdAt: string;
 };
 
+export type CallerCompanyMembership = {
+  membership: {
+    id: string;
+    role: CompanyMemberRole;
+    createdAt: string;
+  };
+  company: Company;
+};
+
 export type AddCompanyMemberInput = {
   userEmail: string;
   role?: 'RECRUITER';
