@@ -7,6 +7,7 @@ import { ERROR_CODES } from '../common/constants/error-codes';
 import { JobSearchQueryDto, ParseSearchQueryDto } from './dto/search.dto';
 import { JobDto } from '../jobs/dto/job.dto';
 import { CollectionResponse } from '../common/dto/response.dto';
+import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import * as crypto from 'crypto';
 
 interface DecodedCursor {
@@ -54,167 +55,223 @@ export class SearchService {
     }
   }
 
-  async searchJobs(query: JobSearchQueryDto): Promise<CollectionResponse<JobDto>> {
+  async searchJobs(
+    query: JobSearchQueryDto,
+    user?: AuthenticatedUser,
+  ): Promise<CollectionResponse<JobDto>> {
     const limit = query.limit ?? 20;
     const sort = query.sort ?? (query.q ? 'RELEVANCE' : 'NEWEST');
     const normalizedQ = this.normalizeQuery(query.q);
 
     // Safe search caching (BE-3-017)
     const cacheKey = this.generateCacheKey(query);
-    const cached = await this.getFromCache(cacheKey);
-    if (cached) {
-      return cached;
-    }
+    let baseResponse = await this.getFromCache(cacheKey);
 
-    const decodedCursor = this.decodeCursor(query.cursor);
-    const now = new Date();
+    if (!baseResponse) {
+      const decodedCursor = this.decodeCursor(query.cursor);
+      const now = new Date();
 
-    // Query published, non-expired jobs with active companies
-    const rawJobs = await this.prisma.job.findMany({
-      where: {
-        status: 'PUBLISHED',
-        applicationDeadline: { gt: now },
-        company: { status: 'ACTIVE' },
-        ...(query.companyId && { companyId: query.companyId }),
-        ...(query.experienceLevel &&
-          query.experienceLevel.length > 0 && {
-            experienceLevel: { in: query.experienceLevel as ExperienceLevel[] },
+      // Query published, non-expired jobs with active companies
+      const rawJobs = await this.prisma.job.findMany({
+        where: {
+          status: 'PUBLISHED',
+          applicationDeadline: { gt: now },
+          company: { status: 'ACTIVE' },
+          ...(query.companyId && { companyId: query.companyId }),
+          ...(query.experienceLevel &&
+            query.experienceLevel.length > 0 && {
+              experienceLevel: { in: query.experienceLevel as ExperienceLevel[] },
+            }),
+          ...(query.employmentType &&
+            query.employmentType.length > 0 && {
+              employmentType: { in: query.employmentType as EmploymentType[] },
+            }),
+          ...(query.workplaceType &&
+            query.workplaceType.length > 0 && {
+              workplaceType: { in: query.workplaceType as WorkplaceType[] },
+            }),
+          ...(query.publishedAfter && {
+            publishedAt: { gte: new Date(query.publishedAfter) },
           }),
-        ...(query.employmentType &&
-          query.employmentType.length > 0 && {
-            employmentType: { in: query.employmentType as EmploymentType[] },
-          }),
-        ...(query.workplaceType &&
-          query.workplaceType.length > 0 && {
-            workplaceType: { in: query.workplaceType as WorkplaceType[] },
-          }),
-        ...(query.publishedAfter && {
-          publishedAt: { gte: new Date(query.publishedAfter) },
-        }),
-      },
-      include: { company: true },
-    });
+        },
+        include: {
+          company: true,
+          _count: {
+            select: { applications: true },
+          },
+        },
+      });
 
-    // In-memory filter for text, arrays, salary range
-    const filtered = rawJobs.filter((job) => {
-      // Full-text query match
-      if (normalizedQ) {
-        const words = normalizedQ.toLowerCase().split(' ').filter(Boolean);
-        const searchableText =
-          `${job.title} ${job.description} ${job.requirements} ${job.location} ${(job.technologyNames || []).join(' ')}`.toLowerCase();
-        const matchesAll = words.every((w) => searchableText.includes(w));
-        if (!matchesAll) return false;
-      }
+      // In-memory filter for text, arrays, salary range
+      const filtered = rawJobs.filter((job) => {
+        // Full-text query match
+        if (normalizedQ) {
+          const words = normalizedQ.toLowerCase().split(' ').filter(Boolean);
+          const searchableText =
+            `${job.title} ${job.description} ${job.requirements} ${job.location} ${(job.technologyNames || []).join(' ')}`.toLowerCase();
+          const matchesAll = words.every((w) => searchableText.includes(w));
+          if (!matchesAll) return false;
+        }
 
-      // Technology filter (match any requested)
-      if (query.technology && query.technology.length > 0) {
-        const jobTechs = (job.technologyNames || []).map((t: string) => t.toLowerCase());
-        const hasTech = query.technology.some((reqTech) =>
-          jobTechs.some((jt: string) => jt.includes(reqTech.toLowerCase())),
-        );
-        if (!hasTech) return false;
-      }
+        // Technology filter (match any requested)
+        if (query.technology && query.technology.length > 0) {
+          const jobTechs = (job.technologyNames || []).map((t: string) => t.toLowerCase());
+          const hasTech = query.technology.some((reqTech) =>
+            jobTechs.some((jt: string) => jt.includes(reqTech.toLowerCase())),
+          );
+          if (!hasTech) return false;
+        }
 
-      // Location filter (match any requested)
-      if (query.location && query.location.length > 0) {
-        const jobLoc = job.location.toLowerCase();
-        const hasLoc = query.location.some((loc) => jobLoc.includes(loc.toLowerCase()));
-        if (!hasLoc) return false;
-      }
+        // Location filter (match any requested)
+        if (query.location && query.location.length > 0) {
+          const jobLoc = job.location.toLowerCase();
+          const hasLoc = query.location.some((loc) => jobLoc.includes(loc.toLowerCase()));
+          if (!hasLoc) return false;
+        }
 
-      // Salary filters
-      if (
-        query.salaryMin !== undefined &&
-        job.salaryMax !== null &&
-        job.salaryMax < query.salaryMin
-      ) {
-        return false;
-      }
-      if (
-        query.salaryMax !== undefined &&
-        job.salaryMin !== null &&
-        job.salaryMin > query.salaryMax
-      ) {
-        return false;
-      }
-      if (query.currency && job.currency.toUpperCase() !== query.currency.toUpperCase()) {
-        return false;
-      }
+        // Salary filters
+        if (
+          query.salaryMin !== undefined &&
+          job.salaryMax !== null &&
+          job.salaryMax < query.salaryMin
+        ) {
+          return false;
+        }
+        if (
+          query.salaryMax !== undefined &&
+          job.salaryMin !== null &&
+          job.salaryMin > query.salaryMax
+        ) {
+          return false;
+        }
+        if (query.currency && job.currency.toUpperCase() !== query.currency.toUpperCase()) {
+          return false;
+        }
 
-      return true;
-    });
+        return true;
+      });
 
-    // Deterministic sorting (BE-3-012)
-    filtered.sort((a, b) => {
-      if (sort === 'NEWEST') {
+      // Deterministic sorting (BE-3-012)
+      filtered.sort((a, b) => {
+        if (sort === 'NEWEST') {
+          const timeA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+          const timeB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+          if (timeA !== timeB) return timeB - timeA;
+          return a.id.localeCompare(b.id);
+        }
+        if (sort === 'SALARY_ASC') {
+          const salA = a.salaryMin ?? 0;
+          const salB = b.salaryMin ?? 0;
+          if (salA !== salB) return salA - salB;
+          return a.id.localeCompare(b.id);
+        }
+        if (sort === 'SALARY_DESC') {
+          const salA = a.salaryMax ?? a.salaryMin ?? 0;
+          const salB = b.salaryMax ?? b.salaryMin ?? 0;
+          if (salA !== salB) return salB - salA;
+          return a.id.localeCompare(b.id);
+        }
+        // RELEVANCE: prioritize title matches, then newest
+        const titleMatchesA =
+          normalizedQ && a.title.toLowerCase().includes(normalizedQ.toLowerCase()) ? 1 : 0;
+        const titleMatchesB =
+          normalizedQ && b.title.toLowerCase().includes(normalizedQ.toLowerCase()) ? 1 : 0;
+        if (titleMatchesA !== titleMatchesB) return titleMatchesB - titleMatchesA;
+
         const timeA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
         const timeB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
         if (timeA !== timeB) return timeB - timeA;
         return a.id.localeCompare(b.id);
+      });
+
+      // Opaque cursor pagination (BE-3-013)
+      let startIndex = 0;
+      if (decodedCursor) {
+        const idx = filtered.findIndex((j) => j.id === decodedCursor.id);
+        if (idx !== -1) {
+          startIndex = idx + 1;
+        }
       }
-      if (sort === 'SALARY_ASC') {
-        const salA = a.salaryMin ?? 0;
-        const salB = b.salaryMin ?? 0;
-        if (salA !== salB) return salA - salB;
-        return a.id.localeCompare(b.id);
+
+      const pageItems = filtered.slice(startIndex, startIndex + limit);
+      const hasMore = startIndex + limit < filtered.length;
+      const lastItem = pageItems[pageItems.length - 1];
+
+      let nextCursor: string | null = null;
+      if (hasMore && lastItem) {
+        let sortVal: string | number | null = null;
+        if (sort === 'NEWEST')
+          sortVal = lastItem.publishedAt ? lastItem.publishedAt.toISOString() : null;
+        else if (sort === 'SALARY_ASC') sortVal = lastItem.salaryMin;
+        else if (sort === 'SALARY_DESC') sortVal = lastItem.salaryMax;
+        nextCursor = this.encodeCursor(lastItem.id, sortVal);
       }
-      if (sort === 'SALARY_DESC') {
-        const salA = a.salaryMax ?? a.salaryMin ?? 0;
-        const salB = b.salaryMax ?? b.salaryMin ?? 0;
-        if (salA !== salB) return salB - salA;
-        return a.id.localeCompare(b.id);
-      }
-      // RELEVANCE: prioritize title matches, then newest
-      const titleMatchesA =
-        normalizedQ && a.title.toLowerCase().includes(normalizedQ.toLowerCase()) ? 1 : 0;
-      const titleMatchesB =
-        normalizedQ && b.title.toLowerCase().includes(normalizedQ.toLowerCase()) ? 1 : 0;
-      if (titleMatchesA !== titleMatchesB) return titleMatchesB - titleMatchesA;
 
-      const timeA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
-      const timeB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
-      if (timeA !== timeB) return timeB - timeA;
-      return a.id.localeCompare(b.id);
-    });
-
-    // Opaque cursor pagination (BE-3-013)
-    let startIndex = 0;
-    if (decodedCursor) {
-      const idx = filtered.findIndex((j) => j.id === decodedCursor.id);
-      if (idx !== -1) {
-        startIndex = idx + 1;
-      }
-    }
-
-    const pageItems = filtered.slice(startIndex, startIndex + limit);
-    const hasMore = startIndex + limit < filtered.length;
-    const lastItem = pageItems[pageItems.length - 1];
-
-    let nextCursor: string | null = null;
-    if (hasMore && lastItem) {
-      let sortVal: string | number | null = null;
-      if (sort === 'NEWEST')
-        sortVal = lastItem.publishedAt ? lastItem.publishedAt.toISOString() : null;
-      else if (sort === 'SALARY_ASC') sortVal = lastItem.salaryMin;
-      else if (sort === 'SALARY_DESC') sortVal = lastItem.salaryMax;
-      nextCursor = this.encodeCursor(lastItem.id, sortVal);
-    }
-
-    const response: CollectionResponse<JobDto> = {
-      data: pageItems.map((j) => this.jobsService.mapToDto(j)),
-      meta: {
-        page: {
-          nextCursor,
-          hasNextPage: hasMore,
-          limit,
+      baseResponse = {
+        data: pageItems.map((j) => this.jobsService.mapToDto(j)),
+        meta: {
+          page: {
+            nextCursor,
+            hasNextPage: hasMore,
+            limit,
+          },
         },
-      },
-    };
+      };
 
-    // Cache results for 60s
-    await this.setInCache(cacheKey, response, 60);
+      // Cache results for 60s
+      await this.setInCache(cacheKey, baseResponse, 60);
+    }
 
-    return response;
+    // Enrich with Candidate-specific state if caller is an authenticated Candidate
+    if (user && user.role === 'CANDIDATE') {
+      const candidateProfile = await this.prisma.candidateProfile.findUnique({
+        where: { userId: user.id },
+        select: { id: true },
+      });
+
+      if (candidateProfile && baseResponse.data.length > 0) {
+        const jobIds = baseResponse.data.map((j) => j.id);
+        const [appliedRows, savedRows] = await Promise.all([
+          this.prisma.application.findMany({
+            where: {
+              candidateId: candidateProfile.id,
+              jobId: { in: jobIds },
+            },
+            select: { jobId: true },
+          }),
+          this.prisma.savedJob.findMany({
+            where: {
+              candidateProfileId: candidateProfile.id,
+              jobId: { in: jobIds },
+            },
+            select: { jobId: true },
+          }),
+        ]);
+
+        const appliedSet = new Set(appliedRows.map((r) => r.jobId));
+        const savedSet = new Set(savedRows.map((r) => r.jobId));
+
+        return {
+          ...baseResponse,
+          data: baseResponse.data.map((job) => ({
+            ...job,
+            hasApplied: appliedSet.has(job.id),
+            isSaved: savedSet.has(job.id),
+          })),
+        };
+      }
+
+      return {
+        ...baseResponse,
+        data: baseResponse.data.map((job) => ({
+          ...job,
+          hasApplied: false,
+          isSaved: false,
+        })),
+      };
+    }
+
+    return baseResponse;
   }
 
   async parseSearchQuery(dto: ParseSearchQueryDto): Promise<Record<string, unknown>> {

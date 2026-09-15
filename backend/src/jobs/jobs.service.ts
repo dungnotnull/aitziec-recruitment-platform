@@ -50,7 +50,19 @@ export class JobsService {
     return isNaN(d.getTime()) ? null : d.toISOString();
   }
 
-  public mapToDto(job: Job & { company?: Partial<Company> | null }): JobDto {
+  public mapToDto(
+    job: Job & {
+      company?: Partial<Company> | null;
+      _count?: { applications?: number } | null;
+    },
+    options?: {
+      applicantCount?: number;
+      hasApplied?: boolean;
+      isSaved?: boolean;
+    },
+  ): JobDto {
+    const applicantCount = options?.applicantCount ?? job._count?.applications ?? 0;
+
     return {
       id: job.id,
       company: {
@@ -77,6 +89,11 @@ export class JobsService {
       status: job.status,
       publishedAt: this.toIso(job.publishedAt),
       closedAt: this.toIso(job.closedAt),
+      isHot: job.isHot ?? false,
+      benefits: Array.isArray(job.benefits) ? job.benefits : [],
+      applicantCount,
+      ...(options?.hasApplied !== undefined ? { hasApplied: options.hasApplied } : {}),
+      ...(options?.isSaved !== undefined ? { isSaved: options.isSaved } : {}),
       version: job.version,
       createdAt: this.toIso(job.createdAt) ?? new Date().toISOString(),
       updatedAt: this.toIso(job.updatedAt) ?? new Date().toISOString(),
@@ -223,6 +240,8 @@ export class JobsService {
         salaryMax: dto.salaryMax ?? null,
         currency: dto.currency || 'VND',
         applicationDeadline: deadline,
+        isHot: dto.isHot ?? false,
+        benefits: dto.benefits ?? [],
         status: 'DRAFT',
         version: 1,
       },
@@ -245,7 +264,12 @@ export class JobsService {
       where: {
         OR: [{ id: jobIdOrSlug }, { slug: jobIdOrSlug }],
       },
-      include: { company: true },
+      include: {
+        company: true,
+        _count: {
+          select: { applications: true },
+        },
+      },
     });
 
     if (!job) {
@@ -261,41 +285,75 @@ export class JobsService {
       job.company?.status === 'ACTIVE' &&
       new Date(job.applicationDeadline) > now;
 
-    if (isPubliclyVisible) {
-      return this.mapToDto(job);
-    }
+    if (!isPubliclyVisible) {
+      // Non-public job: check authorization
+      if (!user) {
+        throw new NotFoundException({
+          code: ERROR_CODES.RESOURCE_NOT_FOUND,
+          message: 'Job not found.',
+        });
+      }
 
-    // Non-public job: check authorization
-    if (!user) {
-      throw new NotFoundException({
-        code: ERROR_CODES.RESOURCE_NOT_FOUND,
-        message: 'Job not found.',
-      });
-    }
-
-    if (user.role === 'ADMIN') {
-      return this.mapToDto(job);
-    }
-
-    if (user.role === 'HR') {
-      const membership = await this.prisma.companyMembership.findUnique({
-        where: {
-          companyId_userId: {
-            companyId: job.companyId,
-            userId: user.id,
+      if (user.role === 'ADMIN') {
+        // authorized
+      } else if (user.role === 'HR') {
+        const membership = await this.prisma.companyMembership.findUnique({
+          where: {
+            companyId_userId: {
+              companyId: job.companyId,
+              userId: user.id,
+            },
           },
-        },
-      });
+        });
 
-      if (membership) {
-        return this.mapToDto(job);
+        if (!membership) {
+          throw new NotFoundException({
+            code: ERROR_CODES.RESOURCE_NOT_FOUND,
+            message: 'Job not found.',
+          });
+        }
+      } else {
+        // Hide existence for unauthorized users (CANDIDATE or unrelated HR)
+        throw new NotFoundException({
+          code: ERROR_CODES.RESOURCE_NOT_FOUND,
+          message: 'Job not found.',
+        });
       }
     }
 
-    // Hide existence for unauthorized users (CANDIDATE or unrelated HR)
-    throw new NotFoundException({
-      code: ERROR_CODES.RESOURCE_NOT_FOUND,
-      message: 'Job not found.',
+    let hasApplied: boolean | undefined = undefined;
+    let isSaved: boolean | undefined = undefined;
+
+    if (user && user.role === 'CANDIDATE') {
+      const candidateProfile = await this.prisma.candidateProfile.findUnique({
+        where: { userId: user.id },
+      });
+      if (candidateProfile) {
+        const [application, savedJob] = await Promise.all([
+          this.prisma.application.findFirst({
+            where: { jobId: job.id, candidateId: candidateProfile.id },
+          }),
+          this.prisma.savedJob.findUnique({
+            where: {
+              candidateProfileId_jobId: {
+                candidateProfileId: candidateProfile.id,
+                jobId: job.id,
+              },
+            },
+          }),
+        ]);
+        hasApplied = !!application;
+        isSaved = !!savedJob;
+      } else {
+        hasApplied = false;
+        isSaved = false;
+      }
+    }
+
+    return this.mapToDto(job, {
+      applicantCount: job._count?.applications ?? 0,
+      hasApplied,
+      isSaved,
     });
   }
 
@@ -372,6 +430,8 @@ export class JobsService {
         salaryMax: newSalaryMax,
         currency: dto.currency ?? job.currency,
         applicationDeadline: newDeadline,
+        isHot: dto.isHot !== undefined ? dto.isHot : job.isHot,
+        benefits: dto.benefits !== undefined ? dto.benefits : job.benefits,
         version: job.version + 1,
       },
       include: { company: true },

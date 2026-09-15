@@ -407,10 +407,47 @@ type Company = {
   websiteUrl: string | null;
   logoUrl: string | null;
   location: string | null;
+  companyModel?: string | null;
+  companySize?: string | null;
+  country?: string | null;
+  workingTime?: string | null;
+  overtimePolicy?: string | null;
+  techStack?: string[];
+  reasonsToJoin?: Array<{ title: string; description: string }>;
+  perks?: Array<{ title: string; description?: string | null }>;
+  activeJobsCount?: number;
+  isFollowed?: boolean;
   status: CompanyStatus;
   version: number;
   createdAt: string;
   updatedAt: string;
+};
+
+type CompanySummaryItem = {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl: string | null;
+  location: string | null;
+  companyModel: string | null;
+  companySize: string | null;
+  country: string | null;
+  techStack: string[];
+  activeJobsCount: number;
+  createdAt: string;
+};
+
+type CompanyDirectoryQuery = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  location?: string;
+};
+
+type CompanyDashboardStats = {
+  totalApplicationsCount: number;
+  activeJobsCount: number;
+  teamMembersCount: number;
 };
 
 type CompanyMembership = {
@@ -449,6 +486,11 @@ type Job = {
   applicationDeadline: string;
   creatorId: string | null;
   status: JobStatus;
+  isHot: boolean;
+  benefits: string[];
+  applicantCount: number;
+  hasApplied?: boolean;
+  isSaved?: boolean;
   publishedAt: string | null;
   closedAt: string | null;
   version: number;
@@ -470,6 +512,8 @@ type CreateJobRequest = {
   salaryMax: number | null;
   currency: string;
   applicationDeadline: string;
+  isHot?: boolean;
+  benefits?: string[];
 };
 
 type UpdateJobRequest = Partial<CreateJobRequest> & {
@@ -848,10 +892,14 @@ The HR profile represents the recruiter's individual account details, decoupled 
 
 | Method and path | Access | Request | Success |
 | --- | --- | --- | --- |
+| `GET /companies` | Public | `CompanyDirectoryQuery` (`page?`, `limit?`, `search?`, `location?`) | `200 SuccessResponse<{ items: CompanySummaryItem[]; total: number; page: number; limit: number; totalPages: number }>` |
 | `POST /companies` | HR | Company create fields | `201 SuccessResponse<Company>` |
 | `GET /companies/mine` | HR | Cursor query | `200 CollectionResponse<RecruiterCompanyMembership>` |
 | `GET /companies/:companyIdOrSlug` | Public | None | `200 SuccessResponse<Company>` |
 | `PATCH /companies/:companyId` | Owner/admin | Mutable fields + `expectedVersion` | `200 SuccessResponse<Company>` |
+| `POST /companies/:companyId/follow` | Candidate | None | `204` |
+| `DELETE /companies/:companyId/follow` | Candidate | None | `204` |
+| `GET /companies/:companyId/dashboard-stats` | Scoped HR or admin | None | `200 SuccessResponse<CompanyDashboardStats>` |
 | `POST /companies/:companyId/logo` | Owner/admin | `multipart/form-data` field `logo` (max 5 MiB, PNG/JPEG/WebP), optional `expectedVersion` | `200 SuccessResponse<UploadCompanyLogoResponse>` |
 | `GET /companies/:companyId/members` | Company member/admin | Cursor query | `200 CollectionResponse<CompanyMembership>` |
 | `POST /companies/:companyId/members` | Owner/admin | `{ userEmail, role }` | `202 SuccessResponse<CompanyInvitation>` |
@@ -861,6 +909,11 @@ The HR profile represents the recruiter's individual account details, decoupled 
 | `GET /companies/:companyId/jobs` | Scoped HR or admin | Status/filter/cursor query | `200 CollectionResponse<Job>` |
 
 The final active owner cannot be removed. Membership changes and invitations are audited. All member additions require explicit invitation and consent (returning `202 Accepted` with `CompanyInvitation`), preventing direct membership creation without recruiter approval. Acceptance (`POST /company-invitations/:token/accept`) is strictly guarded for active `HR` users matching the invitation email; non-HR callers are rejected with `403 FORBIDDEN`. The target company must be in `ACTIVE` status. `POST /companies/:companyId/logo` uploads a public company logo to isolated public asset storage, validates binary magic bytes, enforces optimistic concurrency, and increments aggregate version.
+
+`GET /companies` provides a public, deterministic directory of active companies sorted by `createdAt DESC, id ASC`. It returns pagination metadata along with computed `activeJobsCount` for each company without N+1 query overhead.
+`GET /companies/:companyIdOrSlug` returns extended company metadata (`techStack`, `reasonsToJoin`, `perks`, etc.), authoritative `activeJobsCount`, and an optional `isFollowed` boolean if invoked with a valid Candidate authentication session.
+`POST /companies/:companyId/follow` and `DELETE /companies/:companyId/follow` provide idempotent following/unfollowing of companies for candidates. Non-candidates receive `403 FORBIDDEN`.
+`GET /companies/:companyId/dashboard-stats` provides authoritative recruitment performance metrics (`totalApplicationsCount`, `activeJobsCount`, `teamMembersCount`) scoped to authorized HR members or platform admins.
 
 ### 9.4 Jobs and Search
 
@@ -879,6 +932,8 @@ The final active owner cannot be removed. Membership changes and invitations are
 Public job reads return `404 RESOURCE_NOT_FOUND` for drafts, unpublished jobs,
 pending approval jobs, or inaccessible records to avoid leaking existence. HR users
 with company scope may retrieve their non-public jobs.
+
+All job DTO responses project authoritative `applicantCount`. When invoked by an authenticated Candidate, `GET /jobs` and `GET /jobs/:jobIdOrSlug` compute personal contextual states `hasApplied` and `isSaved`. Public cache remains isolated in Redis and is never tainted by user-specific candidate state.
 
 `POST /jobs/:jobId/publish`: transitions job to `PUBLISHED` if caller is company
 owner or global admin; transitions job to `PENDING_APPROVAL` if caller is recruiter.
