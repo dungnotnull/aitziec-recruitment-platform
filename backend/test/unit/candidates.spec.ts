@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  UnsupportedMediaTypeException,
+} from '@nestjs/common';
 import { CandidatesService } from '../../src/candidates/candidates.service';
 import { CompletenessService } from '../../src/candidates/completeness.service';
 import { ERROR_CODES } from '../../src/common/constants/error-codes';
@@ -6,6 +11,8 @@ import { ERROR_CODES } from '../../src/common/constants/error-codes';
 describe('CandidatesService (Unit - BE-10-002)', () => {
   let service: CandidatesService;
   let mockPrisma: any;
+  let mockStorage: any;
+  let mockAudit: any;
   let completenessService: CompletenessService;
 
   const validSkill1Id = '11111111-1111-4111-8111-111111111111';
@@ -69,8 +76,19 @@ describe('CandidatesService (Unit - BE-10-002)', () => {
       $transaction: jest.fn((cb: any) => cb(mockPrisma)),
     };
 
+    mockStorage = {
+      uploadPublicAsset: jest
+        .fn()
+        .mockResolvedValue('http://assets.test/candidates/cand-prof-1/avatar.png'),
+      deletePublicAsset: jest.fn().mockResolvedValue(undefined),
+      getAssetsBucket: jest.fn().mockReturnValue('itziec-assets'),
+    };
+    mockAudit = {
+      record: jest.fn().mockResolvedValue(undefined),
+    };
+
     completenessService = new CompletenessService();
-    service = new CandidatesService(mockPrisma, completenessService);
+    service = new CandidatesService(mockPrisma, completenessService, mockStorage, mockAudit);
   });
 
   describe('getProfile', () => {
@@ -203,6 +221,86 @@ describe('CandidatesService (Unit - BE-10-002)', () => {
       expect(mockPrisma.workExperience.deleteMany).toHaveBeenCalledTimes(1);
       expect(mockPrisma.workExperience.create).toHaveBeenCalledTimes(2);
       expect(mockPrisma.candidateProfile.update).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('uploadAvatar - BE-16-003', () => {
+    const validPng = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(32),
+    ]);
+
+    it('uploads a valid PNG, increments profile version, and records a safe audit event', async () => {
+      const result = await service.uploadAvatar(
+        'user-cand-1',
+        {
+          originalname: 'avatar.png',
+          mimetype: 'image/png',
+          size: validPng.length,
+          buffer: validPng,
+        },
+        { expectedVersion: 1 },
+      );
+
+      expect(result).toEqual({
+        avatarUrl: 'http://assets.test/candidates/cand-prof-1/avatar.png',
+        version: 2,
+      });
+      expect(mockStorage.uploadPublicAsset).toHaveBeenCalledWith(
+        expect.stringMatching(/^candidates\/cand-prof-1\/[\w-]+\.png$/),
+        validPng,
+        'image/png',
+      );
+      expect(mockPrisma.candidateProfile.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'cand-prof-1', version: 1 },
+          data: expect.objectContaining({
+            avatarUrl: 'http://assets.test/candidates/cand-prof-1/avatar.png',
+          }),
+        }),
+      );
+      expect(mockAudit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'CANDIDATE_AVATAR_UPDATED',
+          targetType: 'CandidateProfile',
+          targetId: 'cand-prof-1',
+        }),
+        mockPrisma,
+      );
+    });
+
+    it('rejects a MIME/signature mismatch before uploading', async () => {
+      await expect(
+        service.uploadAvatar(
+          'user-cand-1',
+          {
+            originalname: 'avatar.jpg',
+            mimetype: 'image/jpeg',
+            size: validPng.length,
+            buffer: validPng,
+          },
+          { expectedVersion: 1 },
+        ),
+      ).rejects.toThrow(UnsupportedMediaTypeException);
+
+      expect(mockStorage.uploadPublicAsset).not.toHaveBeenCalled();
+    });
+
+    it('rejects a stale version before uploading', async () => {
+      await expect(
+        service.uploadAvatar(
+          'user-cand-1',
+          {
+            originalname: 'avatar.png',
+            mimetype: 'image/png',
+            size: validPng.length,
+            buffer: validPng,
+          },
+          { expectedVersion: 2 },
+        ),
+      ).rejects.toThrow(ConflictException);
+
+      expect(mockStorage.uploadPublicAsset).not.toHaveBeenCalled();
     });
   });
 });

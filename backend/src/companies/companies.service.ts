@@ -442,29 +442,27 @@ export class CompaniesService {
 
     const targetRole: CompanyMemberRole = (dto.role as CompanyMemberRole) || 'RECRUITER';
 
-    if (targetUser) {
-      if (targetUser.role !== 'HR' || targetUser.status !== 'ACTIVE') {
-        throw new BadRequestException({
-          code: ERROR_CODES.VALIDATION_ERROR,
-          message: 'Only active HR accounts can be invited to a company.',
-        });
-      }
-
-      const existingMembership = await this.prisma.companyMembership.findUnique({
-        where: {
-          companyId_userId: {
-            companyId,
-            userId: targetUser.id,
-          },
-        },
+    if (!targetUser || targetUser.role !== 'HR' || targetUser.status !== 'ACTIVE') {
+      throw new BadRequestException({
+        code: ERROR_CODES.INVITATION_TARGET_INELIGIBLE,
+        message: 'Only existing active HR accounts can be invited to a company.',
       });
+    }
 
-      if (existingMembership) {
-        throw new ConflictException({
-          code: ERROR_CODES.MEMBERSHIP_ALREADY_EXISTS,
-          message: 'User is already a member of this company.',
-        });
-      }
+    const existingMembership = await this.prisma.companyMembership.findUnique({
+      where: {
+        companyId_userId: {
+          companyId,
+          userId: targetUser.id,
+        },
+      },
+    });
+
+    if (existingMembership) {
+      throw new ConflictException({
+        code: ERROR_CODES.MEMBERSHIP_ALREADY_EXISTS,
+        message: 'User is already a member of this company.',
+      });
     }
 
     // Check existing pending invitation
@@ -826,5 +824,108 @@ export class CompaniesService {
       }
       throw err;
     }
+  }
+
+  async revokeInvitation(
+    companyId: string,
+    user: AuthenticatedUser,
+    invitationId: string,
+  ): Promise<void> {
+    const membership = await this.prisma.companyMembership.findUnique({
+      where: {
+        companyId_userId: {
+          companyId,
+          userId: user.id,
+        },
+      },
+    });
+
+    if (!membership || membership.role !== 'OWNER') {
+      throw new ForbiddenException({
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'Only company owners can revoke company invitations.',
+      });
+    }
+
+    const invitation = await this.prisma.companyInvitation.findUnique({
+      where: { id: invitationId },
+    });
+
+    if (!invitation || invitation.companyId !== companyId) {
+      throw new NotFoundException({
+        code: ERROR_CODES.INVITATION_NOT_FOUND,
+        message: 'Invitation not found in this company.',
+      });
+    }
+
+    if (invitation.status === 'ACCEPTED') {
+      throw new ConflictException({
+        code: ERROR_CODES.INVITATION_ALREADY_ACCEPTED,
+        message: 'This invitation has already been accepted.',
+      });
+    }
+
+    if (invitation.status === 'REVOKED') {
+      throw new ConflictException({
+        code: ERROR_CODES.INVITATION_REVOKED,
+        message: 'This invitation has already been revoked.',
+      });
+    }
+
+    const now = new Date();
+    if (invitation.status === 'EXPIRED' || invitation.expiresAt <= now) {
+      throw new ConflictException({
+        code: ERROR_CODES.INVITATION_EXPIRED,
+        message: 'This invitation has expired.',
+      });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const updateResult = await tx.companyInvitation.updateMany({
+        where: {
+          id: invitationId,
+          companyId,
+          status: 'PENDING',
+        },
+        data: {
+          status: 'REVOKED',
+          revokedAt: now,
+        },
+      });
+
+      if (updateResult.count === 0) {
+        const current = await tx.companyInvitation.findUnique({
+          where: { id: invitationId },
+        });
+        if (current?.status === 'ACCEPTED') {
+          throw new ConflictException({
+            code: ERROR_CODES.INVITATION_ALREADY_ACCEPTED,
+            message: 'This invitation has already been accepted.',
+          });
+        }
+        throw new ConflictException({
+          code: ERROR_CODES.INVITATION_REVOKED,
+          message: 'This invitation has already been revoked or expired.',
+        });
+      }
+
+      await tx.companyInvitationDeliverySecret.deleteMany({
+        where: { invitationId },
+      });
+
+      await this.auditService.record(
+        {
+          actorId: user.id,
+          action: 'COMPANY_INVITATION_REVOKED',
+          targetType: 'CompanyInvitation',
+          targetId: invitationId,
+          metadata: {
+            companyId,
+            role: invitation.role,
+          },
+        },
+        tx,
+      );
+    });
   }
 }

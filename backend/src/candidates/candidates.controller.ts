@@ -1,7 +1,31 @@
-import { Controller, Get, Patch, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { CandidatesService } from './candidates.service';
-import { CandidateProfileDto, UpdateCandidateProfileDto } from './dto/candidate.dto';
+import {
+  Controller,
+  Get,
+  Patch,
+  Post,
+  Body,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
+import { CandidatesService, UploadedAvatarFile } from './candidates.service';
+import {
+  CandidateProfileDto,
+  UpdateCandidateProfileDto,
+  UploadCandidateAvatarDto,
+  UploadCandidateAvatarResponseDto,
+} from './dto/candidate.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -38,5 +62,55 @@ export class CandidatesController {
     @Body() dto: UpdateCandidateProfileDto,
   ): Promise<CandidateProfileDto> {
     return this.candidatesService.updateProfile(userId, dto);
+  }
+
+  @Roles('CANDIDATE')
+  @Post('me/avatar')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileInterceptor('avatar', {
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  @ApiOperation({ summary: 'Upload and update candidate profile avatar' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['avatar'],
+      properties: {
+        avatar: {
+          type: 'string',
+          format: 'binary',
+          description: 'Avatar image file (PNG, JPEG, WebP, max 5 MiB)',
+        },
+        expectedVersion: {
+          type: 'integer',
+          example: 1,
+          description: 'Optional expected version for optimistic concurrency',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    type: UploadCandidateAvatarResponseDto,
+    description: 'Avatar updated successfully',
+  })
+  @ApiResponse({ status: 400, description: 'File missing or invalid' })
+  @ApiResponse({ status: 401, description: 'Authentication required' })
+  @ApiResponse({ status: 403, description: 'Forbidden for non-candidate' })
+  @ApiResponse({ status: 409, description: 'Version conflict' })
+  @ApiResponse({ status: 413, description: 'File exceeds 5 MiB' })
+  @ApiResponse({ status: 415, description: 'Invalid image signature or MIME' })
+  async uploadAvatar(
+    @CurrentUser('id') userId: string,
+    @UploadedFile() file: UploadedAvatarFile,
+    @Body() body?: UploadCandidateAvatarDto,
+  ): Promise<UploadCandidateAvatarResponseDto> {
+    return this.candidatesService.uploadAvatar(userId, file, {
+      expectedVersion:
+        body?.expectedVersion !== undefined ? Number(body.expectedVersion) : undefined,
+    });
   }
 }

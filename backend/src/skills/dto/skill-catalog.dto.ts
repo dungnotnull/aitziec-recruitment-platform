@@ -36,6 +36,9 @@ export class SkillCatalogItemDto {
   @ApiProperty({ example: '00000000-0000-0000-0000-000000000000' })
   id: string;
 
+  @ApiProperty({ example: '00000000-0000-0000-0000-000000000000' })
+  skillId: string;
+
   @ApiProperty({ example: 'React' })
   name: string;
 

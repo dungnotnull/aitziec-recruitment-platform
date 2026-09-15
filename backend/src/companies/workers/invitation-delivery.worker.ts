@@ -26,6 +26,16 @@ export class InvitationDeliveryWorker {
   async deliverInvitation(params: DeliverInvitationParams): Promise<void> {
     const { invitationId, companyName, role, email } = params;
 
+    const invitation = await this.prisma.companyInvitation.findUnique({
+      where: { id: invitationId },
+    });
+    if (invitation && invitation.status !== 'PENDING') {
+      this.logger.warn(
+        `Skipping invitation delivery: invitation ${invitationId} is not in PENDING status (current=${invitation.status}).`,
+      );
+      return;
+    }
+
     let acceptUrl: string | undefined;
 
     const deliverySecret = await this.prisma.companyInvitationDeliverySecret.findUnique({
@@ -39,10 +49,10 @@ export class InvitationDeliveryWorker {
           deliverySecret.iv,
           deliverySecret.authTag,
         );
-        const frontendUrl =
-          this.configService.get<string>('FRONTEND_URL') ||
-          this.configService.get<string>('APP_URL') ||
-          'http://localhost:3000';
+        const frontendUrl = this.configService.get<string>('FRONTEND_URL');
+        if (!frontendUrl) {
+          throw new Error('FRONTEND_URL is required for invitation delivery.');
+        }
 
         acceptUrl = `${frontendUrl.replace(/\/$/, '')}/company-invitations/${rawToken}/accept`;
       } catch (err: unknown) {

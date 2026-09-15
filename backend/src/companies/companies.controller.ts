@@ -177,4 +177,21 @@ export class CompaniesController {
   ): Promise<void> {
     return this.companiesService.removeMember(companyId, memberId, user);
   }
+
+  @ApiBearerAuth('bearer')
+  @UseGuards(JwtAuthGuard)
+  @Delete(':companyId/invitations/:invitationId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Revoke a pending company invitation (Owner only)' })
+  @ApiResponse({ status: 204, description: 'Invitation revoked' })
+  @ApiResponse({ status: 403, description: 'Forbidden for non-owners' })
+  @ApiResponse({ status: 404, description: 'Invitation not found' })
+  @ApiResponse({ status: 409, description: 'Invitation already accepted, revoked, or expired' })
+  async revokeInvitation(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Param('invitationId', ParseUUIDPipe) invitationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<void> {
+    return this.companiesService.revokeInvitation(companyId, user, invitationId);
+  }
 }

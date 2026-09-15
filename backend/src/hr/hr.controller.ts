@@ -2,13 +2,16 @@ import {
   Controller,
   Get,
   Patch,
+  Post,
+  Param,
   Body,
   Query,
   UseGuards,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { HrService } from './hr.service';
 import { HrProfileDto, UpdateHrProfileDto } from './dto/hr-profile.dto';
 import { HrInvitationItemDto } from './dto/hr-invitation.dto';
@@ -70,5 +73,22 @@ export class HrController {
     @Query() query: PaginationQueryDto,
   ): Promise<CollectionResponse<HrInvitationItemDto>> {
     return this.hrService.listInvitations(user, query);
+  }
+
+  @Roles('HR')
+  @Post('invitations/:invitationId/reject')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Reject a pending company invitation received by current HR' })
+  @ApiParam({ name: 'invitationId', type: 'string', format: 'uuid' })
+  @ApiResponse({ status: 204, description: 'Invitation rejected successfully' })
+  @ApiResponse({ status: 401, description: 'Authentication required' })
+  @ApiResponse({ status: 403, description: 'Forbidden for non-HR role' })
+  @ApiResponse({ status: 404, description: 'Invitation not found' })
+  @ApiResponse({ status: 409, description: 'Invitation already accepted, revoked, or expired' })
+  async rejectInvitation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('invitationId', ParseUUIDPipe) invitationId: string,
+  ): Promise<void> {
+    await this.hrService.rejectInvitation(user, invitationId);
   }
 }

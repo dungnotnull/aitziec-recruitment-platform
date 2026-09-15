@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   MinLength,
@@ -76,6 +77,10 @@ export class EnvironmentVariables {
   CORS_ORIGINS: string = 'http://localhost:5173,http://localhost:3000';
 
   @IsString()
+  @IsNotEmpty()
+  FRONTEND_URL: string;
+
+  @IsString()
   @IsOptional()
   INVITATION_TOKEN_ENCRYPTION_KEY: string =
     process.env.INVITATION_TOKEN_ENCRYPTION_KEY || Buffer.alloc(32, 'a').toString('base64');
@@ -142,6 +147,8 @@ export function validateConfig(config: Record<string, unknown>): EnvironmentVari
       PORT: config.PORT ? Number(config.PORT) : 4000,
       REDIS_PORT: config.REDIS_PORT ? Number(config.REDIS_PORT) : 6379,
       MINIO_PORT: config.MINIO_PORT ? Number(config.MINIO_PORT) : undefined,
+      FRONTEND_URL:
+        config.FRONTEND_URL !== undefined ? String(config.FRONTEND_URL).trim() : undefined,
       REFRESH_COOKIE_SECURE:
         config.REFRESH_COOKIE_SECURE === 'true' || config.REFRESH_COOKIE_SECURE === true,
     },
@@ -170,6 +177,27 @@ export function validateConfig(config: Record<string, unknown>): EnvironmentVari
         '[ConfigValidation] INVITATION_TOKEN_ENCRYPTION_KEY must be a valid base64 string decoding to exactly 32 bytes.',
       );
     }
+  }
+
+  try {
+    const frontendUrl = new URL(transformed.FRONTEND_URL);
+    const hasOnlyOrigin =
+      (frontendUrl.protocol === 'http:' || frontendUrl.protocol === 'https:') &&
+      frontendUrl.pathname === '/' &&
+      frontendUrl.search === '' &&
+      frontendUrl.hash === '' &&
+      frontendUrl.username === '' &&
+      frontendUrl.password === '';
+
+    if (!hasOnlyOrigin) {
+      throw new Error('invalid origin');
+    }
+
+    transformed.FRONTEND_URL = frontendUrl.origin;
+  } catch {
+    throw new Error(
+      '[ConfigValidation] FRONTEND_URL must be an absolute HTTP(S) origin without a path, query, fragment, or credentials.',
+    );
   }
 
   return transformed;

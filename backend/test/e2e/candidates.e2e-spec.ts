@@ -253,6 +253,48 @@ describe('Candidate Profiles E2E (BE-2-011 to BE-2-014)', () => {
     expect(res.body.error.code).toBe(ERROR_CODES.VERSION_CONFLICT);
   });
 
+  it('POST /api/v1/candidates/me/avatar persists a valid avatar and GET returns its URL', async () => {
+    const pngBuffer = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(64),
+    ]);
+
+    const uploadRes = await request(app.getHttpServer())
+      .post('/api/v1/candidates/me/avatar')
+      .set('Authorization', `Bearer ${candidateToken}`)
+      .field('expectedVersion', 2)
+      .attach('avatar', pngBuffer, { filename: 'avatar.png', contentType: 'image/png' })
+      .expect(200);
+
+    expect(uploadRes.body.data.avatarUrl).toContain('candidates/');
+    expect(uploadRes.body.data.avatarUrl).toMatch(/\.png$/);
+    expect(uploadRes.body.data.version).toBe(3);
+
+    const profileRes = await request(app.getHttpServer())
+      .get('/api/v1/candidates/me')
+      .set('Authorization', `Bearer ${candidateToken}`)
+      .expect(200);
+
+    expect(profileRes.body.data.avatarUrl).toBe(uploadRes.body.data.avatarUrl);
+    expect(profileRes.body.data.version).toBe(3);
+  });
+
+  it('POST /api/v1/candidates/me/avatar rejects MIME/signature mismatch', async () => {
+    const pngBuffer = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(64),
+    ]);
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/candidates/me/avatar')
+      .set('Authorization', `Bearer ${candidateToken}`)
+      .field('expectedVersion', 3)
+      .attach('avatar', pngBuffer, { filename: 'avatar.jpg', contentType: 'image/jpeg' })
+      .expect(415);
+
+    expect(res.body.error.code).toBe(ERROR_CODES.INVALID_FILE_TYPE);
+  });
+
   it('GET /api/v1/candidates/me denies access to HR user with 403 FORBIDDEN', async () => {
     const res = await request(app.getHttpServer())
       .get('/api/v1/candidates/me')

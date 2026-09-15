@@ -89,6 +89,7 @@ export class SkillsService {
 
     const data: SkillCatalogItemDto[] = (dataItems as unknown as SkillRecord[]).map((s) => ({
       id: s.id,
+      skillId: s.id,
       name: s.name,
       aliases: (s.aliases || []).map((a) => a.alias).sort(),
       active: s.active,

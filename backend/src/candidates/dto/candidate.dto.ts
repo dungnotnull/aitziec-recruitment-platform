@@ -66,6 +66,9 @@ export class CandidateProfileDto {
   @ApiProperty({ example: 'Passionate software engineer...', nullable: true })
   bio: string | null;
 
+  @ApiProperty({ example: 'http://assets.test/candidates/cand-prof-1/avatar.png', nullable: true })
+  avatarUrl: string | null;
+
   @ApiProperty({ example: true })
   isSearchable: boolean;
 
@@ -89,6 +92,23 @@ export class CandidateProfileDto {
 
   @ApiProperty({ example: '2026-09-08T09:30:00.000Z' })
   updatedAt: string;
+}
+
+export class UploadCandidateAvatarResponseDto {
+  @ApiProperty({ example: 'http://assets.test/candidates/cand-prof-1/avatar.png' })
+  avatarUrl: string;
+
+  @ApiProperty({ example: 2 })
+  version: number;
+}
+
+export class UploadCandidateAvatarDto {
+  @ApiPropertyOptional({ example: 1, description: 'Expected version for optimistic concurrency' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expectedVersion?: number;
 }
 
 export class UpdateSkillInput {

@@ -191,4 +191,63 @@ describe('Skill Catalog E2E (BE-8-006, BE-8-007)', () => {
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe(ERROR_CODES.VALIDATION_ERROR);
   });
+
+  it('8. exposes skillId in catalog and allows candidate profile selection and round-trip (BE-16-004)', async () => {
+    const canonicalUuid = '11111111-1111-4111-8111-111111111111';
+    await inMemoryPrisma.skill.create({
+      data: {
+        id: canonicalUuid,
+        name: 'Golang',
+        normalizedName: 'golang',
+        active: true,
+      },
+    });
+
+    const catalogRes = await request(app.getHttpServer())
+      .get('/api/v1/skills?search=golang')
+      .set('Authorization', `Bearer ${candidateToken}`);
+
+    expect(catalogRes.status).toBe(200);
+    expect(catalogRes.body.data.length).toBe(1);
+    const goSkill = catalogRes.body.data[0];
+    expect(goSkill.id).toBe(canonicalUuid);
+    expect(goSkill.skillId).toBe(canonicalUuid);
+    expect(goSkill.name).toBe('Golang');
+
+    const profileResBefore = await request(app.getHttpServer())
+      .get('/api/v1/candidates/me')
+      .set('Authorization', `Bearer ${candidateToken}`)
+      .expect(200);
+
+    const currentVersion = profileResBefore.body.data.version;
+
+    const patchRes = await request(app.getHttpServer())
+      .patch('/api/v1/candidates/me')
+      .set('Authorization', `Bearer ${candidateToken}`)
+      .send({
+        expectedVersion: currentVersion,
+        skills: [
+          {
+            skillId: goSkill.skillId,
+            yearsOfExperience: 3,
+          },
+        ],
+      })
+      .expect(200);
+
+    expect(patchRes.body.data.skills).toHaveLength(1);
+    expect(patchRes.body.data.skills[0].skillId).toBe(canonicalUuid);
+    expect(patchRes.body.data.skills[0].name).toBe('Golang');
+    expect(patchRes.body.data.skills[0].yearsOfExperience).toBe(3);
+
+    const profileResAfter = await request(app.getHttpServer())
+      .get('/api/v1/candidates/me')
+      .set('Authorization', `Bearer ${candidateToken}`)
+      .expect(200);
+
+    expect(profileResAfter.body.data.skills).toHaveLength(1);
+    expect(profileResAfter.body.data.skills[0].skillId).toBe(canonicalUuid);
+    expect(profileResAfter.body.data.skills[0].name).toBe('Golang');
+    expect(profileResAfter.body.data.skills[0].yearsOfExperience).toBe(3);
+  });
 });

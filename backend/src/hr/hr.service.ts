@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  ForbiddenException,
   BadRequestException,
   Logger,
 } from '@nestjs/common';
@@ -254,5 +255,99 @@ export class HrService {
         },
       },
     };
+  }
+
+  async rejectInvitation(user: AuthenticatedUser, invitationId: string): Promise<void> {
+    const userEntity = await this.prisma.user.findUnique({
+      where: { id: user.id },
+    });
+
+    if (!userEntity || userEntity.role !== 'HR' || userEntity.status !== 'ACTIVE') {
+      throw new ForbiddenException({
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'Only active HR accounts can reject company invitations.',
+      });
+    }
+
+    const invitation = await this.prisma.companyInvitation.findUnique({
+      where: { id: invitationId },
+    });
+
+    if (!invitation || invitation.email.toLowerCase() !== userEntity.email.toLowerCase()) {
+      throw new NotFoundException({
+        code: ERROR_CODES.INVITATION_NOT_FOUND,
+        message: 'Invitation not found.',
+      });
+    }
+
+    if (invitation.status === 'ACCEPTED') {
+      throw new ConflictException({
+        code: ERROR_CODES.INVITATION_ALREADY_ACCEPTED,
+        message: 'This invitation has already been accepted.',
+      });
+    }
+
+    if (invitation.status === 'REVOKED') {
+      throw new ConflictException({
+        code: ERROR_CODES.INVITATION_REVOKED,
+        message: 'This invitation has already been revoked.',
+      });
+    }
+
+    const now = new Date();
+    if (invitation.status === 'EXPIRED' || invitation.expiresAt <= now) {
+      throw new ConflictException({
+        code: ERROR_CODES.INVITATION_EXPIRED,
+        message: 'This invitation has expired.',
+      });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const updateResult = await tx.companyInvitation.updateMany({
+        where: {
+          id: invitationId,
+          email: userEntity.email.toLowerCase(),
+          status: 'PENDING',
+        },
+        data: {
+          status: 'REVOKED',
+          revokedAt: now,
+        },
+      });
+
+      if (updateResult.count === 0) {
+        const current = await tx.companyInvitation.findUnique({
+          where: { id: invitationId },
+        });
+        if (current?.status === 'ACCEPTED') {
+          throw new ConflictException({
+            code: ERROR_CODES.INVITATION_ALREADY_ACCEPTED,
+            message: 'This invitation has already been accepted.',
+          });
+        }
+        throw new ConflictException({
+          code: ERROR_CODES.INVITATION_REVOKED,
+          message: 'This invitation has already been revoked or expired.',
+        });
+      }
+
+      await tx.companyInvitationDeliverySecret.deleteMany({
+        where: { invitationId },
+      });
+
+      await this.auditService.record(
+        {
+          actorId: user.id,
+          action: 'COMPANY_INVITATION_REJECTED',
+          targetType: 'CompanyInvitation',
+          targetId: invitationId,
+          metadata: {
+            companyId: invitation.companyId,
+            role: invitation.role,
+          },
+        },
+        tx,
+      );
+    });
   }
 }

@@ -63,7 +63,7 @@ describe('NotificationsService (Unit)', () => {
               if (key === 'EMAIL_FROM') return 'no-reply@test.internal';
               if (key === 'INVITATION_TOKEN_ENCRYPTION_KEY')
                 return Buffer.alloc(32, 'k').toString('base64');
-              if (key === 'FRONTEND_URL') return 'http://localhost:3000';
+              if (key === 'FRONTEND_URL') return 'http://localhost:5173';
               return defaultVal;
             }),
           },
@@ -414,6 +414,9 @@ describe('NotificationsService (Unit)', () => {
       expect(emailArgs.to).toBe('guest.invitee@test.com');
       expect(emailArgs.subject).toContain('Invitation to join Tech Corp');
       expect(emailArgs.idempotencyKey).toBe('email-comp-inv-inv-123');
+      expect(emailArgs.html).toContain(
+        `href="http://localhost:5173/company-invitations/${rawToken}/accept"`,
+      );
       expect(emailArgs.text).toContain(`/company-invitations/${rawToken}/accept`);
       expect(emailArgs.html).toContain(`/company-invitations/${rawToken}/accept`);
 

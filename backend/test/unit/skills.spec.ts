@@ -148,4 +148,21 @@ describe('SkillsService (Unit)', () => {
       expect(res.code).toBe(ERROR_CODES.INVALID_CURSOR);
     }
   });
+
+  it('exposes skillId identical to id on each catalog item (BE-16-004)', async () => {
+    await inMemoryPrisma.skill.create({
+      data: {
+        id: '11111111-1111-4111-8111-111111111111',
+        name: 'TypeScript',
+        normalizedName: 'typescript',
+        active: true,
+      },
+    });
+
+    const res = await service.listSkills({});
+    expect(res.data.length).toBe(1);
+    expect(res.data[0].id).toBe('11111111-1111-4111-8111-111111111111');
+    expect(res.data[0].skillId).toBe('11111111-1111-4111-8111-111111111111');
+    expect(res.data[0].name).toBe('TypeScript');
+  });
 });
