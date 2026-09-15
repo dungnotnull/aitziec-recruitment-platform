@@ -2,9 +2,9 @@ import { apiClient } from '@/api/client'
 import type {
   AiAnalysis,
   CreateCvJobAnalysisRequest,
-  Job,
   Operation,
   PaginatedResponse,
+  RecommendedJob,
   SuccessResponse,
 } from '@/api/types'
 
@@ -27,11 +27,12 @@ export const aiApi = {
     return response.data
   },
 
-  async getRecommendations(cursor?: string, limit = 20, signal?: AbortSignal): Promise<PaginatedResponse<Job>> {
-    const response = await apiClient.get<PaginatedResponse<Job>>('/recommendations/jobs', {
+  async getRecommendations(cursor?: string, limit = 20, signal?: AbortSignal): Promise<PaginatedResponse<RecommendedJob>> {
+    const response = await apiClient.get<PaginatedResponse<RecommendedJob>>('/recommendations/jobs', {
       params: { cursor, limit },
       signal,
     })
     return response.data
   },
 }
+

@@ -5,8 +5,9 @@ import { Button } from "@/shared/ui/button"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { useNavigate } from "@tanstack/react-router"
+import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { createCompany, updateCompany } from "../api"
+import { createCompany, updateCompany, uploadCompanyLogo } from "../api"
 import type { Company } from "@/api/types"
 
 const companySchema = z.object({
@@ -28,12 +29,12 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const isEditing = !!company
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [previewLogo, setPreviewLogo] = useState<string | null>(company?.logoUrl || null)
 
   const {
     register,
     handleSubmit,
-    watch,
-    setValue,
     formState: { errors },
     setError
   } = useForm<CompanyValues>({
@@ -49,22 +50,34 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
   })
 
   const mutation = useMutation({
-    mutationFn: (data: CompanyValues) => {
+    mutationFn: async (data: CompanyValues) => {
+      let savedCompany: Company
       if (isEditing) {
-        return updateCompany(company.id, {
+        savedCompany = await updateCompany(company.id, {
           expectedVersion: company.version,
           ...data,
           websiteUrl: data.websiteUrl || null,
-          logoUrl: data.logoUrl || null,
+          logoUrl: company.logoUrl,
         })
       } else {
-        return createCompany({
+        savedCompany = await createCompany({
           ...data,
           slug: data.slug!,
           websiteUrl: data.websiteUrl || null,
-          logoUrl: data.logoUrl || null,
+          logoUrl: null,
         })
       }
+
+      if (logoFile) {
+        try {
+          const logoRes = await uploadCompanyLogo(savedCompany.id, logoFile, savedCompany.version)
+          savedCompany = { ...savedCompany, logoUrl: logoRes.logoUrl, version: logoRes.version }
+        } catch (err) {
+          console.error("Failed to upload company logo:", err)
+        }
+      }
+
+      return savedCompany
     },
     onSuccess: (savedCompany) => {
       queryClient.setQueryData(['company', savedCompany.id], savedCompany)
@@ -83,6 +96,7 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
   return (
     <div className="max-w-2xl mx-auto py-8">
       <div className="mb-8">
+
         <h2 className="text-2xl font-display font-bold text-ink">
           {isEditing ? "Edit Company Profile" : "Create Company Profile"}
         </h2>
@@ -160,21 +174,22 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
               <Input 
                 id="logoUrl" 
                 type="file" 
-                accept="image/*"
+                accept="image/png,image/jpeg,image/webp"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
+                    setLogoFile(file);
                     const reader = new FileReader();
                     reader.onloadend = () => {
-                      setValue('logoUrl', reader.result as string, { shouldValidate: true, shouldDirty: true });
+                      setPreviewLogo(reader.result as string);
                     };
                     reader.readAsDataURL(file);
                   }
                 }} 
               />
-              {company?.logoUrl || watch('logoUrl') ? (
+              {previewLogo ? (
                 <div className="mt-2">
-                  <img src={watch('logoUrl') || company?.logoUrl || undefined} alt="Logo preview" className="h-16 w-16 object-cover rounded border" />
+                  <img src={previewLogo} alt="Logo preview" className="h-16 w-16 object-cover rounded border" />
                 </div>
               ) : null}
               {errors.logoUrl && (

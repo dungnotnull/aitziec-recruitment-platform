@@ -119,15 +119,6 @@ export const useApproveJob = () => {
   });
 };
 
-export const useDeleteJob = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (jobId: string) => jobApi.deleteJob(jobId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: jobKeys.lists() });
-    },
-  });
-};
 
 export const useParseSearchQuery = () => {
   return useMutation({

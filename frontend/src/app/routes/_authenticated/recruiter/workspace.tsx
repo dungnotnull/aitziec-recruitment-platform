@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useCompanyJobs, usePublishJob, useUnpublishJob, useDeleteJob, useApproveJob } from '@/features/job/hooks/useJobs';
+import { useCompanyJobs, usePublishJob, useUnpublishJob, useCloseJob, useApproveJob } from '@/features/job/hooks/useJobs';
 import type { Job } from '@/api/types';
 import { Button } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
@@ -46,13 +46,13 @@ function RecruiterWorkspacePage() {
   
   const publishMutation = usePublishJob();
   const unpublishMutation = useUnpublishJob();
-  const deleteMutation = useDeleteJob();
+  const closeMutation = useCloseJob();
   const approveMutation = useApproveJob();
   
   const { session } = useAuth();
   
   const currentUserRole = myCompaniesQuery.data?.find(c => c.company.id === companyId)?.membership.role;
-  const isOwnerOrAdmin = currentUserRole === 'OWNER' || currentUserRole === 'ADMIN' || session?.user.role === 'ADMIN';
+  const isOwnerOrAdmin = currentUserRole === 'OWNER' || (currentUserRole as string) === 'ADMIN' || session?.user.role === 'ADMIN';
 
   const [flash, setFlash] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const showFlash = (type: 'success' | 'error', message: string) => {
@@ -63,14 +63,7 @@ function RecruiterWorkspacePage() {
     publishMutation.mutate(
       { jobId, expectedVersion: version },
       {
-        onSuccess: (data) => {
-          const returnedStatus = data.data.status;
-          if (returnedStatus === 'PENDING_APPROVAL') {
-            showFlash('success', 'Job submitted for approval. The company owner will be notified to review it.');
-          } else {
-            showFlash('success', 'Job published successfully.');
-          }
-        },
+        onSuccess: () => showFlash('success', 'Job published successfully'),
         onError: (err) => showFlash('error', `Failed to publish job: ${err.message}`),
       }
     );
@@ -86,12 +79,15 @@ function RecruiterWorkspacePage() {
     );
   };
 
-  const handleDelete = (jobId: string) => {
-    if (confirm('Are you sure you want to delete this job?')) {
-      deleteMutation.mutate(jobId, {
-        onSuccess: () => showFlash('success', 'Job deleted successfully'),
-        onError: (err) => showFlash('error', `Failed to delete job: ${err.message}`),
-      });
+  const handleClose = (jobId: string, version: number) => {
+    if (confirm('Are you sure you want to close this job?')) {
+      closeMutation.mutate(
+        { jobId, expectedVersion: version, reason: 'Closed by recruiter' },
+        {
+          onSuccess: () => showFlash('success', 'Job closed successfully'),
+          onError: (err) => showFlash('error', `Failed to close job: ${err.message}`),
+        }
+      );
     }
   };
 
@@ -221,10 +217,10 @@ function RecruiterWorkspacePage() {
                           </Button>
                           <Button 
                             variant="destructive"
-                            onClick={() => handleDelete(job.id)}
-                            disabled={deleteMutation.isPending}
+                            onClick={() => handleClose(job.id, job.version)}
+                            disabled={closeMutation.isPending}
                           >
-                            Delete
+                            Close
                           </Button>
                         </>
                       ) : null}

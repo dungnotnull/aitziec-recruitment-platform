@@ -1,15 +1,22 @@
 import { apiClient } from '@/api/client'
 import type { Notification, NotificationFilters, NotificationPageResponse, NotificationTransport, SuccessResponse } from '@/api/types'
 
-type NotificationTransportPage = {
-  data: NotificationTransport[]
-  meta: {
-    hasMore: boolean
+type BackendNotificationMeta = {
+  page?: {
+    hasNextPage: boolean
     nextCursor: string | null
-    total: number
-    unreadCount: number
-    requestId?: string
+    limit: number
   }
+  hasMore?: boolean
+  nextCursor?: string | null
+  total?: number
+  unreadCount?: number
+  requestId?: string
+}
+
+type NotificationRawResponse = {
+  data: (Notification | NotificationTransport)[]
+  meta: BackendNotificationMeta
 }
 
 export function toNotification(
@@ -28,21 +35,26 @@ export function toNotification(
 
 export const notificationApi = {
   async list(filters: NotificationFilters, signal?: AbortSignal): Promise<NotificationPageResponse> {
-    const response = await apiClient.get<NotificationTransportPage>('/notifications', {
+    const response = await apiClient.get<NotificationRawResponse>('/notifications', {
       params: filters,
       signal,
     })
-    const { hasMore, nextCursor, total, unreadCount, requestId } = response.data.meta
+    const rawMeta = response.data.meta || {}
+    const hasNextPage = rawMeta.page?.hasNextPage ?? rawMeta.hasMore ?? false
+    const nextCursor = rawMeta.page?.nextCursor ?? rawMeta.nextCursor ?? null
+    const limit = rawMeta.page?.limit ?? filters.limit ?? 20
+    const unreadCount = rawMeta.unreadCount ?? 0
+
     return {
       data: response.data.data.map(toNotification),
       meta: {
-        ...(requestId ? { requestId } : {}),
-        total,
+        ...(rawMeta.requestId ? { requestId: rawMeta.requestId } : {}),
+        total: rawMeta.total,
         unreadCount,
         page: {
-          hasNextPage: hasMore,
+          hasNextPage,
           nextCursor,
-          limit: filters.limit ?? 20,
+          limit,
         },
       },
     }

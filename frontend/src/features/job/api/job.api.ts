@@ -123,13 +123,6 @@ export const jobApi = {
     return response.data;
   },
 
-  /**
-   * HR: Delete a draft job
-   */
-  deleteJob: async (jobId: string): Promise<SuccessResponse<null>> => {
-    const response = await apiClient.delete<SuccessResponse<null>>(`/jobs/${jobId}`);
-    return response.data;
-  },
 
   /**
    * Public: Parse natural language query to filters

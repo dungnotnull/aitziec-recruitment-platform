@@ -35,6 +35,14 @@ export type ErrorCode =
   | "FILE_TOO_LARGE"
   | "PDF_INVALID"
   | "CV_NOT_READY"
+  | "CV_RETRY_EXHAUSTED"
+  | "INVITATION_NOT_FOUND"
+  | "INVITATION_EXPIRED"
+  | "INVITATION_ALREADY_ACCEPTED"
+  | "INVITATION_REVOKED"
+  | "INVITATION_EMAIL_MISMATCH"
+  | "INVITATION_ALREADY_PENDING"
+  | "RECOMMENDATION_OPTED_OUT"
   | "INTERVIEW_TIME_INVALID"
   | "INTERVIEW_STATUS_INVALID"
   | "AI_OUTPUT_INVALID"
@@ -70,6 +78,17 @@ export type AuthSession = {
   accessToken: string;
   accessTokenExpiresAt: string;
   user: UserSummary;
+};
+
+export type RegisterRequest = {
+  email: string;
+  password: string;
+  role: "CANDIDATE" | "HR";
+};
+
+export type LoginRequest = {
+  email: string;
+  password: string;
 };
 
 // --- Candidate Module Types ---
@@ -133,7 +152,12 @@ export type UpdateCandidateProfileInput = {
   experiences?: UpdateExperienceInput[];
 };
 
+export type UpdateCandidateProfileRequest = UpdateCandidateProfileInput;
+
 // --- Company Module Types ---
+
+export type CompanyStatus = "ACTIVE" | "SUSPENDED";
+export type CompanyMemberRole = "OWNER" | "RECRUITER";
 
 export type Company = {
   id: string;
@@ -186,15 +210,21 @@ export type CallerCompanyMembership = {
 
 export type AddCompanyMemberInput = {
   userEmail: string;
-  role?: 'RECRUITER';
+  role?: "RECRUITER";
+};
+
+export type PageInfo = {
+  nextCursor: string | null;
+  hasNextPage: boolean;
+  limit: number;
 };
 
 export type PaginationMeta = {
-  page: {
-    nextCursor: string | null;
-    hasNextPage: boolean;
-    limit: number;
-  };
+  page: PageInfo;
+  optedOut?: boolean;
+  message?: string;
+  profileRequired?: boolean;
+  unreadCount?: number;
 };
 
 export type PaginatedResponse<T> = {
@@ -202,16 +232,24 @@ export type PaginatedResponse<T> = {
   meta: PaginationMeta & { requestId?: string };
 };
 
-export type CompanyInvitationStatus = 'PENDING' | 'ACCEPTED' | 'REVOKED' | 'EXPIRED';
+export type CollectionResponse<T> = PaginatedResponse<T>;
+
+export type CompanyInvitationStatus = "PENDING" | "ACCEPTED" | "REVOKED" | "EXPIRED";
 
 export type CompanyInvitation = {
   id: string;
   companyId: string;
   email: string;
+  maskedEmail?: string;
   role: CompanyMemberRole;
   status: CompanyInvitationStatus;
   expiresAt: string;
   createdAt: string;
+};
+
+export type UploadCompanyLogoResponse = {
+  logoUrl: string;
+  version: number;
 };
 
 export type HrInvitationCompanySummary = {
@@ -233,6 +271,7 @@ export type HrInvitationItem = {
 export type HrProfile = {
   id: string;
   userId: string;
+  fullName?: string;
   firstName: string | null;
   lastName: string | null;
   avatarUrl: string | null;
@@ -244,11 +283,14 @@ export type HrProfile = {
 
 export type UpdateHrProfileInput = {
   expectedVersion?: number;
+  fullName?: string;
   firstName?: string | null;
   lastName?: string | null;
   avatarUrl?: string | null;
   phone?: string | null;
 };
+
+export type UpdateHrProfileRequest = UpdateHrProfileInput;
 
 // --- Job Module Types ---
 
@@ -274,6 +316,7 @@ export type Job = {
   salaryMax: number | null;
   currency: string;
   applicationDeadline: string;
+  creatorId?: string | null;
   status: JobStatus;
   publishedAt: string | null;
   closedAt: string | null;
@@ -302,6 +345,10 @@ export type UpdateJobRequest = Partial<CreateJobRequest> & {
   expectedVersion: number;
 };
 
+export type ApproveJobRequest = {
+  expectedVersion: number;
+};
+
 export type JobSearchFilters = {
   q?: string;
   technology?: string[];
@@ -317,6 +364,10 @@ export type JobSearchFilters = {
   sort?: "RELEVANCE" | "NEWEST" | "SALARY_ASC" | "SALARY_DESC";
   cursor?: string;
   limit?: number;
+};
+
+export type SavedJobCheck = {
+  isSaved: boolean;
 };
 
 // --- CV Module Types ---
@@ -438,9 +489,7 @@ export type Operation = {
   completedAt: string | null;
 };
 
-export type CompanyStatus = "ACTIVE" | "SUSPENDED";
-export type CompanyMemberRole = "OWNER" | "RECRUITER" | "ADMIN";
-export type AiAnalysisType = "CV_JOB_MATCH" | "CV_GAP_ANALYSIS" | "CV_JOB_ANALYSIS";
+export type AiAnalysisType = "CV_PROFILE" | "CV_JOB_MATCH" | "CV_GAP_ANALYSIS" | "CV_JOB_ANALYSIS";
 export type NotificationType =
   | "APPLICATION_SUBMITTED"
   | "APPLICATION_STATUS_CHANGED"
@@ -448,6 +497,7 @@ export type NotificationType =
   | "INTERVIEW_RESCHEDULED"
   | "INTERVIEW_CANCELLED"
   | "APPLICATION_OUTCOME"
+  | "COMPANY_INVITATION"
   | "COMPANY_INVITATION_CREATED"
   | "COMPANY_MEMBER_ADDED"
   | "JOB_PENDING_APPROVAL";
@@ -485,6 +535,32 @@ export type CreateCvJobAnalysisRequest = {
   analyses: Array<"CV_JOB_MATCH" | "CV_GAP_ANALYSIS">;
 };
 
+export type RecommendedJob = {
+  job: Job;
+  score: number;
+  reasonCodes: string[];
+  evidence: string[];
+  limitations: string[];
+};
+
+export type RecommendationPreference = {
+  id?: string;
+  userId?: string;
+  enabled: boolean;
+  consentPolicyVersion: string;
+  consentedAt: string;
+  updatedAt?: string;
+  version: number;
+};
+
+export type UpdateRecommendationPreferenceRequest = {
+  enabled: boolean;
+  consentPolicyVersion: string;
+  expectedVersion: number;
+};
+
+// --- Notification ---
+
 export type Notification = {
   id: string;
   type: NotificationType;
@@ -496,16 +572,73 @@ export type Notification = {
 };
 
 export type NotificationTransport = Omit<Notification, "resource"> & {
-  userId: string;
-  resourceType: string | null;
-  resourceId: string | null;
+  userId?: string;
+  resourceType?: string | null;
+  resourceId?: string | null;
+  resource?: { type: string; id: string } | null;
 };
 
 export type NotificationPageResponse = PaginatedResponse<Notification> & {
   meta: PaginatedResponse<Notification>["meta"] & {
-    total: number;
-    unreadCount: number;
+    total?: number;
+    unreadCount?: number;
   };
+};
+
+// --- Skill Catalog ---
+
+export type SkillCatalogItem = {
+  id: string;
+  name: string;
+  aliases: string[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// --- Admin ---
+
+export type AdminCompany = Company & {
+  memberCount?: number;
+  jobCount?: number;
+};
+
+export type AdminJob = Job & {
+  company: Pick<Company, "id" | "name" | "slug" | "status">;
+};
+
+export type AdminApplicationSummary = {
+  id: string;
+  status: ApplicationStatus;
+  version: number;
+  submittedAt: string;
+  updatedAt: string;
+  candidate: {
+    id: string;
+    fullName: string;
+    headline: string | null;
+    skills: string[];
+  };
+  job: {
+    id: string;
+    title: string;
+    slug: string;
+  };
+  company: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+};
+
+export type AdminApplicationDetail = AdminApplicationSummary & {
+  history: ApplicationStatusEvent[];
+};
+
+export type ModerateApplicationRequest = {
+  targetStatus: ApplicationStatus;
+  reason: string;
+  expectedVersion: number;
 };
 
 export type AuditLog = {

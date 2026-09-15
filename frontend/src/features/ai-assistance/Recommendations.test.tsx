@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { apiClient } from '@/api/client'
-import type { Job, PaginatedResponse } from '@/api/types'
+import type { Job, PaginatedResponse, RecommendedJob, SuccessResponse, SavedJobCheck } from '@/api/types'
 import { Recommendations } from './Recommendations'
 
 const originalAdapter = apiClient.defaults.adapter
@@ -23,10 +23,32 @@ describe('Recommendations', () => {
       createdAt: '2026-09-09T00:00:00.000Z', updatedAt: '2026-09-09T00:00:00.000Z',
       company: { id: 'company-1', slug: 'acme', name: 'Acme', logoUrl: null },
     }
-    apiClient.defaults.adapter = (async (config) => ({
-      data: { data: [job], meta: { page: { nextCursor: null, hasNextPage: false, limit: 20 } } },
-      status: 200, statusText: 'OK', headers: {}, config,
-    }) as AxiosResponse<PaginatedResponse<Job>>) satisfies AxiosAdapter
+    const recommendedItem: RecommendedJob = {
+      job,
+      score: 95,
+      reasonCodes: ['SKILL_MATCH'],
+      evidence: ['TypeScript experience'],
+      limitations: [],
+    }
+    apiClient.defaults.adapter = (async (config) => {
+      if (config.url?.includes('/saved-jobs')) {
+        return {
+          data: { data: { isSaved: false } },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        } as AxiosResponse<SuccessResponse<SavedJobCheck>>
+      }
+      return {
+        data: { data: [recommendedItem], meta: { page: { nextCursor: null, hasNextPage: false, limit: 20 } } },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config,
+      } as AxiosResponse<PaginatedResponse<RecommendedJob>>
+    }) satisfies AxiosAdapter
+
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><Recommendations /></QueryClientProvider>)
 
@@ -36,3 +58,4 @@ describe('Recommendations', () => {
     expect(await screen.findByRole('button', { name: 'Save job' })).toBeVisible()
   })
 })
+

@@ -7,7 +7,11 @@ import { useRecommendations } from './hooks'
 
 export function Recommendations() {
   const query = useRecommendations(20)
-  const jobs = [...new Map((query.data?.pages.flatMap((page) => page.data) ?? []).map((job) => [job.id, job])).values()]
+  const items = [...new Map((query.data?.pages.flatMap((page) => page.data) ?? []).map((item) => {
+    const job = 'job' in item && item.job ? item.job : (item as any);
+    const score = 'score' in item ? item.score : undefined;
+    return [job.id, { job, score }];
+  })).values()]
 
   return (
     <section className="mx-auto max-w-5xl space-y-6" aria-labelledby="recommendations-title">
@@ -21,17 +25,24 @@ export function Recommendations() {
         const error = getApiErrorDetails(query.error)
         return <Alert variant="destructive"><AlertTitle>Recommendations unavailable</AlertTitle><AlertDescription>{error.message}<Button className="mt-3 bg-danger" onClick={() => void query.refetch()}>Try again</Button></AlertDescription></Alert>
       })() : null}
-      {!query.isPending && !query.error && jobs.length === 0 ? (
+      {!query.isPending && !query.error && items.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-surface p-10 text-center"><BriefcaseBusiness className="mx-auto h-8 w-8 text-slate" aria-hidden="true" /><h2 className="mt-4 font-display text-xl font-semibold text-ink">No recommendations yet</h2><p className="mt-2 text-ink-muted">Complete your profile and add a ready CV, then check again.</p></div>
       ) : null}
       <div className="grid gap-4">
-        {jobs.map((job) => (
+        {items.map(({ job, score }) => (
           <article key={job.id} className="grid gap-4 rounded-xl border border-border bg-surface p-5 sm:grid-cols-[1fr_auto] sm:items-center">
             <div>
-              <p className="font-mono text-xs font-semibold uppercase tracking-wider text-action">Recommended by the server</p>
+              <div className="flex items-center gap-2">
+                <p className="font-mono text-xs font-semibold uppercase tracking-wider text-action">Recommended by the server</p>
+                {score !== undefined && (
+                  <span className="rounded-full bg-action/10 px-2.5 py-0.5 text-xs font-semibold text-action">
+                    Match score: {score}%
+                  </span>
+                )}
+              </div>
               <h2 className="mt-1 font-display text-xl font-semibold text-ink"><a className="hover:underline" href={`/jobs/${encodeURIComponent(job.slug)}`}>{job.title}</a></h2>
               <p className="mt-1 text-ink-muted">{job.company.name} · {job.location} · {job.workplaceType.toLowerCase()}</p>
-              <ul className="mt-3 flex flex-wrap gap-2" aria-label="Technologies">{job.technologyNames.map((technology) => <li key={technology} className="rounded-full bg-surface-raised px-3 py-1 text-sm text-ink">{technology}</li>)}</ul>
+              <ul className="mt-3 flex flex-wrap gap-2" aria-label="Technologies">{job.technologyNames.map((technology: string) => <li key={technology} className="rounded-full bg-surface-raised px-3 py-1 text-sm text-ink">{technology}</li>)}</ul>
             </div>
             <SavedJobButton jobId={job.id} />
           </article>
@@ -41,3 +52,4 @@ export function Recommendations() {
     </section>
   )
 }
+

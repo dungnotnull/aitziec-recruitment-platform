@@ -7,6 +7,6 @@ describe('getNavigationItems', () => {
       '/jobs', '/notifications', '/profile', '/candidate/recommendations', '/candidate/ai',
     ])
     expect(getNavigationItems('HR').map((item) => item.href)).toEqual(['/jobs', '/notifications', '/company', '/profile'])
-    expect(getNavigationItems('ADMIN').map((item) => item.href)).toEqual(['/jobs', '/notifications', '/profile', '/admin', '/admin/audit'])
+    expect(getNavigationItems('ADMIN').map((item) => item.href)).toEqual(['/jobs', '/notifications', '/admin', '/admin/audit'])
   })
 })

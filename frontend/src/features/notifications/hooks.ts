@@ -64,7 +64,7 @@ export function useMarkNotificationRead() {
           ...current,
           meta: {
             ...current.meta,
-            unreadCount: Math.max(0, current.meta.unreadCount - 1),
+            unreadCount: Math.max(0, (current.meta.unreadCount ?? 0) - 1),
           },
         }
       })

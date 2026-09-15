@@ -34,7 +34,7 @@ export function MemberDirectory({ companyId }: { companyId: string }) {
   const members = data?.data || []
   
   const currentUserRole = members.find(m => m.user.id === session?.user.id)?.role;
-  const isOwner = currentUserRole === 'OWNER' || currentUserRole === 'ADMIN' || session?.user.role === 'ADMIN';
+  const isOwner = currentUserRole === 'OWNER' || session?.user.role === 'ADMIN';
 
   const addMutation = useMutation({
     mutationFn: (email: string) => addMember(companyId, { userEmail: email, role: 'RECRUITER' }),

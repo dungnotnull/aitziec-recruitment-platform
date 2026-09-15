@@ -8,7 +8,8 @@ import type {
   AddCompanyMemberInput,
   CompanyInvitation,
   PaginatedResponse,
-  SuccessResponse
+  SuccessResponse,
+  UploadCompanyLogoResponse,
 } from '@/api/types';
 
 export const createCompany = async (data: CreateCompanyInput): Promise<Company> => {
@@ -23,6 +24,26 @@ export async function getCompany(idOrSlug: string): Promise<Company> {
 
 export const updateCompany = async (id: string, data: UpdateCompanyInput): Promise<Company> => {
   const response = await apiClient.patch<SuccessResponse<Company>>(`/companies/${id}`, data);
+  return response.data.data;
+};
+
+export const uploadCompanyLogo = async (
+  companyId: string,
+  file: File,
+  expectedVersion?: number
+): Promise<UploadCompanyLogoResponse> => {
+  const formData = new FormData();
+  formData.append('logo', file);
+  if (expectedVersion !== undefined) {
+    formData.append('expectedVersion', String(expectedVersion));
+  }
+  const response = await apiClient.post<SuccessResponse<UploadCompanyLogoResponse>>(
+    `/companies/${companyId}/logo`,
+    formData,
+    {
+      headers: { 'Content-Type': undefined },
+    }
+  );
   return response.data.data;
 };
 
@@ -51,3 +72,4 @@ export const acceptCompanyInvitation = async (token: string): Promise<CompanyMem
 export const removeMember = async (companyId: string, memberId: string): Promise<void> => {
   await apiClient.delete(`/companies/${companyId}/members/${memberId}`);
 };
+
