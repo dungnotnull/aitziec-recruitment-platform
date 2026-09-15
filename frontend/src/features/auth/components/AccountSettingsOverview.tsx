@@ -9,12 +9,14 @@ import { Button } from "@/shared/ui/button"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/shared/ui/dialog"
-import { useForm } from "react-hook-form"
+import { useForm, useWatch } from "react-hook-form"
 import { Building, CheckCircle, Mail, AlertCircle, KeyRound, ExternalLink } from "lucide-react"
+import { Avatar } from "@/shared/ui/avatar"
 
 type ProfileFormValues = {
   fullName: string;
   phone: string;
+  avatarUrl: string;
 }
 
 export function AccountSettingsOverview() {
@@ -30,12 +32,16 @@ export function AccountSettingsOverview() {
   const [acceptError, setAcceptError] = React.useState<string | null>(null)
   const [acceptSuccess, setAcceptSuccess] = React.useState<string | null>(null)
 
-  const { register, handleSubmit, reset, formState: { isSubmitting } } = useForm<ProfileFormValues>({
+  const { register, handleSubmit, reset, control, formState: { isSubmitting } } = useForm<ProfileFormValues>({
     defaultValues: {
       fullName: "",
-      phone: ""
+      phone: "",
+      avatarUrl: ""
     }
   })
+
+  const watchedAvatarUrl = useWatch({ control, name: "avatarUrl" })
+  const watchedFullName = useWatch({ control, name: "fullName" })
 
   // 1. HR Profile Query
   const { data: hrProfile, isLoading: isProfileLoading } = useQuery({
@@ -49,7 +55,8 @@ export function AccountSettingsOverview() {
       const nameParts = [hrProfile.firstName, hrProfile.lastName].filter(Boolean)
       reset({
         fullName: nameParts.join(" "),
-        phone: hrProfile.phone || ""
+        phone: hrProfile.phone || "",
+        avatarUrl: hrProfile.avatarUrl || ""
       })
     }
   }, [hrProfile, reset])
@@ -75,7 +82,8 @@ export function AccountSettingsOverview() {
         expectedVersion: hrProfile?.version,
         firstName,
         lastName,
-        phone: data.phone.trim() || null
+        phone: data.phone.trim() || null,
+        avatarUrl: data.avatarUrl.trim() || null,
       })
     },
     onSuccess: () => {
@@ -244,6 +252,30 @@ export function AccountSettingsOverview() {
               <Label htmlFor="email">Email Address</Label>
               <Input id="email" value={session.user.email} disabled className="bg-slate/10" />
               <p className="text-xs text-slate">Email cannot be changed as it is used for login.</p>
+            </div>
+
+            {/* Avatar Preview & URL */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl border border-border bg-slate/5">
+              <Avatar
+                size="xl"
+                src={watchedAvatarUrl?.trim() || undefined}
+                fallback={watchedFullName || session.user.email}
+                alt="HR Avatar Preview"
+                className="shrink-0 ring-2 ring-border shadow-sm bg-surface"
+              />
+              <div className="space-y-1.5 flex-1 w-full">
+                <Label htmlFor="avatarUrl">Avatar URL</Label>
+                <Input
+                  id="avatarUrl"
+                  type="url"
+                  placeholder="https://example.com/avatar.jpg"
+                  disabled={isProfileLoading}
+                  {...register("avatarUrl")}
+                />
+                <p className="text-xs text-slate">
+                  Enter a direct image link (HTTP/HTTPS) for your profile picture.
+                </p>
+              </div>
             </div>
 
             <div className="space-y-2">

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 import { getCompany, listMyCompanies } from "../api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { Button } from "@/shared/ui/button"
-import { Building, Users, Briefcase, Edit, Globe, MapPin, MailCheck } from "lucide-react"
+import { Building, Users, Briefcase, Edit, Globe, MapPin, MailCheck, ExternalLink } from "lucide-react"
 
 import { MemberDirectory } from "./MemberDirectory"
 import { AcceptInvitationModal } from "./AcceptInvitationModal"
@@ -12,6 +12,7 @@ import { StateBoundary } from "@/shared/ui/state-boundary"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { useCompanyJobs } from "@/features/job/hooks/useJobs"
 import { listMyHrInvitations } from "@/features/hr/api"
+import { getCompanyExtendedInfo } from "../company-meta"
 import type { HrInvitationItem } from "@/api/types"
 
 export function CompanyDashboard({ companyId }: { companyId?: string }) {
@@ -101,9 +102,21 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
             </div>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {company && (
-            <Link to="/company/edit" search={{ companyId }}>
+            <Link
+              to="/companies/$companyIdOrSlug"
+              params={{ companyIdOrSlug: company.slug || company.id }}
+              target="_blank"
+            >
+              <Button variant="outline" className="border-blue-200 text-blue-600 hover:bg-blue-50">
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Xem trang công ty public
+              </Button>
+            </Link>
+          )}
+          {company && (
+            <Link to="/company/edit" search={{ companyId: company.id }}>
               <Button variant="outline">
                 <Edit className="mr-2 h-4 w-4" />
                 Edit Profile
@@ -185,7 +198,7 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{company.name}</div>
-                  <p className="text-xs text-slate mt-1">Slug: {company.slug}</p>
+                  <p className="text-xs text-slate mt-1">Mô hình: {getCompanyExtendedInfo(company.id).companyModel}</p>
                 </CardContent>
               </Card>
 
@@ -198,7 +211,7 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
                   <div className="text-2xl font-bold">
                     {jobsQuery.data?.data?.length ?? 0}
                   </div>
-                  <p className="text-xs text-slate mt-1">Managed jobs</p>
+                  <p className="text-xs text-slate mt-1">Quy mô: {getCompanyExtendedInfo(company.id).companySize}</p>
                 </CardContent>
               </Card>
 
@@ -209,7 +222,7 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold truncate">{company.location || 'N/A'}</div>
-                  <p className="text-xs text-slate mt-1">HQ</p>
+                  <p className="text-xs text-slate mt-1">HQ ({getCompanyExtendedInfo(company.id).country})</p>
                 </CardContent>
               </Card>
             </div>

@@ -4,7 +4,7 @@ import { CvList } from '@/features/cv/components/CvList';
 import { OperationTracker } from '@/features/operations/OperationTracker';
 
 export const Route = createFileRoute('/_authenticated/candidate/cvs')({
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): { operationId?: string } => ({
     operationId: typeof search.operationId === 'string' ? search.operationId : undefined,
   }),
   component: CvsPage,

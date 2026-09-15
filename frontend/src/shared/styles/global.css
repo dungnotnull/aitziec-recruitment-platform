@@ -3,25 +3,25 @@
 
 @theme {
   /* Core ink / text */
-  --color-ink: #14532D;
-  --color-ink-muted: #4B5563;
+  --color-ink: #0F172A;
+  --color-ink-muted: #475569;
   --color-slate: #64748B;
 
-  /* Action / brand */
-  --color-action: #16A34A;
-  --color-action-hover: #15803D;
-  --color-action-dim: rgba(22, 163, 74, 0.10);
-  --color-action-border: rgba(22, 163, 74, 0.25);
+  /* Action / brand - ITviec Crimson Red */
+  --color-action: #EA1E30;
+  --color-action-hover: #D01223;
+  --color-action-dim: rgba(234, 30, 48, 0.08);
+  --color-action-border: rgba(234, 30, 48, 0.25);
 
   /* Surface layers (light, depth-based) */
-  --color-canvas: #F0FDF4;      /* Page background */
+  --color-canvas: #F8FAFC;      /* Page background */
   --color-surface: #FFFFFF;     /* Cards, sidebars */
-  --color-surface-raised: #DCFCE7; /* Elevated cards */
+  --color-surface-raised: #F1F5F9; /* Elevated cards */
   --color-surface-overlay: #FFFFFF; /* Modal overlays, popups */
 
   /* Border */
-  --color-border: #BBF7D0;
-  --color-border-subtle: rgba(187, 247, 208, 0.7);
+  --color-border: #E2E8F0;
+  --color-border-subtle: rgba(226, 232, 240, 0.8);
 
   /* Status colors */
   --color-danger: #DC2626;
@@ -62,20 +62,6 @@
     filter: drop-shadow(0 0 2px rgba(0,0,0,0.3));
   }
 
-  /* Enterprise dot-grid background pattern on the root background */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    background-image:
-      radial-gradient(ellipse 80% 50% at 20% 10%, rgba(22, 163, 74, 0.04) 0%, transparent 60%),
-      radial-gradient(ellipse 60% 40% at 80% 80%, rgba(34, 197, 94, 0.03) 0%, transparent 60%),
-      radial-gradient(circle at 1px 1px, rgba(226, 232, 240, 0.8) 1px, transparent 0);
-    background-size: 100% 100%, 100% 100%, 28px 28px;
-    pointer-events: none;
-  }
-
   /* Scrollbar */
   ::-webkit-scrollbar {
     width: 6px;
@@ -94,12 +80,10 @@
 
   /* Selection */
   ::selection {
-    background: rgba(22, 163, 74, 0.20);
-    color: var(--color-action-hover);
+    background: rgba(234, 30, 48, 0.15);
+    color: #EA1E30;
   }
-}
 
-@layer base {
   *, *::before, *::after { box-sizing: border-box; }
   body::before { display: none; }
   button,
@@ -109,19 +93,19 @@
 }
 
 .dark {
-  --color-ink: #F0FDF4;
-  --color-ink-muted: #BBF7D0;
-  --color-slate: #86EFAC;
-  --color-canvas: #022C22;
-  --color-surface: #064E3B;
-  --color-surface-raised: #065F46;
-  --color-surface-overlay: #065F46;
-  --color-border: #047857;
-  --color-border-subtle: rgba(4, 120, 87, 0.7);
-  --color-action: #4ADE80;
-  --color-action-hover: #86EFAC;
-  --color-action-dim: rgba(74, 222, 128, 0.14);
-  --color-action-border: rgba(74, 222, 128, 0.34);
+  --color-ink: #F8FAFC;
+  --color-ink-muted: #CBD5E1;
+  --color-slate: #94A3B8;
+  --color-canvas: #0F172A;
+  --color-surface: #1E293B;
+  --color-surface-raised: #334155;
+  --color-surface-overlay: #1E293B;
+  --color-border: #334155;
+  --color-border-subtle: rgba(51, 65, 85, 0.7);
+  --color-action: #FF385C;
+  --color-action-hover: #FF5A78;
+  --color-action-dim: rgba(255, 56, 92, 0.14);
+  --color-action-border: rgba(255, 56, 92, 0.34);
   --color-danger: #F87171;
   --color-danger-bg: rgba(248, 113, 113, 0.14);
   --color-success: #4ADE80;
@@ -132,19 +116,19 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
-    --color-ink: #F0FDF4;
-    --color-ink-muted: #BBF7D0;
-    --color-slate: #86EFAC;
-    --color-canvas: #022C22;
-    --color-surface: #064E3B;
-    --color-surface-raised: #065F46;
-    --color-surface-overlay: #065F46;
-    --color-border: #047857;
-    --color-border-subtle: rgba(4, 120, 87, 0.7);
-    --color-action: #4ADE80;
-    --color-action-hover: #86EFAC;
-    --color-action-dim: rgba(74, 222, 128, 0.14);
-    --color-action-border: rgba(74, 222, 128, 0.34);
+    --color-ink: #F8FAFC;
+    --color-ink-muted: #CBD5E1;
+    --color-slate: #94A3B8;
+    --color-canvas: #0F172A;
+    --color-surface: #1E293B;
+    --color-surface-raised: #334155;
+    --color-surface-overlay: #1E293B;
+    --color-border: #334155;
+    --color-border-subtle: rgba(51, 65, 85, 0.7);
+    --color-action: #FF385C;
+    --color-action-hover: #FF5A78;
+    --color-action-dim: rgba(255, 56, 92, 0.14);
+    --color-action-border: rgba(255, 56, 92, 0.34);
     --color-danger: #F87171;
     --color-danger-bg: rgba(248, 113, 113, 0.14);
     --color-success: #4ADE80;

@@ -23,6 +23,8 @@ import { Route as AuthenticatedCandidateApplicationsRouteImport } from './routes
 import { Route as AuthenticatedCandidateCvsRouteImport } from './routes/_authenticated/candidate/cvs'
 import { Route as AuthenticatedCandidateRecommendationsRouteImport } from './routes/_authenticated/candidate/recommendations'
 import { Route as AuthenticatedCandidateSavedJobsRouteImport } from './routes/_authenticated/candidate/saved-jobs'
+import { Route as AuthenticatedCompaniesIndexRouteImport } from './routes/_authenticated/companies/index'
+import { Route as AuthenticatedCompaniesCompanyIdOrSlugRouteImport } from './routes/_authenticated/companies/$companyIdOrSlug'
 import { Route as AuthenticatedInterviewsInterviewIdRouteImport } from './routes/_authenticated/interviews/$interviewId'
 import { Route as AuthenticatedJobsIndexRouteImport } from './routes/_authenticated/jobs/index'
 import { Route as AuthenticatedJobsJobIdOrSlugRouteImport } from './routes/_authenticated/jobs/$jobIdOrSlug'
@@ -137,6 +139,18 @@ const AuthenticatedCandidateSavedJobsRoute =
     path: '/candidate/saved-jobs',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedCompaniesIndexRoute =
+  AuthenticatedCompaniesIndexRouteImport.update({
+    id: '/companies/',
+    path: '/companies/',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedCompaniesCompanyIdOrSlugRoute =
+  AuthenticatedCompaniesCompanyIdOrSlugRouteImport.update({
+    id: '/companies/$companyIdOrSlug',
+    path: '/companies/$companyIdOrSlug',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedCompanyIndexLazyRoute =
   AuthenticatedCompanyIndexLazyRouteImport.update({
     id: '/',
@@ -204,10 +218,12 @@ export interface FileRoutesByFullPath {
   '/candidate/cvs': typeof AuthenticatedCandidateCvsRoute
   '/candidate/recommendations': typeof AuthenticatedCandidateRecommendationsRoute
   '/candidate/saved-jobs': typeof AuthenticatedCandidateSavedJobsRoute
+  '/companies/$companyIdOrSlug': typeof AuthenticatedCompaniesCompanyIdOrSlugRoute
   '/interviews/$interviewId': typeof AuthenticatedInterviewsInterviewIdRoute
   '/jobs/$jobIdOrSlug': typeof AuthenticatedJobsJobIdOrSlugRoute
   '/recruiter/workspace': typeof AuthenticatedRecruiterWorkspaceRoute
   '/company/edit': typeof AuthenticatedCompanyEditLazyRoute
+  '/companies/': typeof AuthenticatedCompaniesIndexRoute
   '/jobs/': typeof AuthenticatedJobsIndexRoute
   '/admin/': typeof AuthenticatedAdminIndexLazyRoute
   '/company/': typeof AuthenticatedCompanyIndexLazyRoute
@@ -227,10 +243,12 @@ export interface FileRoutesByTo {
   '/candidate/cvs': typeof AuthenticatedCandidateCvsRoute
   '/candidate/recommendations': typeof AuthenticatedCandidateRecommendationsRoute
   '/candidate/saved-jobs': typeof AuthenticatedCandidateSavedJobsRoute
+  '/companies/$companyIdOrSlug': typeof AuthenticatedCompaniesCompanyIdOrSlugRoute
   '/interviews/$interviewId': typeof AuthenticatedInterviewsInterviewIdRoute
   '/jobs/$jobIdOrSlug': typeof AuthenticatedJobsJobIdOrSlugRoute
   '/recruiter/workspace': typeof AuthenticatedRecruiterWorkspaceRoute
   '/company/edit': typeof AuthenticatedCompanyEditLazyRoute
+  '/companies': typeof AuthenticatedCompaniesIndexRoute
   '/jobs': typeof AuthenticatedJobsIndexRoute
   '/admin': typeof AuthenticatedAdminIndexLazyRoute
   '/company': typeof AuthenticatedCompanyIndexLazyRoute
@@ -254,10 +272,12 @@ export interface FileRoutesById {
   '/_authenticated/candidate/cvs': typeof AuthenticatedCandidateCvsRoute
   '/_authenticated/candidate/recommendations': typeof AuthenticatedCandidateRecommendationsRoute
   '/_authenticated/candidate/saved-jobs': typeof AuthenticatedCandidateSavedJobsRoute
+  '/_authenticated/companies/$companyIdOrSlug': typeof AuthenticatedCompaniesCompanyIdOrSlugRoute
   '/_authenticated/interviews/$interviewId': typeof AuthenticatedInterviewsInterviewIdRoute
   '/_authenticated/jobs/$jobIdOrSlug': typeof AuthenticatedJobsJobIdOrSlugRoute
   '/_authenticated/recruiter/workspace': typeof AuthenticatedRecruiterWorkspaceRoute
   '/_authenticated/company/edit': typeof AuthenticatedCompanyEditLazyRoute
+  '/_authenticated/companies/': typeof AuthenticatedCompaniesIndexRoute
   '/_authenticated/jobs/': typeof AuthenticatedJobsIndexRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexLazyRoute
   '/_authenticated/company/': typeof AuthenticatedCompanyIndexLazyRoute
@@ -281,10 +301,12 @@ export interface FileRouteTypes {
     | '/candidate/cvs'
     | '/candidate/recommendations'
     | '/candidate/saved-jobs'
+    | '/companies/$companyIdOrSlug'
     | '/interviews/$interviewId'
     | '/jobs/$jobIdOrSlug'
     | '/recruiter/workspace'
     | '/company/edit'
+    | '/companies/'
     | '/jobs/'
     | '/admin/'
     | '/company/'
@@ -304,10 +326,12 @@ export interface FileRouteTypes {
     | '/candidate/cvs'
     | '/candidate/recommendations'
     | '/candidate/saved-jobs'
+    | '/companies/$companyIdOrSlug'
     | '/interviews/$interviewId'
     | '/jobs/$jobIdOrSlug'
     | '/recruiter/workspace'
     | '/company/edit'
+    | '/companies'
     | '/jobs'
     | '/admin'
     | '/company'
@@ -330,10 +354,12 @@ export interface FileRouteTypes {
     | '/_authenticated/candidate/cvs'
     | '/_authenticated/candidate/recommendations'
     | '/_authenticated/candidate/saved-jobs'
+    | '/_authenticated/companies/$companyIdOrSlug'
     | '/_authenticated/interviews/$interviewId'
     | '/_authenticated/jobs/$jobIdOrSlug'
     | '/_authenticated/recruiter/workspace'
     | '/_authenticated/company/edit'
+    | '/_authenticated/companies/'
     | '/_authenticated/jobs/'
     | '/_authenticated/admin/'
     | '/_authenticated/company/'
@@ -460,6 +486,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCandidateSavedJobsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/companies/': {
+      id: '/_authenticated/companies/'
+      path: '/companies'
+      fullPath: '/companies/'
+      preLoaderRoute: typeof AuthenticatedCompaniesIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/companies/$companyIdOrSlug': {
+      id: '/_authenticated/companies/$companyIdOrSlug'
+      path: '/companies/$companyIdOrSlug'
+      fullPath: '/companies/$companyIdOrSlug'
+      preLoaderRoute: typeof AuthenticatedCompaniesCompanyIdOrSlugRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/company/': {
       id: '/_authenticated/company/'
       path: '/'
@@ -576,9 +616,11 @@ interface AuthenticatedRouteChildren {
   AuthenticatedCandidateCvsRoute: typeof AuthenticatedCandidateCvsRoute
   AuthenticatedCandidateRecommendationsRoute: typeof AuthenticatedCandidateRecommendationsRoute
   AuthenticatedCandidateSavedJobsRoute: typeof AuthenticatedCandidateSavedJobsRoute
+  AuthenticatedCompaniesCompanyIdOrSlugRoute: typeof AuthenticatedCompaniesCompanyIdOrSlugRoute
   AuthenticatedInterviewsInterviewIdRoute: typeof AuthenticatedInterviewsInterviewIdRoute
   AuthenticatedJobsJobIdOrSlugRoute: typeof AuthenticatedJobsJobIdOrSlugRoute
   AuthenticatedRecruiterWorkspaceRoute: typeof AuthenticatedRecruiterWorkspaceRoute
+  AuthenticatedCompaniesIndexRoute: typeof AuthenticatedCompaniesIndexRoute
   AuthenticatedJobsIndexRoute: typeof AuthenticatedJobsIndexRoute
   AuthenticatedCompanyInvitationsTokenAcceptRoute: typeof AuthenticatedCompanyInvitationsTokenAcceptRoute
   AuthenticatedRecruiterJobsJobIdApplicantsRoute: typeof AuthenticatedRecruiterJobsJobIdApplicantsRoute
@@ -597,10 +639,13 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedCandidateRecommendationsRoute:
     AuthenticatedCandidateRecommendationsRoute,
   AuthenticatedCandidateSavedJobsRoute: AuthenticatedCandidateSavedJobsRoute,
+  AuthenticatedCompaniesCompanyIdOrSlugRoute:
+    AuthenticatedCompaniesCompanyIdOrSlugRoute,
   AuthenticatedInterviewsInterviewIdRoute:
     AuthenticatedInterviewsInterviewIdRoute,
   AuthenticatedJobsJobIdOrSlugRoute: AuthenticatedJobsJobIdOrSlugRoute,
   AuthenticatedRecruiterWorkspaceRoute: AuthenticatedRecruiterWorkspaceRoute,
+  AuthenticatedCompaniesIndexRoute: AuthenticatedCompaniesIndexRoute,
   AuthenticatedJobsIndexRoute: AuthenticatedJobsIndexRoute,
   AuthenticatedCompanyInvitationsTokenAcceptRoute:
     AuthenticatedCompanyInvitationsTokenAcceptRoute,

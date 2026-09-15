@@ -1,6 +1,6 @@
 import type { AxiosAdapter, AxiosResponse } from 'axios'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
 import { apiClient } from '@/api/client'
@@ -159,5 +159,123 @@ describe('AccountSettingsOverview', () => {
     // Verify success banner and link to company
     expect(await screen.findByText(/invitation accepted successfully/i)).toBeVisible()
     expect(screen.getByRole('button', { name: /view company/i })).toBeVisible()
+  })
+
+  it('renders and updates HR personal profile including avatarUrl', async () => {
+    const requests: Array<{ method?: string; url?: string; data?: unknown }> = []
+
+    const profileWithAvatar: HrProfile = {
+      ...initialProfile,
+      avatarUrl: 'https://example.com/current-avatar.png',
+    }
+
+    apiClient.defaults.adapter = (async (config) => {
+      let parsedData = config.data
+      if (typeof config.data === 'string') {
+        try {
+          parsedData = JSON.parse(config.data)
+        } catch {
+          // ignore
+        }
+      }
+      requests.push({ method: config.method, url: config.url, data: parsedData })
+
+      if (config.url === '/auth/refresh') {
+        return {
+          data: { data: hrSession },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        } as AxiosResponse<SuccessResponse<AuthSession>>
+      }
+
+      if (config.url === '/hr/me' && (config.method === 'get' || !config.method)) {
+        return {
+          data: { data: profileWithAvatar },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        } as AxiosResponse<SuccessResponse<HrProfile>>
+      }
+
+      if (config.url === '/hr/me' && config.method === 'patch') {
+        return {
+          data: {
+            data: {
+              ...profileWithAvatar,
+              avatarUrl: 'https://cdn.example.com/new-avatar.png',
+              version: 2,
+            },
+          },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        } as AxiosResponse<SuccessResponse<HrProfile>>
+      }
+
+      if (config.url === '/hr/invitations') {
+        return {
+          data: {
+            data: [],
+            meta: { page: { nextCursor: null, hasNextPage: false, limit: 20 } },
+          },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        } as AxiosResponse<PaginatedResponse<HrInvitationItem>>
+      }
+
+      return {
+        data: { data: null },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config,
+      } as AxiosResponse
+    }) satisfies AxiosAdapter
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <AccountSettingsOverview />
+        </AuthProvider>
+      </QueryClientProvider>,
+    )
+
+    // Verify avatarUrl input is populated with initial value
+    const avatarInput = (await screen.findByLabelText(/avatar url/i)) as HTMLInputElement
+    await waitFor(() => {
+      expect(avatarInput.value).toBe('https://example.com/current-avatar.png')
+    })
+
+    // Change avatarUrl
+    await userEvent.clear(avatarInput)
+    await userEvent.type(avatarInput, 'https://cdn.example.com/new-avatar.png')
+
+    // Submit form
+    const saveBtn = screen.getByRole('button', { name: /save changes/i })
+    await userEvent.click(saveBtn)
+
+    // Verify PATCH request payload
+    const patchReq = requests.find((r) => r.url === '/hr/me' && r.method === 'patch')
+    expect(patchReq).toBeDefined()
+    expect(patchReq?.data).toMatchObject({
+      expectedVersion: 1,
+      firstName: 'Jane',
+      lastName: 'Recruiter',
+      phone: '+84912345678',
+      avatarUrl: 'https://cdn.example.com/new-avatar.png',
+    })
+
+    // Verify success banner
+    expect(await screen.findByText(/personal information updated successfully/i)).toBeVisible()
   })
 })

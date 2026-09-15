@@ -8,23 +8,23 @@ export type NavigationItem = {
 
 export function getNavigationItems(role: UserRole): NavigationItem[] {
   const common: NavigationItem[] = [
-    { href: '/jobs', label: 'Find jobs', icon: 'search' },
-    { href: '/notifications', label: 'Notifications', icon: 'bell' }
+    { href: '/jobs', label: 'Việc làm IT', icon: 'search' },
+    { href: '/notifications', label: 'Thông báo', icon: 'bell' }
   ]
   if (role === 'CANDIDATE') return [
     ...common,
-    { href: '/profile', label: 'My profile', icon: 'user' },
-    { href: '/candidate/recommendations', label: 'Recommendations', icon: 'sparkles' },
-    { href: '/candidate/ai', label: 'CV analysis', icon: 'brain' },
+    { href: '/profile', label: 'Hồ sơ cá nhân', icon: 'user' },
+    { href: '/candidate/recommendations', label: 'Gợi ý việc làm', icon: 'sparkles' },
+    { href: '/candidate/ai', label: 'Phân tích CV', icon: 'brain' },
   ]
   if (role === 'HR') return [
     ...common, 
-    { href: '/company', label: 'Company dashboard', icon: 'building' },
-    { href: '/profile', label: 'Account Settings', icon: 'user' }
+    { href: '/company', label: 'Quản lý công ty', icon: 'building' },
+    { href: '/profile', label: 'Cài đặt tài khoản', icon: 'user' }
   ]
   return [
     ...common,
-    { href: '/admin', label: 'Admin', icon: 'shield' },
-    { href: '/admin/audit', label: 'Audit log', icon: 'audit' },
+    { href: '/admin', label: 'Quản trị hệ thống', icon: 'shield' },
+    { href: '/admin/audit', label: 'Nhật ký hệ thống', icon: 'audit' },
   ]
 }
