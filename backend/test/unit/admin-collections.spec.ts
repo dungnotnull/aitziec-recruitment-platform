@@ -9,7 +9,6 @@ import { ApplicationsService } from '../../src/applications/applications.service
 import { OutboxService } from '../../src/outbox/outbox.service';
 import { ApplicationStatus } from '../../src/applications/dto/application.dto';
 import { AuthenticatedUser } from '../../src/common/decorators/current-user.decorator';
-import { ERROR_CODES } from '../../src/common/constants/error-codes';
 import { InMemoryPrismaService } from '../e2e/in-memory-prisma';
 
 describe('Admin Collections (Unit - BE-8-013, BE-8-014, BE-8-015)', () => {
@@ -79,23 +78,7 @@ describe('Admin Collections (Unit - BE-8-013, BE-8-014, BE-8-015)', () => {
     outboxServiceMock = { recordEvent: jest.fn().mockResolvedValue({}) };
     applicationsServiceMock = {
       validateStatusTransition: jest.fn((current: ApplicationStatus, target: ApplicationStatus) => {
-        if (current === 'PASSED' || current === 'REJECTED' || current === target) {
-          throw new ConflictException({
-            code: ERROR_CODES.INVALID_APPLICATION_TRANSITION,
-            message: 'Invalid transition',
-          });
-        }
-        const allowed: Record<string, string[]> = {
-          APPLIED: ['REVIEWING'],
-          REVIEWING: ['INTERVIEWING'],
-          INTERVIEWING: ['PASSED', 'REJECTED'],
-        };
-        if (!allowed[current]?.includes(target)) {
-          throw new ConflictException({
-            code: ERROR_CODES.INVALID_APPLICATION_TRANSITION,
-            message: 'Invalid transition',
-          });
-        }
+        return ApplicationsService.prototype.validateStatusTransition(current, target);
       }),
     };
 
@@ -775,6 +758,172 @@ describe('Admin Collections (Unit - BE-8-013, BE-8-014, BE-8-015)', () => {
 
       expect(res.status).toBe(ApplicationStatus.REVIEWING);
       expect(res.version).toBe(2);
+    });
+
+    it('BE-19-002 & BE-19-003 admin moderates PASSED -> OFFERED and OFFERED -> HIRED emitting semantic events', async () => {
+      const comp = await inMemoryPrisma.company.create({
+        data: {
+          id: 'c-admin-sem',
+          name: 'Admin Sem Corp',
+          slug: 'admin-sem-corp',
+          status: 'ACTIVE',
+        },
+      });
+      const candUser = await inMemoryPrisma.user.create({
+        data: { id: 'u-admin-sem', email: 'adminsem@c.com', role: 'CANDIDATE' },
+      });
+      const cand = await inMemoryPrisma.candidateProfile.create({
+        data: { id: 'cand-admin-sem', userId: candUser.id, fullName: 'Admin Sem Cand' },
+      });
+      const job = await inMemoryPrisma.job.create({
+        data: {
+          id: 'j-admin-sem',
+          companyId: comp.id,
+          title: 'Admin Sem Job',
+          slug: 'admin-sem-job',
+          status: 'PUBLISHED',
+          workplaceType: 'REMOTE',
+          experienceLevel: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          description: 'Desc',
+          requirements: 'Reqs',
+          applicationDeadline: new Date(Date.now() + 86400000),
+        },
+      });
+
+      const app = await inMemoryPrisma.application.create({
+        data: {
+          id: 'app-admin-sem-1',
+          candidateId: cand.id,
+          jobId: job.id,
+          submittedCvId: 'cv-admin-sem-1',
+          status: 'PASSED',
+          version: 3,
+        },
+      });
+
+      // Moderate PASSED -> OFFERED
+      const offerRes = await adminService.moderateApplication(mockAdminUser, app.id, {
+        targetStatus: ApplicationStatus.OFFERED,
+        reason: 'Admin approved formal offer',
+        expectedVersion: 3,
+      });
+
+      expect(offerRes.status).toBe(ApplicationStatus.OFFERED);
+      expect(offerRes.version).toBe(4);
+      expect(auditServiceMock.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'APPLICATION_OFFERED',
+          targetId: app.id,
+        }),
+        expect.anything(),
+      );
+      expect(outboxServiceMock.recordEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          eventName: 'ApplicationOffered',
+          aggregateId: app.id,
+        }),
+      );
+
+      // Moderate OFFERED -> HIRED
+      const hireRes = await adminService.moderateApplication(mockAdminUser, app.id, {
+        targetStatus: ApplicationStatus.HIRED,
+        reason: 'Admin confirmed placement',
+        expectedVersion: 4,
+      });
+
+      expect(hireRes.status).toBe(ApplicationStatus.HIRED);
+      expect(hireRes.version).toBe(5);
+      expect(auditServiceMock.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'APPLICATION_HIRED',
+          targetId: app.id,
+        }),
+        expect.anything(),
+      );
+      expect(outboxServiceMock.recordEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          eventName: 'ApplicationHired',
+          aggregateId: app.id,
+        }),
+      );
+
+      // Attempt transition from terminal HIRED -> REJECTED fails 409
+      await expect(
+        adminService.moderateApplication(mockAdminUser, app.id, {
+          targetStatus: ApplicationStatus.REJECTED,
+          reason: 'Post-hired rejection invalid',
+          expectedVersion: 5,
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('BE-19-002 & BE-19-003 admin moderates REJECTED -> REVIEWING (Reconsider)', async () => {
+      const comp = await inMemoryPrisma.company.create({
+        data: {
+          id: 'c-admin-rec',
+          name: 'Admin Rec Corp',
+          slug: 'admin-rec-corp',
+          status: 'ACTIVE',
+        },
+      });
+      const candUser = await inMemoryPrisma.user.create({
+        data: { id: 'u-admin-rec', email: 'adminrec@c.com', role: 'CANDIDATE' },
+      });
+      const cand = await inMemoryPrisma.candidateProfile.create({
+        data: { id: 'cand-admin-rec', userId: candUser.id, fullName: 'Admin Rec Cand' },
+      });
+      const job = await inMemoryPrisma.job.create({
+        data: {
+          id: 'j-admin-rec',
+          companyId: comp.id,
+          title: 'Admin Rec Job',
+          slug: 'admin-rec-job',
+          status: 'PUBLISHED',
+          workplaceType: 'REMOTE',
+          experienceLevel: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          description: 'Desc',
+          requirements: 'Reqs',
+          applicationDeadline: new Date(Date.now() + 86400000),
+        },
+      });
+
+      const app = await inMemoryPrisma.application.create({
+        data: {
+          id: 'app-admin-rec-1',
+          candidateId: cand.id,
+          jobId: job.id,
+          submittedCvId: 'cv-admin-rec-1',
+          status: 'REJECTED',
+          version: 2,
+        },
+      });
+
+      const res = await adminService.moderateApplication(mockAdminUser, app.id, {
+        targetStatus: ApplicationStatus.REVIEWING,
+        reason: 'Admin reopening candidate for reconsideration',
+        expectedVersion: 2,
+      });
+
+      expect(res.status).toBe(ApplicationStatus.REVIEWING);
+      expect(res.version).toBe(3);
+      expect(auditServiceMock.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'APPLICATION_RECONSIDERED',
+          targetId: app.id,
+        }),
+        expect.anything(),
+      );
+      expect(outboxServiceMock.recordEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          eventName: 'ApplicationReconsidered',
+          aggregateId: app.id,
+        }),
+      );
     });
   });
 });

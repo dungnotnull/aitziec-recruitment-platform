@@ -277,28 +277,213 @@ describe('NotificationsService (Unit)', () => {
       expect(emailArgs.idempotencyKey).toBe('email-app-sub-app-1');
     });
 
-    it('should route ApplicationStatusChanged event to PASSED outcome', async () => {
-      await service.routeEvent('ApplicationStatusChanged', {
-        applicationId: 'app-1',
-        candidateUserId: candidateUser.id,
-        toStatus: 'PASSED',
-        jobTitle: 'Senior Backend Engineer',
-        companyName: 'Tech Corp',
-      });
+    it('should route ApplicationStatusChanged event: PASSED as status update and REJECTED as outcome', async () => {
+      // Test PASSED: routes as APPLICATION_STATUS_CHANGED (not outcome)
+      await service.routeEvent(
+        'ApplicationStatusChanged',
+        {
+          applicationId: 'app-passed',
+          candidateUserId: candidateUser.id,
+          toStatus: 'PASSED',
+          jobTitle: 'Senior Backend Engineer',
+          companyName: 'Tech Corp',
+        },
+        1,
+        'evt-pass-1',
+      );
 
-      const notifs = await inMemoryPrisma.notification.findMany({
+      const notifsPassed = await inMemoryPrisma.notification.findMany({
         where: { userId: candidateUser.id },
       });
-      expect(notifs.length).toBe(1);
-      expect(notifs[0].type).toBe(NotificationType.APPLICATION_OUTCOME);
-      expect(notifs[0].title).toContain('PASSED');
+      expect(notifsPassed.length).toBe(1);
+      expect(notifsPassed[0].type).toBe(NotificationType.APPLICATION_STATUS_CHANGED);
+      expect(notifsPassed[0].title).toContain('PASSED');
 
       expect(mockEmailService.sendEmail).toHaveBeenCalledTimes(1);
       const emailArgs = mockEmailService.sendEmail.mock.calls[0][0];
       expect(emailArgs.to).toBe(candidateUser.email);
       expect(emailArgs.subject).toContain('PASSED');
-      expect(emailArgs.text).toBeDefined();
-      expect(emailArgs.idempotencyKey).toBe('email-app-trans-app-1-PASSED');
+      expect(emailArgs.idempotencyKey).toBe('email-app-trans-app-passed-PASSED-evt-pass-1');
+
+      // Test REJECTED: routes as APPLICATION_OUTCOME
+      await service.routeEvent(
+        'ApplicationStatusChanged',
+        {
+          applicationId: 'app-rej',
+          candidateUserId: candidateUser.id,
+          toStatus: 'REJECTED',
+          jobTitle: 'Senior Backend Engineer',
+          companyName: 'Tech Corp',
+        },
+        1,
+        'evt-rej-1',
+      );
+
+      const notifsRej = await inMemoryPrisma.notification.findMany({
+        where: { userId: candidateUser.id },
+      });
+      expect(notifsRej.length).toBe(2);
+      const rejNotif = notifsRej.find((n) => n.resourceId === 'app-rej');
+      expect(rejNotif).toBeDefined();
+      expect(rejNotif?.type).toBe(NotificationType.APPLICATION_OUTCOME);
+    });
+
+    it('BE-19-003 routes ApplicationOffered event: creates in-app notification and sends offer email', async () => {
+      await service.routeEvent(
+        'ApplicationOffered',
+        {
+          applicationId: 'app-offered',
+          candidateUserId: candidateUser.id,
+          jobTitle: 'Staff Engineer',
+          companyName: 'Tech Corp',
+          toStatus: 'OFFERED',
+        },
+        1,
+        'evt-offer-1',
+      );
+
+      const notifs = await inMemoryPrisma.notification.findMany({
+        where: { userId: candidateUser.id },
+      });
+      const offerNotif = notifs.find((n) => n.title.includes('Offer'));
+      expect(offerNotif).toBeDefined();
+      expect(offerNotif?.type).toBe(NotificationType.APPLICATION_STATUS_CHANGED);
+
+      expect(mockEmailService.sendEmail).toHaveBeenCalled();
+      const lastCall =
+        mockEmailService.sendEmail.mock.calls[mockEmailService.sendEmail.mock.calls.length - 1][0];
+      expect(lastCall.subject).toContain('Job Offer');
+      expect(lastCall.idempotencyKey).toBe('email-app-offer-app-offered-evt-offer-1');
+    });
+
+    it('BE-19-003 routes ApplicationHired event: creates outcome notification and sends hire email', async () => {
+      await service.routeEvent(
+        'ApplicationHired',
+        {
+          applicationId: 'app-hired',
+          candidateUserId: candidateUser.id,
+          jobTitle: 'Staff Engineer',
+          companyName: 'Tech Corp',
+          toStatus: 'HIRED',
+        },
+        1,
+        'evt-hire-1',
+      );
+
+      const notifs = await inMemoryPrisma.notification.findMany({
+        where: { userId: candidateUser.id },
+      });
+      const hireNotif = notifs.find((n) => n.title.includes('HIRED'));
+      expect(hireNotif).toBeDefined();
+      expect(hireNotif?.type).toBe(NotificationType.APPLICATION_OUTCOME);
+
+      const lastCall =
+        mockEmailService.sendEmail.mock.calls[mockEmailService.sendEmail.mock.calls.length - 1][0];
+      expect(lastCall.subject).toContain('Congratulations! You are hired');
+      expect(lastCall.idempotencyKey).toBe('email-app-hire-app-hired-evt-hire-1');
+    });
+
+    it('BE-19-003 routes ApplicationReconsidered event: creates status update notification and sends email', async () => {
+      await service.routeEvent(
+        'ApplicationReconsidered',
+        {
+          applicationId: 'app-reconsider',
+          candidateUserId: candidateUser.id,
+          jobTitle: 'Staff Engineer',
+          companyName: 'Tech Corp',
+          toStatus: 'REVIEWING',
+        },
+        1,
+        'evt-reconsider-1',
+      );
+
+      const notifs = await inMemoryPrisma.notification.findMany({
+        where: { userId: candidateUser.id },
+      });
+      const recNotif = notifs.find((n) => n.title.includes('Reconsidered'));
+      expect(recNotif).toBeDefined();
+      expect(recNotif?.type).toBe(NotificationType.APPLICATION_STATUS_CHANGED);
+
+      const lastCall =
+        mockEmailService.sendEmail.mock.calls[mockEmailService.sendEmail.mock.calls.length - 1][0];
+      expect(lastCall.text).toContain('reopened and is being actively reconsidered');
+      expect(lastCall.idempotencyKey).toBe('email-app-reconsider-app-reconsider-evt-reconsider-1');
+    });
+
+    it('BE-19-003 replay with same eventId is idempotent (deduplicates notification and email)', async () => {
+      const payload = {
+        applicationId: 'app-replay-test',
+        candidateUserId: candidateUser.id,
+        jobTitle: 'Backend Dev',
+        companyName: 'Tech Corp',
+        toStatus: 'OFFERED',
+      };
+
+      const initialNotifs = inMemoryPrisma.notifications.length;
+      mockEmailService.sendEmail.mockClear();
+
+      // First delivery
+      await service.routeEvent('ApplicationOffered', payload, 1, 'evt-replay-key-1');
+      expect(inMemoryPrisma.notifications.length).toBe(initialNotifs + 1);
+      expect(mockEmailService.sendEmail).toHaveBeenCalledTimes(1);
+
+      // Replay same event
+      await service.routeEvent('ApplicationOffered', payload, 1, 'evt-replay-key-1');
+      expect(inMemoryPrisma.notifications.length).toBe(initialNotifs + 1); // No new notification row
+      expect(mockEmailService.sendEmail).toHaveBeenCalledTimes(2); // Called with same key
+    });
+
+    it('BE-19-003 reconsider cycle REJECTED -> REVIEWING -> REJECTED sends notifications and emails for both rejections', async () => {
+      const initialNotifs = inMemoryPrisma.notifications.length;
+
+      // 1. First rejection
+      await service.routeEvent(
+        'ApplicationStatusChanged',
+        {
+          applicationId: 'app-cycle-1',
+          candidateUserId: candidateUser.id,
+          toStatus: 'REJECTED',
+          jobTitle: 'Dev',
+          companyName: 'Corp',
+        },
+        1,
+        'evt-cycle-rej-1',
+      );
+
+      // 2. Reconsider
+      await service.routeEvent(
+        'ApplicationReconsidered',
+        {
+          applicationId: 'app-cycle-1',
+          candidateUserId: candidateUser.id,
+          toStatus: 'REVIEWING',
+          jobTitle: 'Dev',
+          companyName: 'Corp',
+        },
+        1,
+        'evt-cycle-rec-2',
+      );
+
+      // 3. Second rejection
+      await service.routeEvent(
+        'ApplicationStatusChanged',
+        {
+          applicationId: 'app-cycle-1',
+          candidateUserId: candidateUser.id,
+          toStatus: 'REJECTED',
+          jobTitle: 'Dev',
+          companyName: 'Corp',
+        },
+        1,
+        'evt-cycle-rej-3',
+      );
+
+      const appNotifs = inMemoryPrisma.notifications.filter((n) => n.resourceId === 'app-cycle-1');
+      expect(inMemoryPrisma.notifications.length).toBe(initialNotifs + 3);
+      expect(appNotifs.length).toBe(3); // All 3 events produced distinct in-app notifications
+      expect(appNotifs[0].type).toBe(NotificationType.APPLICATION_OUTCOME);
+      expect(appNotifs[1].type).toBe(NotificationType.APPLICATION_STATUS_CHANGED);
+      expect(appNotifs[2].type).toBe(NotificationType.APPLICATION_OUTCOME);
     });
 
     it('should route InterviewScheduled event', async () => {

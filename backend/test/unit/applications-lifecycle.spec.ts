@@ -78,86 +78,94 @@ describe('ApplicationsLifecycle (Unit)', () => {
     );
   });
 
-  describe('BE-4-001 & BE-4-007 State Machine Transition Policy', () => {
-    it('allows valid transitions including early rejection', () => {
-      expect(() =>
-        service.validateStatusTransition(ApplicationStatus.APPLIED, ApplicationStatus.REVIEWING),
-      ).not.toThrow();
-      expect(() =>
-        service.validateStatusTransition(ApplicationStatus.APPLIED, ApplicationStatus.REJECTED),
-      ).not.toThrow();
-      expect(() =>
-        service.validateStatusTransition(
-          ApplicationStatus.REVIEWING,
-          ApplicationStatus.INTERVIEWING,
-        ),
-      ).not.toThrow();
-      expect(() =>
-        service.validateStatusTransition(ApplicationStatus.REVIEWING, ApplicationStatus.REJECTED),
-      ).not.toThrow();
-      expect(() =>
-        service.validateStatusTransition(ApplicationStatus.INTERVIEWING, ApplicationStatus.PASSED),
-      ).not.toThrow();
-      expect(() =>
-        service.validateStatusTransition(
-          ApplicationStatus.INTERVIEWING,
-          ApplicationStatus.REJECTED,
-        ),
-      ).not.toThrow();
-    });
+  describe('BE-4-001, BE-19-001, BE-19-002 & BE-19-004 State Machine Transition Policy', () => {
+    const allStatuses: ApplicationStatus[] = [
+      ApplicationStatus.APPLIED,
+      ApplicationStatus.REVIEWING,
+      ApplicationStatus.INTERVIEWING,
+      ApplicationStatus.PASSED,
+      ApplicationStatus.OFFERED,
+      ApplicationStatus.HIRED,
+      ApplicationStatus.REJECTED,
+    ];
 
-    it('rejects invalid skipping or backward transitions', () => {
-      expect(() =>
-        service.validateStatusTransition(ApplicationStatus.APPLIED, ApplicationStatus.INTERVIEWING),
-      ).toThrow(ConflictException);
+    const allowedEdges: [ApplicationStatus, ApplicationStatus][] = [
+      [ApplicationStatus.APPLIED, ApplicationStatus.REVIEWING],
+      [ApplicationStatus.APPLIED, ApplicationStatus.REJECTED],
+      [ApplicationStatus.REVIEWING, ApplicationStatus.INTERVIEWING],
+      [ApplicationStatus.REVIEWING, ApplicationStatus.REJECTED],
+      [ApplicationStatus.INTERVIEWING, ApplicationStatus.PASSED],
+      [ApplicationStatus.INTERVIEWING, ApplicationStatus.REJECTED],
+      [ApplicationStatus.PASSED, ApplicationStatus.OFFERED],
+      [ApplicationStatus.PASSED, ApplicationStatus.HIRED],
+      [ApplicationStatus.PASSED, ApplicationStatus.REJECTED],
+      [ApplicationStatus.OFFERED, ApplicationStatus.HIRED],
+      [ApplicationStatus.OFFERED, ApplicationStatus.REJECTED],
+      [ApplicationStatus.REJECTED, ApplicationStatus.REVIEWING],
+    ];
 
-      expect(() =>
-        service.validateStatusTransition(ApplicationStatus.APPLIED, ApplicationStatus.PASSED),
-      ).toThrow(ConflictException);
+    const allowedKeySet = new Set(allowedEdges.map(([from, to]) => `${from}->${to}`));
 
-      expect(() =>
-        service.validateStatusTransition(ApplicationStatus.REVIEWING, ApplicationStatus.APPLIED),
-      ).toThrow(ConflictException);
+    it('enforces comprehensive 7x7 matrix transition policy matching exact allowed edges (12 allowed, 37 rejected)', () => {
+      let allowedCount = 0;
+      let rejectedCount = 0;
 
-      expect(() =>
-        service.validateStatusTransition(ApplicationStatus.INTERVIEWING, ApplicationStatus.APPLIED),
-      ).toThrow(ConflictException);
-
-      expect(() =>
-        service.validateStatusTransition(
-          ApplicationStatus.INTERVIEWING,
-          ApplicationStatus.REVIEWING,
-        ),
-      ).toThrow(ConflictException);
-    });
-
-    it('rejects self-transitions', () => {
-      expect(() =>
-        service.validateStatusTransition(ApplicationStatus.APPLIED, ApplicationStatus.APPLIED),
-      ).toThrow(ConflictException);
-      expect(() =>
-        service.validateStatusTransition(ApplicationStatus.REVIEWING, ApplicationStatus.REVIEWING),
-      ).toThrow(ConflictException);
-    });
-
-    it('BE-4-016 enforces terminal state immutability (PASSED and REJECTED cannot transition)', () => {
-      const allStatuses: ApplicationStatus[] = [
-        ApplicationStatus.APPLIED,
-        ApplicationStatus.REVIEWING,
-        ApplicationStatus.INTERVIEWING,
-        ApplicationStatus.PASSED,
-        ApplicationStatus.REJECTED,
-      ];
-
-      for (const target of allStatuses) {
-        expect(() => service.validateStatusTransition(ApplicationStatus.PASSED, target)).toThrow(
-          ConflictException,
-        );
-
-        expect(() => service.validateStatusTransition(ApplicationStatus.REJECTED, target)).toThrow(
-          ConflictException,
-        );
+      for (const from of allStatuses) {
+        for (const to of allStatuses) {
+          const key = `${from}->${to}`;
+          if (allowedKeySet.has(key)) {
+            expect(() => service.validateStatusTransition(from, to)).not.toThrow();
+            allowedCount++;
+          } else {
+            expect(() => service.validateStatusTransition(from, to)).toThrow(ConflictException);
+            rejectedCount++;
+          }
+        }
       }
+
+      expect(allowedCount).toBe(12);
+      expect(rejectedCount).toBe(37);
+      expect(allowedCount + rejectedCount).toBe(49);
+    });
+
+    it('rejects self-transitions for all 7 statuses', () => {
+      for (const status of allStatuses) {
+        expect(() => service.validateStatusTransition(status, status)).toThrow(ConflictException);
+      }
+    });
+
+    it('enforces HIRED is the sole terminal status and rejects all transitions from HIRED', () => {
+      for (const target of allStatuses) {
+        try {
+          service.validateStatusTransition(ApplicationStatus.HIRED, target);
+          fail('Should have thrown ConflictException');
+        } catch (err: any) {
+          expect(err).toBeInstanceOf(ConflictException);
+          expect(err.getResponse().code).toBe(ERROR_CODES.INVALID_APPLICATION_TRANSITION);
+          expect(err.getResponse().message).toContain('terminal status HIRED');
+        }
+      }
+    });
+
+    it('allows Offer, Hire, and Reconsider transitions', () => {
+      expect(() =>
+        service.validateStatusTransition(ApplicationStatus.PASSED, ApplicationStatus.OFFERED),
+      ).not.toThrow();
+      expect(() =>
+        service.validateStatusTransition(ApplicationStatus.PASSED, ApplicationStatus.HIRED),
+      ).not.toThrow();
+      expect(() =>
+        service.validateStatusTransition(ApplicationStatus.PASSED, ApplicationStatus.REJECTED),
+      ).not.toThrow();
+      expect(() =>
+        service.validateStatusTransition(ApplicationStatus.OFFERED, ApplicationStatus.HIRED),
+      ).not.toThrow();
+      expect(() =>
+        service.validateStatusTransition(ApplicationStatus.OFFERED, ApplicationStatus.REJECTED),
+      ).not.toThrow();
+      expect(() =>
+        service.validateStatusTransition(ApplicationStatus.REJECTED, ApplicationStatus.REVIEWING),
+      ).not.toThrow();
     });
   });
 
@@ -560,6 +568,183 @@ describe('ApplicationsLifecycle (Unit)', () => {
             fromStatus: 'APPLIED',
             toStatus: 'REVIEWING',
           }),
+        }),
+      );
+    });
+
+    it('BE-19-003 transitions PASSED -> OFFERED emitting ApplicationOffered and APPLICATION_OFFERED audit', async () => {
+      const existingApp = {
+        id: 'app-offer',
+        candidateId: 'prof-1',
+        jobId: 'job-1',
+        version: 3,
+        status: ApplicationStatus.PASSED,
+        submittedCvId: 'cv-1',
+        job: {
+          id: 'job-1',
+          title: 'Backend Dev',
+          companyId: 'comp-1',
+          company: { id: 'comp-1', name: 'Tech Corp' },
+        },
+        candidate: { id: 'prof-1', fullName: 'Candidate A', userId: 'user-1', skills: [] },
+        history: [],
+      };
+
+      mockPrisma.application.findUnique.mockResolvedValueOnce(existingApp).mockResolvedValueOnce({
+        ...existingApp,
+        status: ApplicationStatus.OFFERED,
+        version: 4,
+        history: [],
+      });
+
+      mockPrisma.application.update.mockResolvedValue({
+        ...existingApp,
+        status: ApplicationStatus.OFFERED,
+        version: 4,
+      });
+
+      const result = await service.transitionApplication(
+        hrUser,
+        'app-offer',
+        {
+          expectedVersion: 3,
+          targetStatus: ApplicationStatus.OFFERED,
+          reason: 'Offer extended with 80M VND package',
+        },
+        'req-offer-1',
+      );
+
+      expect(result.status).toBe(ApplicationStatus.OFFERED);
+      expect(mockAudit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'APPLICATION_OFFERED',
+          targetId: 'app-offer',
+        }),
+        expect.anything(),
+      );
+      expect(mockOutbox.recordEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          eventName: 'ApplicationOffered',
+          aggregateId: 'app-offer',
+        }),
+      );
+    });
+
+    it('BE-19-003 transitions OFFERED -> HIRED emitting ApplicationHired and APPLICATION_HIRED audit', async () => {
+      const existingApp = {
+        id: 'app-hire',
+        candidateId: 'prof-1',
+        jobId: 'job-1',
+        version: 4,
+        status: ApplicationStatus.OFFERED,
+        submittedCvId: 'cv-1',
+        job: {
+          id: 'job-1',
+          title: 'Backend Dev',
+          companyId: 'comp-1',
+          company: { id: 'comp-1', name: 'Tech Corp' },
+        },
+        candidate: { id: 'prof-1', fullName: 'Candidate A', userId: 'user-1', skills: [] },
+        history: [],
+      };
+
+      mockPrisma.application.findUnique.mockResolvedValueOnce(existingApp).mockResolvedValueOnce({
+        ...existingApp,
+        status: ApplicationStatus.HIRED,
+        version: 5,
+        history: [],
+      });
+
+      mockPrisma.application.update.mockResolvedValue({
+        ...existingApp,
+        status: ApplicationStatus.HIRED,
+        version: 5,
+      });
+
+      const result = await service.transitionApplication(
+        hrUser,
+        'app-hire',
+        {
+          expectedVersion: 4,
+          targetStatus: ApplicationStatus.HIRED,
+          reason: 'Candidate signed offer letter',
+        },
+        'req-hire-1',
+      );
+
+      expect(result.status).toBe(ApplicationStatus.HIRED);
+      expect(mockAudit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'APPLICATION_HIRED',
+          targetId: 'app-hire',
+        }),
+        expect.anything(),
+      );
+      expect(mockOutbox.recordEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          eventName: 'ApplicationHired',
+          aggregateId: 'app-hire',
+        }),
+      );
+    });
+
+    it('BE-19-003 transitions REJECTED -> REVIEWING (Reconsider) emitting ApplicationReconsidered and APPLICATION_RECONSIDERED audit', async () => {
+      const existingApp = {
+        id: 'app-reconsider',
+        candidateId: 'prof-1',
+        jobId: 'job-1',
+        version: 2,
+        status: ApplicationStatus.REJECTED,
+        submittedCvId: 'cv-1',
+        job: {
+          id: 'job-1',
+          title: 'Backend Dev',
+          companyId: 'comp-1',
+          company: { id: 'comp-1', name: 'Tech Corp' },
+        },
+        candidate: { id: 'prof-1', fullName: 'Candidate A', userId: 'user-1', skills: [] },
+        history: [],
+      };
+
+      mockPrisma.application.findUnique.mockResolvedValueOnce(existingApp).mockResolvedValueOnce({
+        ...existingApp,
+        status: ApplicationStatus.REVIEWING,
+        version: 3,
+        history: [],
+      });
+
+      mockPrisma.application.update.mockResolvedValue({
+        ...existingApp,
+        status: ApplicationStatus.REVIEWING,
+        version: 3,
+      });
+
+      const result = await service.transitionApplication(
+        hrUser,
+        'app-reconsider',
+        {
+          expectedVersion: 2,
+          targetStatus: ApplicationStatus.REVIEWING,
+          reason: 'Reconsidering based on updated portfolio',
+        },
+        'req-reconsider-1',
+      );
+
+      expect(result.status).toBe(ApplicationStatus.REVIEWING);
+      expect(mockAudit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'APPLICATION_RECONSIDERED',
+          targetId: 'app-reconsider',
+        }),
+        expect.anything(),
+      );
+      expect(mockOutbox.recordEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          eventName: 'ApplicationReconsidered',
+          aggregateId: 'app-reconsider',
         }),
       );
     });

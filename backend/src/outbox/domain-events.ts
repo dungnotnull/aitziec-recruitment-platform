@@ -26,6 +26,45 @@ export interface ApplicationStatusChangedPayload {
   changedAt: string;
 }
 
+export interface ApplicationOfferedPayload {
+  applicationId: string;
+  candidateId: string;
+  candidateUserId: string;
+  jobId: string;
+  jobTitle: string;
+  companyId: string;
+  companyName: string;
+  fromStatus: string;
+  toStatus: string;
+  changedAt: string;
+}
+
+export interface ApplicationHiredPayload {
+  applicationId: string;
+  candidateId: string;
+  candidateUserId: string;
+  jobId: string;
+  jobTitle: string;
+  companyId: string;
+  companyName: string;
+  fromStatus: string;
+  toStatus: string;
+  changedAt: string;
+}
+
+export interface ApplicationReconsideredPayload {
+  applicationId: string;
+  candidateId: string;
+  candidateUserId: string;
+  jobId: string;
+  jobTitle: string;
+  companyId: string;
+  companyName: string;
+  fromStatus: string;
+  toStatus: string;
+  changedAt: string;
+}
+
 export interface InterviewScheduledPayload {
   interviewId: string;
   applicationId: string;
@@ -140,6 +179,9 @@ export interface JobPendingApprovalPayload {
 export interface DomainEventPayloadMap {
   ApplicationSubmitted: ApplicationSubmittedPayload;
   ApplicationStatusChanged: ApplicationStatusChangedPayload;
+  ApplicationOffered: ApplicationOfferedPayload;
+  ApplicationHired: ApplicationHiredPayload;
+  ApplicationReconsidered: ApplicationReconsideredPayload;
   InterviewScheduled: InterviewScheduledPayload;
   InterviewRescheduled: InterviewRescheduledPayload;
   InterviewCancelled: InterviewCancelledPayload;

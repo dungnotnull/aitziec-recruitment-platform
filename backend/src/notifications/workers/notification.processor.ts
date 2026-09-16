@@ -38,6 +38,6 @@ export class NotificationProcessor implements OnModuleInit {
     this.logger.debug(
       `Processing notification event ${eventName} (id=${eventId}, version=${eventVersion})`,
     );
-    await this.notificationsService.routeEvent(eventName, payload, eventVersion);
+    await this.notificationsService.routeEvent(eventName, payload, eventVersion, eventId);
   }
 }

@@ -24,6 +24,7 @@ describe('Applications (E2E)', () => {
   let applicationId = '';
   let cvIdA = '';
   let unreadyCvIdA = '';
+  let cvIdB = '';
 
   beforeAll(async () => {
     inMemoryPrisma = new InMemoryPrismaService();
@@ -100,6 +101,23 @@ describe('Applications (E2E)', () => {
         fullName: 'Tran Candidate B',
         headline: 'Frontend Engineer',
       });
+
+    // Seed READY CV for Candidate B
+    const profileB = inMemoryPrisma.candidateProfiles.find(
+      (cp) => cp.userId === candResB.body.data.user.id,
+    );
+    const cvB = await inMemoryPrisma.cv.create({
+      data: {
+        candidateProfileId: profileB.id,
+        originalFileName: 'cand-b.pdf',
+        sizeBytes: 1000,
+        checksumSha256: 'sha-cand-b',
+        storageKey: 'cvs/cand-b.pdf',
+        processingStatus: 'READY',
+        isDefault: true,
+      },
+    });
+    cvIdB = cvB.id;
 
     // Seed READY CV and unready CV for Candidate A
     const profileA = inMemoryPrisma.candidateProfiles.find(
@@ -557,13 +575,89 @@ describe('Applications (E2E)', () => {
       expect(res.body.data.version).toBe(4);
     });
 
-    it('BE-4-016 terminal immutability: PASSED status cannot transition to REJECTED', async () => {
+    it('BE-19-002 successfully transitions PASSED -> OFFERED (version: 4 -> 5)', async () => {
       const res = await request(app.getHttpServer())
         .post(`/api/v1/applications/${applicationId}/transitions`)
         .set('Authorization', `Bearer ${hrToken}`)
         .send({
           expectedVersion: 4,
+          targetStatus: ApplicationStatus.OFFERED,
+          reason: 'Offer package sent to candidate',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe(ApplicationStatus.OFFERED);
+      expect(res.body.data.version).toBe(5);
+    });
+
+    it('BE-19-001 filters HR and candidate applications by status=OFFERED', async () => {
+      const hrRes = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${publishedJobId}/applications?status=OFFERED`)
+        .set('Authorization', `Bearer ${hrToken}`);
+
+      expect(hrRes.status).toBe(200);
+      expect(hrRes.body.data.some((a: any) => a.id === applicationId)).toBe(true);
+
+      const candRes = await request(app.getHttpServer())
+        .get('/api/v1/applications?status=OFFERED')
+        .set('Authorization', `Bearer ${candidateTokenA}`);
+
+      expect(candRes.status).toBe(200);
+      expect(candRes.body.data.some((a: any) => a.id === applicationId)).toBe(true);
+    });
+
+    it('BE-19-002 successfully transitions OFFERED -> HIRED (version: 5 -> 6)', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${applicationId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          expectedVersion: 5,
+          targetStatus: ApplicationStatus.HIRED,
+          reason: 'Candidate accepted offer and signed employment contract',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe(ApplicationStatus.HIRED);
+      expect(res.body.data.version).toBe(6);
+    });
+
+    it('BE-19-001 filters HR and candidate applications by status=HIRED', async () => {
+      const hrRes = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${publishedJobId}/applications?status=HIRED`)
+        .set('Authorization', `Bearer ${hrToken}`);
+
+      expect(hrRes.status).toBe(200);
+      expect(hrRes.body.data.some((a: any) => a.id === applicationId)).toBe(true);
+
+      const candRes = await request(app.getHttpServer())
+        .get('/api/v1/applications?status=HIRED')
+        .set('Authorization', `Bearer ${candidateTokenA}`);
+
+      expect(candRes.status).toBe(200);
+      expect(candRes.body.data.some((a: any) => a.id === applicationId)).toBe(true);
+    });
+
+    it('BE-19-002 terminal immutability: HIRED status cannot transition to REJECTED', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${applicationId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          expectedVersion: 6,
           targetStatus: ApplicationStatus.REJECTED,
+          reason: 'Attempting invalid post-terminal change',
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('INVALID_APPLICATION_TRANSITION');
+    });
+
+    it('BE-19-002 terminal immutability: HIRED status cannot transition to OFFERED', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${applicationId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          expectedVersion: 6,
+          targetStatus: ApplicationStatus.OFFERED,
           reason: 'Attempting invalid post-terminal change',
         });
 
@@ -577,6 +671,189 @@ describe('Applications (E2E)', () => {
         .set('Authorization', `Bearer ${hrToken}`);
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('BE-19-002 / BE-19-003 Lifecycle Extensions & Reconsider Flows', () => {
+    let appBId = '';
+
+    it('allows Candidate B to apply, HR rejects, reconsiders, and shortcuts PASSED -> HIRED', async () => {
+      // 1. Candidate B applies
+      const subRes = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${publishedJobId}/applications`)
+        .set('Authorization', `Bearer ${candidateTokenB}`)
+        .send({ cvId: cvIdB, candidateNote: 'Ready for fullstack work' });
+
+      expect(subRes.status).toBe(201);
+      appBId = subRes.body.data.id;
+      expect(subRes.body.data.status).toBe(ApplicationStatus.APPLIED);
+      expect(subRes.body.data.version).toBe(1);
+
+      // 2. APPLIED -> REVIEWING
+      const revRes = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appBId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ expectedVersion: 1, targetStatus: ApplicationStatus.REVIEWING });
+      expect(revRes.status).toBe(200);
+      expect(revRes.body.data.status).toBe(ApplicationStatus.REVIEWING);
+      expect(revRes.body.data.version).toBe(2);
+
+      // 3. REVIEWING -> REJECTED
+      const rejRes = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appBId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          expectedVersion: 2,
+          targetStatus: ApplicationStatus.REJECTED,
+          reason: 'Initial qualification gap',
+        });
+      expect(rejRes.status).toBe(200);
+      expect(rejRes.body.data.status).toBe(ApplicationStatus.REJECTED);
+      expect(rejRes.body.data.version).toBe(3);
+
+      // 4. REJECTED -> REVIEWING (Reconsider!)
+      const reconRes = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appBId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          expectedVersion: 3,
+          targetStatus: ApplicationStatus.REVIEWING,
+          reason: 'Candidate provided additional portfolio proof',
+        });
+      expect(reconRes.status).toBe(200);
+      expect(reconRes.body.data.status).toBe(ApplicationStatus.REVIEWING);
+      expect(reconRes.body.data.version).toBe(4);
+
+      // 5. REVIEWING -> INTERVIEWING
+      const intRes = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appBId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ expectedVersion: 4, targetStatus: ApplicationStatus.INTERVIEWING });
+      expect(intRes.status).toBe(200);
+      expect(intRes.body.data.status).toBe(ApplicationStatus.INTERVIEWING);
+      expect(intRes.body.data.version).toBe(5);
+
+      // 6. INTERVIEWING -> PASSED
+      const passRes = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appBId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          expectedVersion: 5,
+          targetStatus: ApplicationStatus.PASSED,
+          reason: 'Superb technical interview',
+        });
+      expect(passRes.status).toBe(200);
+      expect(passRes.body.data.status).toBe(ApplicationStatus.PASSED);
+      expect(passRes.body.data.version).toBe(6);
+
+      // 7. Shortcut: PASSED -> HIRED (Direct hire without explicit OFFERED step)
+      const hireRes = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appBId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          expectedVersion: 6,
+          targetStatus: ApplicationStatus.HIRED,
+          reason: 'Immediate executive hire',
+        });
+      expect(hireRes.status).toBe(200);
+      expect(hireRes.body.data.status).toBe(ApplicationStatus.HIRED);
+      expect(hireRes.body.data.version).toBe(7);
+
+      // 8. Terminal immutability: HIRED cannot transition to REVIEWING
+      const failRes = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appBId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ expectedVersion: 7, targetStatus: ApplicationStatus.REVIEWING });
+      expect(failRes.status).toBe(409);
+      expect(failRes.body.error.code).toBe('INVALID_APPLICATION_TRANSITION');
+    });
+
+    it('supports OFFERED -> REJECTED (declined) and reconsideration back to REVIEWING', async () => {
+      // Create Candidate C
+      const candResC = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+        email: 'cand-c-apps@itziec.com',
+        password: 'Password123!@#',
+        role: 'CANDIDATE',
+      });
+      const candidateTokenC = candResC.body.data.accessToken;
+
+      await request(app.getHttpServer())
+        .patch('/api/v1/candidates/me')
+        .set('Authorization', `Bearer ${candidateTokenC}`)
+        .send({ expectedVersion: 1, fullName: 'Vu Candidate C' });
+
+      const profileC = inMemoryPrisma.candidateProfiles.find(
+        (cp) => cp.userId === candResC.body.data.user.id,
+      );
+      const cvC = await inMemoryPrisma.cv.create({
+        data: {
+          candidateProfileId: profileC.id,
+          originalFileName: 'cand-c.pdf',
+          sizeBytes: 1500,
+          checksumSha256: 'sha-cand-c',
+          storageKey: 'cvs/cand-c.pdf',
+          processingStatus: 'READY',
+          isDefault: true,
+        },
+      });
+
+      const subRes = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${publishedJobId}/applications`)
+        .set('Authorization', `Bearer ${candidateTokenC}`)
+        .send({ cvId: cvC.id });
+      const appCId = subRes.body.data.id;
+
+      // APPLIED -> REVIEWING -> INTERVIEWING -> PASSED -> OFFERED
+      await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appCId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ expectedVersion: 1, targetStatus: ApplicationStatus.REVIEWING });
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appCId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ expectedVersion: 2, targetStatus: ApplicationStatus.INTERVIEWING });
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appCId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ expectedVersion: 3, targetStatus: ApplicationStatus.PASSED });
+
+      const offerRes = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appCId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          expectedVersion: 4,
+          targetStatus: ApplicationStatus.OFFERED,
+          reason: 'Offer extended',
+        });
+      expect(offerRes.status).toBe(200);
+      expect(offerRes.body.data.status).toBe(ApplicationStatus.OFFERED);
+
+      // OFFERED -> REJECTED (Candidate declined initial terms)
+      const rejectOfferRes = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appCId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          expectedVersion: 5,
+          targetStatus: ApplicationStatus.REJECTED,
+          reason: 'Candidate declined initial compensation offer',
+        });
+      expect(rejectOfferRes.status).toBe(200);
+      expect(rejectOfferRes.body.data.status).toBe(ApplicationStatus.REJECTED);
+
+      // REJECTED -> REVIEWING (Reconsider after renegotiating terms)
+      const reconRes = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appCId}/transitions`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          expectedVersion: 6,
+          targetStatus: ApplicationStatus.REVIEWING,
+          reason: 'Reopened for counter-offer review',
+        });
+      expect(reconRes.status).toBe(200);
+      expect(reconRes.body.data.status).toBe(ApplicationStatus.REVIEWING);
+      expect(reconRes.body.data.version).toBe(7);
     });
   });
 });

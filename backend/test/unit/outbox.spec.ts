@@ -156,6 +156,55 @@ describe('OutboxService (BE-1-012, BE-10-007)', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
+  it('records ApplicationOffered, ApplicationHired, and ApplicationReconsidered events (BE-19-003)', async () => {
+    const mockTx: any = {
+      outboxEvent: { create: jest.fn().mockImplementation((args) => args.data) },
+    };
+
+    const basePayload = {
+      applicationId: 'app-sem-1',
+      candidateId: 'cand-1',
+      candidateUserId: 'user-1',
+      jobId: 'job-1',
+      jobTitle: 'Staff Engineer',
+      companyId: 'comp-1',
+      companyName: 'Acme',
+      fromStatus: 'PASSED',
+      toStatus: 'OFFERED',
+      changedAt: new Date().toISOString(),
+    };
+
+    // 1. ApplicationOffered
+    const offerEvent = await service.recordEvent(mockTx, {
+      eventName: 'ApplicationOffered',
+      aggregateType: 'Application',
+      aggregateId: 'app-sem-1',
+      payload: basePayload,
+      actorId: 'user-rec',
+    });
+    expect(offerEvent.eventName).toBe('ApplicationOffered');
+
+    // 2. ApplicationHired
+    const hireEvent = await service.recordEvent(mockTx, {
+      eventName: 'ApplicationHired',
+      aggregateType: 'Application',
+      aggregateId: 'app-sem-1',
+      payload: { ...basePayload, fromStatus: 'OFFERED', toStatus: 'HIRED' },
+      actorId: 'user-rec',
+    });
+    expect(hireEvent.eventName).toBe('ApplicationHired');
+
+    // 3. ApplicationReconsidered
+    const reconsiderEvent = await service.recordEvent(mockTx, {
+      eventName: 'ApplicationReconsidered',
+      aggregateType: 'Application',
+      aggregateId: 'app-sem-1',
+      payload: { ...basePayload, fromStatus: 'REJECTED', toStatus: 'REVIEWING' },
+      actorId: 'user-rec',
+    });
+    expect(reconsiderEvent.eventName).toBe('ApplicationReconsidered');
+  });
+
   it('dispatches pending events to the queue and marks them dispatched', async () => {
     const mockEvents = [
       {
@@ -372,6 +421,7 @@ describe('NotificationProcessor & EmailProcessor (BE-10-008)', () => {
       'ApplicationSubmitted',
       mockJob.data.payload,
       1,
+      mockJob.data.eventId,
     );
   });
 

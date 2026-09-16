@@ -226,6 +226,8 @@ type ApplicationStatus =
   | "REVIEWING"
   | "INTERVIEWING"
   | "PASSED"
+  | "OFFERED"
+  | "HIRED"
   | "REJECTED";
 
 type CompanyInvitationStatus =
@@ -261,7 +263,7 @@ type NotificationType =
 
 ## 7. Application State Machine
 
-The following transitions are the complete `v1.1` pipeline (incorporating BEI-001 early rejection resolution):
+The following transitions are the complete pipeline:
 
 | Current | Allowed target | Actor |
 | --- | --- | --- |
@@ -271,10 +273,15 @@ The following transitions are the complete `v1.1` pipeline (incorporating BEI-00
 | `REVIEWING` | `REJECTED` | Authorized HR or admin |
 | `INTERVIEWING` | `PASSED` | Authorized HR or admin |
 | `INTERVIEWING` | `REJECTED` | Authorized HR or admin |
-| `PASSED` | None | Terminal |
-| `REJECTED` | None | Terminal |
+| `PASSED` | `OFFERED` | Authorized HR or admin |
+| `PASSED` | `HIRED` | Authorized HR or admin |
+| `PASSED` | `REJECTED` | Authorized HR or admin |
+| `OFFERED` | `HIRED` | Authorized HR or admin |
+| `OFFERED` | `REJECTED` | Authorized HR or admin |
+| `REJECTED` | `REVIEWING` | Authorized HR or admin (Reconsider) |
+| `HIRED` | None | Terminal |
 
-Self-transitions, skipped stages, reversal, reopening, and deletion are invalid.
+Self-transitions, skipped stages, backward transitions (except Reconsider: `REJECTED -> REVIEWING`), and all transitions from `HIRED` are invalid.
 An invalid transition returns `409 INVALID_APPLICATION_TRANSITION`.
 
 
@@ -1179,6 +1186,9 @@ type DomainEvent<T> = {
 type DomainEventName =
   | "ApplicationSubmitted"
   | "ApplicationStatusChanged"
+  | "ApplicationOffered"
+  | "ApplicationHired"
+  | "ApplicationReconsidered"
   | "InterviewScheduled"
   | "InterviewRescheduled"
   | "InterviewCancelled"

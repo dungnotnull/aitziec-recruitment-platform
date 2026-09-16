@@ -12,6 +12,14 @@ available.
 
 ## [Unreleased]
 
+### Added
+- **Phase 19 (Extended Application Offer, Hire & Reconsider Lifecycle)**:
+  - Added `OFFERED` and `HIRED` to `ApplicationStatus` enum in Prisma schema, PostgreSQL migrations, and DTOs (`BE-19-001`).
+  - Extended application state machine with transitions `PASSED -> OFFERED | HIRED | REJECTED`, `OFFERED -> HIRED | REJECTED`, `REJECTED -> REVIEWING` (Reconsider), and established `HIRED` as the sole immutable terminal state (`BE-19-002`).
+  - Added semantic domain events (`ApplicationOffered`, `ApplicationHired`, `ApplicationReconsidered`) and deterministic audit actions (`APPLICATION_OFFERED`, `APPLICATION_HIRED`, `APPLICATION_RECONSIDERED`) (`BE-19-003`).
+  - Implemented transition-level notification delivery key and idempotency, routing `PASSED` as status update and `HIRED` as final outcome (`BE-19-003`).
+  - Replaced legacy terminal test assertions and verified end-to-end 7x7 matrix regression suite (`BE-19-004`).
+
 ## [1.1.0] — 2026-09-10
 
 ### Added

@@ -66,6 +66,8 @@ enum ApplicationStatus {
   REVIEWING
   INTERVIEWING
   PASSED
+  OFFERED
+  HIRED
   REJECTED
 }
 
@@ -515,20 +517,23 @@ model Interview {
 }
 
 model Notification {
-  id           String           @id @default(uuid())
-  userId       String
-  type         NotificationType
-  title        String
-  body         String
-  resourceType String?
-  resourceId   String?
-  readAt       DateTime?
-  createdAt    DateTime         @default(now())
+  id            String           @id @default(uuid())
+  userId        String
+  type          NotificationType
+  title         String
+  body          String
+  resourceType  String?
+  resourceId    String?
+  sourceEventId String?
+  deliveryKey   String?          @unique
+  readAt        DateTime?
+  createdAt     DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt])
   @@index([userId, createdAt])
+  @@index([sourceEventId])
   @@map("notifications")
 }
 
