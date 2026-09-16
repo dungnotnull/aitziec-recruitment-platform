@@ -5,6 +5,8 @@ import { Button } from '@/shared/ui/button';
 import { Badge } from '@/shared/ui/badge';
 import type { Cv, CvProcessingStatus } from '@/api/types';
 import { Alert, AlertDescription } from '@/shared/ui/alert';
+import { getApiErrorDetails } from '@/shared/lib/api-error';
+import { decodeFileName } from '@/shared/lib/file-name';
 import { Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
 
 const STATUS_CONFIG: Record<CvProcessingStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: React.ReactNode }> = {
@@ -74,12 +76,19 @@ export const CvList: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {deleteCv.isError && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {getApiErrorDetails(deleteCv.error).message || 'Failed to delete CV.'}
+          </AlertDescription>
+        </Alert>
+      )}
       {cvs.map((cv) => (
         <Card key={cv.id} className={cv.isDefault ? 'border-primary shadow-sm' : ''}>
           <CardContent className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <div className="flex items-center gap-2">
-                <h4 className="font-semibold text-lg">{cv.originalFileName}</h4>
+                <h4 className="font-semibold text-lg">{decodeFileName(cv.originalFileName)}</h4>
                 {cv.isDefault && <Badge variant="default">Default</Badge>}
               </div>
               <div className="text-sm text-muted-foreground mt-1 flex gap-4">
@@ -128,10 +137,16 @@ export const CvList: React.FC = () => {
                 variant="destructive"
                 size="sm"
                 onClick={() => handleDelete(cv)}
-                disabled={deleteCv.isPending || cv.isDefault}
-                title={cv.isDefault ? "Cannot delete the default CV" : ""}
+                disabled={deleteCv.isPending && deleteCv.variables === cv.id}
               >
-                Delete
+                {deleteCv.isPending && deleteCv.variables === cv.id ? (
+                  <>
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete'
+                )}
               </Button>
             </div>
           </CardContent>

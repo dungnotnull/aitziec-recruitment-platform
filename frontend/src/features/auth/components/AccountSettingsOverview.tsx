@@ -330,7 +330,7 @@ export function AccountSettingsOverview() {
                       variant="outline"
                       size="sm"
                       onClick={() => fileInputRef.current?.click()}
-                      className="gap-2 rounded-xl text-xs font-semibold"
+                      className="gap-2 rounded-xl text-xs font-semibold hover:border-slate-400 dark:hover:border-slate-600 transition-colors shadow-xs"
                     >
                       <Upload className="h-3.5 w-3.5" />
                       <span>{deviceAvatarFile ? "Chọn ảnh khác từ máy" : "Chọn ảnh từ thiết bị"}</span>

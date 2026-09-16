@@ -5,6 +5,7 @@ import { Button } from '@/shared/ui/button';
 import { Label } from '@/shared/ui/label';
 import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { UploadCloud, FileText, CheckCircle2, FileUp, Sparkles, AlertCircle, Loader2, XCircle } from 'lucide-react';
+import { decodeFileName } from '@/shared/lib/file-name';
 import type { CvProcessingStatus } from '@/api/types';
 
 function getCvStatusInfo(status: CvProcessingStatus) {
@@ -157,7 +158,7 @@ export const ApplyForm: React.FC<ApplyFormProps> = ({ jobId, onSuccess, onCancel
 
                   <div className="mt-auto">
                     <p className="font-semibold text-slate-900 dark:text-white text-base truncate pr-2 transition-colors">
-                      {cv.originalFileName}
+                      {decodeFileName(cv.originalFileName)}
                     </p>
                     <div className="flex items-center gap-2 mt-2">
                       {cv.isDefault && (

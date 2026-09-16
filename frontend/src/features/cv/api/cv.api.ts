@@ -1,5 +1,14 @@
 import { apiClient } from '@/api/client';
 import type { PaginatedResponse, SuccessResponse, Cv, SignedDownload, Operation } from '@/api/types';
+import { decodeFileName } from '@/shared/lib/file-name';
+
+function normalizeCv(cv: Cv): Cv {
+  if (!cv) return cv;
+  return {
+    ...cv,
+    originalFileName: decodeFileName(cv.originalFileName),
+  };
+}
 
 export const cvApi = {
   /**
@@ -15,7 +24,11 @@ export const cvApi = {
         'Content-Type': undefined,
       },
     });
-    return response.data;
+    const data = response.data;
+    if (data?.data?.cv) {
+      data.data.cv = normalizeCv(data.data.cv);
+    }
+    return data;
   },
 
   /**
@@ -25,7 +38,11 @@ export const cvApi = {
     const response = await apiClient.get<PaginatedResponse<Cv>>('/cvs', {
       params: { cursor },
     });
-    return response.data;
+    const data = response.data;
+    if (Array.isArray(data?.data)) {
+      data.data = data.data.map(normalizeCv);
+    }
+    return data;
   },
 
   /**
@@ -33,7 +50,11 @@ export const cvApi = {
    */
   getCv: async (cvId: string): Promise<SuccessResponse<Cv>> => {
     const response = await apiClient.get<SuccessResponse<Cv>>(`/cvs/${cvId}`);
-    return response.data;
+    const data = response.data;
+    if (data?.data) {
+      data.data = normalizeCv(data.data);
+    }
+    return data;
   },
 
   /**
@@ -43,7 +64,11 @@ export const cvApi = {
     const response = await apiClient.post<SuccessResponse<Cv>>(`/cvs/${cvId}/default`, {
       expectedVersion,
     });
-    return response.data;
+    const data = response.data;
+    if (data?.data) {
+      data.data = normalizeCv(data.data);
+    }
+    return data;
   },
 
   /**

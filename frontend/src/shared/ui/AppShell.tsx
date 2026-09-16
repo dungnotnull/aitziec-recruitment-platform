@@ -369,7 +369,7 @@ export function AppShell() {
                         {React.createElement(navigationIcons[item.icon], { className: "h-4 w-4 text-zinc-400 shrink-0" })}
                         <span className="whitespace-nowrap">{item.label}</span>
                       </span>
-                      {item.href === '/notifications' ? <NotificationUnreadBadge /> : null}
+                      {item.href === '/notifications' ? <NotificationUnreadBadge variant="inline" /> : null}
                     </Link>
                   ))}
                 <button
