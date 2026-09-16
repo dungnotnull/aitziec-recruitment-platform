@@ -1984,7 +1984,13 @@ export class InMemoryPrismaService {
 
   notification = {
     findUnique: async (args: any) => {
-      return this.notifications.find((n) => n.id === args.where.id) || null;
+      if (args.where.id) {
+        return this.notifications.find((n) => n.id === args.where.id) || null;
+      }
+      if (args.where.deliveryKey) {
+        return this.notifications.find((n) => n.deliveryKey === args.where.deliveryKey) || null;
+      }
+      return null;
     },
     findFirst: async (args: any) => {
       return (
@@ -2048,6 +2054,14 @@ export class InMemoryPrismaService {
       return result;
     },
     create: async (args: any) => {
+      if (args.data.deliveryKey) {
+        const existing = this.notifications.find((n) => n.deliveryKey === args.data.deliveryKey);
+        if (existing) {
+          const err: any = new Error('Unique constraint failed on the fields: (deliveryKey)');
+          err.code = 'P2002';
+          throw err;
+        }
+      }
       const notif = {
         id: args.data.id || uuidv4(),
         userId: args.data.userId,
@@ -2056,6 +2070,8 @@ export class InMemoryPrismaService {
         body: args.data.body,
         resourceType: args.data.resourceType ?? null,
         resourceId: args.data.resourceId ?? null,
+        sourceEventId: args.data.sourceEventId ?? null,
+        deliveryKey: args.data.deliveryKey ?? null,
         readAt: args.data.readAt ?? null,
         createdAt: new Date(),
       };

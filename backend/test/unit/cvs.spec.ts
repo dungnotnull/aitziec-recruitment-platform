@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CvsService } from '../../src/cvs/cvs.service';
+import { normalizeUploadedFilename } from '../../src/cvs/cv-filename.util';
 import { StorageService } from '../../src/storage/storage.service';
 import { PrismaService } from '../../src/database/prisma.service';
 import { CompanyScopeService } from '../../src/companies/company-scope.service';
@@ -1416,6 +1417,118 @@ describe('CvsService (Unit)', () => {
       const allOps = inMemoryPrisma.operations.filter((o: any) => o.resultResourceId === cv.id);
       expect(allOps.length).toBe(1);
       expect(allOps[0].id).toBe(op.id);
+    });
+  });
+
+  describe('BE-20-001: UTF-8 Filename Recovery, Sanitization & uploadCv Persistence', () => {
+    describe('normalizeUploadedFilename', () => {
+      it('should recover UTF-8 Vietnamese filename from Latin-1 mojibake', () => {
+        const originalUtf8 = 'CV Nguyễn Văn A.pdf';
+        const latin1Mojibake = Buffer.from(originalUtf8, 'utf8').toString('latin1');
+        expect(normalizeUploadedFilename(latin1Mojibake)).toBe(originalUtf8);
+      });
+
+      it('should normalize combining characters to Unicode NFC form', () => {
+        const nfd = 'CV Nguyễn.pdf'.normalize('NFD');
+        const normalized = normalizeUploadedFilename(nfd);
+        expect(normalized).toBe('CV Nguyễn.pdf');
+      });
+
+      it('should support emojis and non-Latin scripts', () => {
+        const emojiName = 'CV 📄 Nguyễn 文.pdf';
+        expect(normalizeUploadedFilename(emojiName)).toBe(emojiName);
+      });
+
+      it('should keep already valid ASCII filenames intact', () => {
+        expect(normalizeUploadedFilename('my_resume_2026.pdf')).toBe('my_resume_2026.pdf');
+      });
+
+      it('should not double-decode or corrupt valid UTF-8 strings', () => {
+        const alreadyValid = 'CV Nguyễn Văn A.pdf';
+        expect(normalizeUploadedFilename(alreadyValid)).toBe(alreadyValid);
+      });
+
+      it('should strip path traversal sequences and leading slashes/backslashes', () => {
+        expect(normalizeUploadedFilename('../../etc/passwd.pdf')).toBe('passwd.pdf');
+        expect(normalizeUploadedFilename('..\\..\\windows\\system32\\cv.pdf')).toBe('cv.pdf');
+        expect(normalizeUploadedFilename('/var/uploads/my_cv.pdf')).toBe('my_cv.pdf');
+        expect(normalizeUploadedFilename('C:\\Users\\Candidate\\Documents\\CV.pdf')).toBe('CV.pdf');
+      });
+
+      it('should strip NUL bytes and ASCII/Unicode control characters', () => {
+        const dangerous = 'my\0dangerous\x08file\x1f.pdf';
+        expect(normalizeUploadedFilename(dangerous)).toBe('mydangerousfile.pdf');
+      });
+
+      it('should strip bidirectional (Bidi) override characters', () => {
+        // \u202E is Right-to-Left Override (often used for spoofing extensions like cv\u202Efdp.exe)
+        const bidiSpoofed = 'cv\u202Efdp.exe.pdf';
+        expect(normalizeUploadedFilename(bidiSpoofed)).toBe('cvfdp.exe.pdf');
+      });
+
+      it('should strip trailing dots and whitespace before extension', () => {
+        expect(normalizeUploadedFilename('my_cv  .pdf')).toBe('my_cv.pdf');
+        expect(normalizeUploadedFilename('my_cv....pdf')).toBe('my_cv.pdf');
+      });
+
+      it('should ensure .pdf extension if missing', () => {
+        expect(normalizeUploadedFilename('my_resume')).toBe('my_resume.pdf');
+      });
+
+      it('should truncate excessively long filenames to at most 255 characters preserving .pdf', () => {
+        const longBase = 'A'.repeat(300);
+        const normalized = normalizeUploadedFilename(`${longBase}.pdf`);
+        expect(normalized.length).toBe(255);
+        expect(normalized.endsWith('.pdf')).toBe(true);
+        expect(normalized.startsWith('A'.repeat(251))).toBe(true);
+      });
+
+      it('should fall back to document.pdf for empty, whitespace, or degenerate filenames', () => {
+        expect(normalizeUploadedFilename('')).toBe('document.pdf');
+        expect(normalizeUploadedFilename('   ')).toBe('document.pdf');
+        expect(normalizeUploadedFilename(null)).toBe('document.pdf');
+        expect(normalizeUploadedFilename(undefined)).toBe('document.pdf');
+        expect(normalizeUploadedFilename('.pdf')).toBe('document.pdf');
+        expect(normalizeUploadedFilename('..')).toBe('document.pdf');
+        expect(normalizeUploadedFilename('/..//')).toBe('document.pdf');
+      });
+    });
+
+    describe('uploadCv persistence and audit logging', () => {
+      it('should persist decoded UTF-8 filename when receiving Latin-1 mojibake and omit originalFileName from audit metadata', async () => {
+        const validPdfBuffer = Buffer.from(
+          '%PDF-1.4\n1 0 obj\n<< /Title (Candidate Resume) >>\nendobj\n%%EOF',
+        );
+        const expectedFilename = 'CV Nguyễn Văn B.pdf';
+        const latin1Mojibake = Buffer.from(expectedFilename, 'utf8').toString('latin1');
+
+        const file = {
+          originalname: latin1Mojibake,
+          mimetype: 'application/pdf',
+          size: validPdfBuffer.length,
+          buffer: validPdfBuffer,
+        };
+
+        const result = await service.uploadCv(candidateUser, file as any);
+
+        // 1. Check returned CV entity and DB record
+        expect(result.cv.originalFileName).toBe(expectedFilename);
+        const savedCv = await inMemoryPrisma.cv.findUnique({ where: { id: result.cv.id } });
+        expect(savedCv.originalFileName).toBe(expectedFilename);
+
+        // 2. Check audit log for CV_UPLOADED to verify originalFileName is omitted for privacy
+        const uploadAuditLog = inMemoryPrisma.auditLogs.find(
+          (l: any) => l.action === 'CV_UPLOADED' && l.targetId === result.cv.id,
+        );
+        expect(uploadAuditLog).toBeDefined();
+        expect(uploadAuditLog.metadata).toBeDefined();
+        // originalFileName must NOT be in audit log metadata
+        expect(uploadAuditLog.metadata.originalFileName).toBeUndefined();
+        // Non-identifying operational metadata must still be present
+        expect(uploadAuditLog.metadata.sizeBytes).toBe(validPdfBuffer.length);
+        expect(uploadAuditLog.metadata.checksumSha256).toBeDefined();
+        expect(uploadAuditLog.metadata.operationId).toBe(result.operation.id);
+      });
     });
   });
 });

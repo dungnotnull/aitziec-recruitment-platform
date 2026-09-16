@@ -226,6 +226,8 @@ type ApplicationStatus =
   | "REVIEWING"
   | "INTERVIEWING"
   | "PASSED"
+  | "OFFERED"
+  | "HIRED"
   | "REJECTED";
 
 type CompanyInvitationStatus =
@@ -261,7 +263,7 @@ type NotificationType =
 
 ## 7. Application State Machine
 
-The following transitions are the complete `v1.1` pipeline (incorporating BEI-001 early rejection resolution):
+The following transitions are the complete pipeline:
 
 | Current | Allowed target | Actor |
 | --- | --- | --- |
@@ -271,10 +273,15 @@ The following transitions are the complete `v1.1` pipeline (incorporating BEI-00
 | `REVIEWING` | `REJECTED` | Authorized HR or admin |
 | `INTERVIEWING` | `PASSED` | Authorized HR or admin |
 | `INTERVIEWING` | `REJECTED` | Authorized HR or admin |
-| `PASSED` | None | Terminal |
-| `REJECTED` | None | Terminal |
+| `PASSED` | `OFFERED` | Authorized HR or admin |
+| `PASSED` | `HIRED` | Authorized HR or admin |
+| `PASSED` | `REJECTED` | Authorized HR or admin |
+| `OFFERED` | `HIRED` | Authorized HR or admin |
+| `OFFERED` | `REJECTED` | Authorized HR or admin |
+| `REJECTED` | `REVIEWING` | Authorized HR or admin (Reconsider) |
+| `HIRED` | None | Terminal |
 
-Self-transitions, skipped stages, reversal, reopening, and deletion are invalid.
+Self-transitions, skipped stages, backward transitions (except Reconsider: `REJECTED -> REVIEWING`), and all transitions from `HIRED` are invalid.
 An invalid transition returns `409 INVALID_APPLICATION_TRANSITION`.
 
 
@@ -972,6 +979,13 @@ Upload limit baseline: 10 MiB. The backend verifies PDF signature and parseabili
 instead of trusting the extension or declared MIME type. Recruiter access exists
 only through an application for a job in the recruiter's company.
 
+Filename normalization on upload:
+- Multipart filename parameters are decoded with conditional UTF-8 recovery from Latin-1 mojibake, validating round-trip identity without data loss.
+- Normalized to Unicode NFC; path traversal segments (`../`, `..\`) and directory prefixes are stripped to retain basename only.
+- Control characters (NUL, CR, LF) and Unicode Bidi override characters are removed.
+- Enforces `.pdf` extension, caps maximum length at 255 characters, and falls back safely to `document.pdf` if empty or invalid.
+- Raw filenames are excluded from `CV_UPLOADED` audit metadata to preserve candidate privacy.
+
 ### 9.7 Applications
 
 | Method and path | Access | Request | Success |
@@ -1179,6 +1193,9 @@ type DomainEvent<T> = {
 type DomainEventName =
   | "ApplicationSubmitted"
   | "ApplicationStatusChanged"
+  | "ApplicationOffered"
+  | "ApplicationHired"
+  | "ApplicationReconsidered"
   | "InterviewScheduled"
   | "InterviewRescheduled"
   | "InterviewCancelled"

@@ -159,14 +159,15 @@ traceable hiring pipeline without delegating hiring decisions to AI.
 - **APP-002:** Submission atomically creates the application, initial event,
   audit record, and outbox event.
 - **APP-003:** Application status follows this pipeline:
-  `APPLIED -> REVIEWING | REJECTED`, `REVIEWING -> INTERVIEWING | REJECTED`, and
-  `INTERVIEWING -> PASSED | REJECTED`. Rejection is supported at any pre-hire review stage.
+  `APPLIED -> REVIEWING | REJECTED`, `REVIEWING -> INTERVIEWING | REJECTED`,
+  `INTERVIEWING -> PASSED | REJECTED`, `PASSED -> OFFERED | HIRED | REJECTED`,
+  `OFFERED -> HIRED | REJECTED`, and `REJECTED -> REVIEWING` (Reconsider).
 - **APP-004:** Any transition not listed in APP-003 is rejected.
 - **APP-005:** Status updates require authorized company access, expected version,
   actor identity, timestamp, and optional reason where allowed by the contract.
 - **APP-006:** Candidates can view their application history without private HR
   notes; recruiters can view applicants for authorized jobs.
-- **APP-007:** Terminal statuses are immutable in the baseline contract.
+- **APP-007:** `HIRED` is the sole immutable terminal status.
 - **APP-008:** Concurrent submissions and transitions cannot create duplicates or
   bypass the state machine.
 

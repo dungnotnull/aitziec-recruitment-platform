@@ -23,6 +23,7 @@ import { CollectionResponse } from '../common/dto/response.dto';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { CvDto, CvQueryDto, OperationDto, SignedDownloadDto, UploadedCvFile } from './dto/cv.dto';
 import { IdempotencyService } from '../idempotency';
+import { normalizeUploadedFilename } from './cv-filename.util';
 
 interface CursorData {
   id: string;
@@ -88,6 +89,8 @@ export class CvsService {
       });
     }
 
+    const normalizedFileName = normalizeUploadedFilename(file.originalname);
+
     // 1. Max size: 10 MiB
     const MAX_SIZE = 10 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
@@ -136,7 +139,7 @@ export class CvsService {
         const cv = await tx.cv.create({
           data: {
             candidateProfileId: candidateProfile.id,
-            originalFileName: file.originalname || 'document.pdf',
+            originalFileName: normalizedFileName,
             mimeType: 'application/pdf',
             sizeBytes: file.size,
             checksumSha256,
@@ -179,7 +182,6 @@ export class CvsService {
             targetId: cv.id,
             requestId,
             metadata: {
-              originalFileName: file.originalname,
               sizeBytes: file.size,
               checksumSha256,
               operationId: operation.id,

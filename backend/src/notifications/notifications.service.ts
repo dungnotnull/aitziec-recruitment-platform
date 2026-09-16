@@ -190,37 +190,61 @@ export class NotificationsService {
   }
 
   async createNotification(dto: CreateNotificationDto): Promise<NotificationDto> {
-    const existing = await this.prisma.notification.findFirst({
-      where: {
-        userId: dto.userId,
-        type: dto.type,
-        resourceType: dto.resourceType ?? null,
-        resourceId: dto.resourceId ?? null,
-      },
-    });
+    if (dto.deliveryKey) {
+      const existing = await this.prisma.notification.findUnique({
+        where: { deliveryKey: dto.deliveryKey },
+      });
+      if (existing) {
+        return this.toNotificationDto(existing);
+      }
+    } else {
+      const existing = await this.prisma.notification.findFirst({
+        where: {
+          userId: dto.userId,
+          type: dto.type,
+          resourceType: dto.resourceType ?? null,
+          resourceId: dto.resourceId ?? null,
+        },
+      });
 
-    if (existing) {
-      return this.toNotificationDto(existing);
+      if (existing) {
+        return this.toNotificationDto(existing);
+      }
     }
 
-    const created = await this.prisma.notification.create({
-      data: {
-        userId: dto.userId,
-        type: dto.type,
-        title: dto.title,
-        body: dto.body,
-        resourceType: dto.resourceType ?? null,
-        resourceId: dto.resourceId ?? null,
-      },
-    });
+    try {
+      const created = await this.prisma.notification.create({
+        data: {
+          userId: dto.userId,
+          type: dto.type,
+          title: dto.title,
+          body: dto.body,
+          resourceType: dto.resourceType ?? null,
+          resourceId: dto.resourceId ?? null,
+          sourceEventId: dto.sourceEventId ?? null,
+          deliveryKey: dto.deliveryKey ?? null,
+        },
+      });
 
-    return this.toNotificationDto(created);
+      return this.toNotificationDto(created);
+    } catch (err: unknown) {
+      if (dto.deliveryKey && err instanceof Error && (err as { code?: string }).code === 'P2002') {
+        const fallback = await this.prisma.notification.findUnique({
+          where: { deliveryKey: dto.deliveryKey },
+        });
+        if (fallback) {
+          return this.toNotificationDto(fallback);
+        }
+      }
+      throw err;
+    }
   }
 
   async routeEvent(
     eventType: string,
     payload: EventRoutingPayload,
     eventVersion: number = SUPPORTED_EVENT_VERSION,
+    eventId?: string,
   ): Promise<void> {
     validateEventVersion(eventVersion);
     try {
@@ -234,6 +258,8 @@ export class NotificationsService {
               body: `Your application for ${payload.jobTitle || 'the position'} has been submitted.`,
               resourceType: 'APPLICATION',
               resourceId: payload.applicationId,
+              sourceEventId: eventId,
+              deliveryKey: eventId ? `notif-${eventId}-${payload.candidateUserId}` : undefined,
             });
 
             const candidateUser = await this.prisma.user.findUnique({
@@ -258,7 +284,7 @@ export class NotificationsService {
 
         case 'ApplicationStatusChanged': {
           if (payload.candidateUserId) {
-            const isTerminal = payload.toStatus === 'PASSED' || payload.toStatus === 'REJECTED';
+            const isTerminal = payload.toStatus === 'REJECTED';
             const notifType = isTerminal
               ? NotificationType.APPLICATION_OUTCOME
               : NotificationType.APPLICATION_STATUS_CHANGED;
@@ -270,6 +296,8 @@ export class NotificationsService {
               body: `Your application for ${payload.jobTitle || 'the position'} is now ${payload.toStatus}.`,
               resourceType: 'APPLICATION',
               resourceId: payload.applicationId,
+              sourceEventId: eventId,
+              deliveryKey: eventId ? `notif-${eventId}-${payload.candidateUserId}` : undefined,
             });
 
             const candidateUser = await this.prisma.user.findUnique({
@@ -286,7 +314,106 @@ export class NotificationsService {
                 subject: tmpl.subject,
                 text: tmpl.text,
                 html: tmpl.html,
-                idempotencyKey: `email-app-trans-${payload.applicationId}-${payload.toStatus}`,
+                idempotencyKey: `email-app-trans-${payload.applicationId}-${payload.toStatus}-${eventId || ''}`,
+              });
+            }
+          }
+          break;
+        }
+
+        case 'ApplicationOffered': {
+          if (payload.candidateUserId) {
+            await this.createNotification({
+              userId: payload.candidateUserId,
+              type: NotificationType.APPLICATION_STATUS_CHANGED,
+              title: `Application Offer: ${payload.jobTitle || 'Position'}`,
+              body: `Congratulations! You have received a job offer for ${payload.jobTitle || 'the position'} at ${payload.companyName || 'the company'}.`,
+              resourceType: 'APPLICATION',
+              resourceId: payload.applicationId,
+              sourceEventId: eventId,
+              deliveryKey: eventId ? `notif-${eventId}-${payload.candidateUserId}` : undefined,
+            });
+
+            const candidateUser = await this.prisma.user.findUnique({
+              where: { id: payload.candidateUserId },
+            });
+            if (candidateUser?.email) {
+              const tmpl = EmailTemplates.applicationOffered(
+                payload.jobTitle || 'Job',
+                payload.companyName || 'Company',
+              );
+              await this.emailService.sendEmail({
+                to: candidateUser.email,
+                subject: tmpl.subject,
+                text: tmpl.text,
+                html: tmpl.html,
+                idempotencyKey: `email-app-offer-${payload.applicationId}-${eventId || ''}`,
+              });
+            }
+          }
+          break;
+        }
+
+        case 'ApplicationHired': {
+          if (payload.candidateUserId) {
+            await this.createNotification({
+              userId: payload.candidateUserId,
+              type: NotificationType.APPLICATION_OUTCOME,
+              title: 'Application Outcome: HIRED',
+              body: `Congratulations! You have been officially hired for ${payload.jobTitle || 'the position'} at ${payload.companyName || 'the company'}.`,
+              resourceType: 'APPLICATION',
+              resourceId: payload.applicationId,
+              sourceEventId: eventId,
+              deliveryKey: eventId ? `notif-${eventId}-${payload.candidateUserId}` : undefined,
+            });
+
+            const candidateUser = await this.prisma.user.findUnique({
+              where: { id: payload.candidateUserId },
+            });
+            if (candidateUser?.email) {
+              const tmpl = EmailTemplates.applicationHired(
+                payload.jobTitle || 'Job',
+                payload.companyName || 'Company',
+              );
+              await this.emailService.sendEmail({
+                to: candidateUser.email,
+                subject: tmpl.subject,
+                text: tmpl.text,
+                html: tmpl.html,
+                idempotencyKey: `email-app-hire-${payload.applicationId}-${eventId || ''}`,
+              });
+            }
+          }
+          break;
+        }
+
+        case 'ApplicationReconsidered': {
+          if (payload.candidateUserId) {
+            await this.createNotification({
+              userId: payload.candidateUserId,
+              type: NotificationType.APPLICATION_STATUS_CHANGED,
+              title: `Application Reconsidered: ${payload.jobTitle || 'Position'}`,
+              body: `Your application for ${payload.jobTitle || 'the position'} at ${payload.companyName || 'the company'} is being reconsidered.`,
+              resourceType: 'APPLICATION',
+              resourceId: payload.applicationId,
+              sourceEventId: eventId,
+              deliveryKey: eventId ? `notif-${eventId}-${payload.candidateUserId}` : undefined,
+            });
+
+            const candidateUser = await this.prisma.user.findUnique({
+              where: { id: payload.candidateUserId },
+            });
+            if (candidateUser?.email) {
+              const tmpl = EmailTemplates.applicationReconsidered(
+                payload.jobTitle || 'Job',
+                payload.companyName || 'Company',
+              );
+              await this.emailService.sendEmail({
+                to: candidateUser.email,
+                subject: tmpl.subject,
+                text: tmpl.text,
+                html: tmpl.html,
+                idempotencyKey: `email-app-reconsider-${payload.applicationId}-${eventId || ''}`,
               });
             }
           }

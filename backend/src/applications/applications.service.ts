@@ -18,6 +18,7 @@ import { CollectionResponse } from '../common/dto/response.dto';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { DomainEventName } from '../outbox/domain-events';
 import { CompanyScopeService } from '../companies/company-scope.service';
 import { IdempotencyService } from '../idempotency/idempotency.service';
 import { ClaimResult } from '../idempotency/idempotency.types';
@@ -334,10 +335,27 @@ export class ApplicationsService {
           },
         });
 
+        let auditAction = 'APPLICATION_STATUS_TRANSITIONED';
+        let eventName: DomainEventName = 'ApplicationStatusChanged';
+
+        if (dto.targetStatus === ApplicationStatus.OFFERED) {
+          auditAction = 'APPLICATION_OFFERED';
+          eventName = 'ApplicationOffered';
+        } else if (dto.targetStatus === ApplicationStatus.HIRED) {
+          auditAction = 'APPLICATION_HIRED';
+          eventName = 'ApplicationHired';
+        } else if (
+          application.status === ApplicationStatus.REJECTED &&
+          dto.targetStatus === ApplicationStatus.REVIEWING
+        ) {
+          auditAction = 'APPLICATION_RECONSIDERED';
+          eventName = 'ApplicationReconsidered';
+        }
+
         await this.auditService.record(
           {
             actorId: user.id,
-            action: 'APPLICATION_STATUS_TRANSITIONED',
+            action: auditAction,
             targetType: 'APPLICATION',
             targetId: applicationId,
             requestId,
@@ -353,7 +371,7 @@ export class ApplicationsService {
         );
 
         await this.outboxService.recordEvent(tx, {
-          eventName: 'ApplicationStatusChanged',
+          eventName,
           aggregateType: 'Application',
           aggregateId: application.id,
           payload: {
@@ -390,7 +408,7 @@ export class ApplicationsService {
     currentStatus: ApplicationStatus,
     targetStatus: ApplicationStatus,
   ): void {
-    if (currentStatus === 'PASSED' || currentStatus === 'REJECTED') {
+    if (currentStatus === ApplicationStatus.HIRED) {
       throw new ConflictException({
         code: ERROR_CODES.INVALID_APPLICATION_TRANSITION,
         message: `Cannot transition application from terminal status ${currentStatus}.`,
@@ -405,11 +423,17 @@ export class ApplicationsService {
     }
 
     const allowedTransitions: Record<ApplicationStatus, ApplicationStatus[]> = {
-      APPLIED: [ApplicationStatus.REVIEWING, ApplicationStatus.REJECTED],
-      REVIEWING: [ApplicationStatus.INTERVIEWING, ApplicationStatus.REJECTED],
-      INTERVIEWING: [ApplicationStatus.PASSED, ApplicationStatus.REJECTED],
-      PASSED: [],
-      REJECTED: [],
+      [ApplicationStatus.APPLIED]: [ApplicationStatus.REVIEWING, ApplicationStatus.REJECTED],
+      [ApplicationStatus.REVIEWING]: [ApplicationStatus.INTERVIEWING, ApplicationStatus.REJECTED],
+      [ApplicationStatus.INTERVIEWING]: [ApplicationStatus.PASSED, ApplicationStatus.REJECTED],
+      [ApplicationStatus.PASSED]: [
+        ApplicationStatus.OFFERED,
+        ApplicationStatus.HIRED,
+        ApplicationStatus.REJECTED,
+      ],
+      [ApplicationStatus.OFFERED]: [ApplicationStatus.HIRED, ApplicationStatus.REJECTED],
+      [ApplicationStatus.REJECTED]: [ApplicationStatus.REVIEWING],
+      [ApplicationStatus.HIRED]: [],
     };
 
     const validTargets = allowedTransitions[currentStatus] || [];

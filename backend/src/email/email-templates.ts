@@ -23,6 +23,27 @@ export const EmailTemplates = {
     return { subject, text, html };
   },
 
+  applicationOffered(jobTitle: string, companyName: string): EmailTemplateResult {
+    const subject = `[AitZiec] Job Offer: ${jobTitle} at ${companyName}`;
+    const text = `Congratulations! You have received a job offer for ${jobTitle} at ${companyName}. Please log in to your account to review the offer details.`;
+    const html = `<h2>Job Offer Received!</h2><p>Congratulations! You have received a job offer for <strong>${jobTitle}</strong> at <strong>${companyName}</strong>.</p><p>Please log in to your account to review the offer details.</p>`;
+    return { subject, text, html };
+  },
+
+  applicationHired(jobTitle: string, companyName: string): EmailTemplateResult {
+    const subject = `[AitZiec] Congratulations! You are hired for ${jobTitle} at ${companyName}`;
+    const text = `Congratulations! You have been officially hired for ${jobTitle} at ${companyName}. Welcome aboard!`;
+    const html = `<h2>Welcome Aboard!</h2><p>Congratulations! You have been officially hired for <strong>${jobTitle}</strong> at <strong>${companyName}</strong>.</p><p>The team is excited to welcome you!</p>`;
+    return { subject, text, html };
+  },
+
+  applicationReconsidered(jobTitle: string, companyName: string): EmailTemplateResult {
+    const subject = `[AitZiec] Application Update: ${jobTitle} at ${companyName}`;
+    const text = `Your application for ${jobTitle} at ${companyName} has been reopened and is being actively reconsidered.`;
+    const html = `<h2>Application Reconsidered</h2><p>Your application for <strong>${jobTitle}</strong> at <strong>${companyName}</strong> has been reopened and is under review.</p>`;
+    return { subject, text, html };
+  },
+
   interviewScheduled(
     jobTitle: string,
     companyName: string,

@@ -97,4 +97,6 @@ export class CreateNotificationDto {
   body!: string;
   resourceType?: string | null;
   resourceId?: string | null;
+  sourceEventId?: string | null;
+  deliveryKey?: string | null;
 }

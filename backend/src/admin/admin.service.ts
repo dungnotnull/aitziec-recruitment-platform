@@ -23,6 +23,7 @@ import { CompaniesService } from '../companies/companies.service';
 import { JobsService } from '../jobs/jobs.service';
 import { ApplicationsService } from '../applications/applications.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { DomainEventName } from '../outbox/domain-events';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { ERROR_CODES } from '../common/constants/error-codes';
 import { CollectionResponse } from '../common/dto/response.dto';
@@ -853,11 +854,28 @@ export class AdminService {
         },
       });
 
+      let auditAction = 'APPLICATION_MODERATED';
+      let eventName: DomainEventName = 'ApplicationStatusChanged';
+
+      if (dto.targetStatus === ApplicationStatus.OFFERED) {
+        auditAction = 'APPLICATION_OFFERED';
+        eventName = 'ApplicationOffered';
+      } else if (dto.targetStatus === ApplicationStatus.HIRED) {
+        auditAction = 'APPLICATION_HIRED';
+        eventName = 'ApplicationHired';
+      } else if (
+        application.status === ApplicationStatus.REJECTED &&
+        dto.targetStatus === ApplicationStatus.REVIEWING
+      ) {
+        auditAction = 'APPLICATION_RECONSIDERED';
+        eventName = 'ApplicationReconsidered';
+      }
+
       // 3. Record AuditLog
       await this.auditService.record(
         {
           actorId: adminUser.id,
-          action: 'APPLICATION_MODERATED',
+          action: auditAction,
           targetType: 'Application',
           targetId: applicationId,
           requestId,
@@ -867,6 +885,7 @@ export class AdminService {
             reason: dto.reason,
             expectedVersion: dto.expectedVersion,
             newVersion: application.version + 1,
+            isAdminModeration: true,
           },
         },
         tx,
@@ -874,7 +893,7 @@ export class AdminService {
 
       // 4. Emit outbox event
       await this.outboxService.recordEvent(tx, {
-        eventName: 'ApplicationStatusChanged',
+        eventName,
         aggregateType: 'Application',
         aggregateId: application.id,
         payload: {
