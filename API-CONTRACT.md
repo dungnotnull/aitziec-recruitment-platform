@@ -979,6 +979,13 @@ Upload limit baseline: 10 MiB. The backend verifies PDF signature and parseabili
 instead of trusting the extension or declared MIME type. Recruiter access exists
 only through an application for a job in the recruiter's company.
 
+Filename normalization on upload:
+- Multipart filename parameters are decoded with conditional UTF-8 recovery from Latin-1 mojibake, validating round-trip identity without data loss.
+- Normalized to Unicode NFC; path traversal segments (`../`, `..\`) and directory prefixes are stripped to retain basename only.
+- Control characters (NUL, CR, LF) and Unicode Bidi override characters are removed.
+- Enforces `.pdf` extension, caps maximum length at 255 characters, and falls back safely to `document.pdf` if empty or invalid.
+- Raw filenames are excluded from `CV_UPLOADED` audit metadata to preserve candidate privacy.
+
 ### 9.7 Applications
 
 | Method and path | Access | Request | Success |

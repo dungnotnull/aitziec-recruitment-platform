@@ -443,4 +443,30 @@ describe('Phase 5: CVs, Interviews, and Notifications (E2E)', () => {
       expect(profileRes.body.data.defaultCvId).toBeNull();
     });
   });
+
+  describe('CV Filename UTF-8 Recovery and Normalization (BE-20-001)', () => {
+    it('POST /api/v1/cvs — should recover and normalize UTF-8 filename from multipart upload', async () => {
+      const validPdfBuffer = Buffer.from(
+        '%PDF-1.4\n1 0 obj\n<< /Title (Candidate Resume) >>\nendobj\n%%EOF',
+      );
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/cvs')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .attach('file', validPdfBuffer, 'CV Nguyễn Văn A.pdf');
+
+      expect(res.status).toBe(202);
+      expect(res.body.data.cv).toBeDefined();
+      expect(res.body.data.cv.originalFileName).toBe('CV Nguyễn Văn A.pdf');
+
+      // Verify GET /api/v1/cvs lists the decoded UTF-8 filename
+      const listRes = await request(app.getHttpServer())
+        .get('/api/v1/cvs')
+        .set('Authorization', `Bearer ${candidateToken}`);
+      expect(listRes.status).toBe(200);
+      const matchedCv = listRes.body.data.find((c: any) => c.id === res.body.data.cv.id);
+      expect(matchedCv).toBeDefined();
+      expect(matchedCv.originalFileName).toBe('CV Nguyễn Văn A.pdf');
+    });
+  });
 });
