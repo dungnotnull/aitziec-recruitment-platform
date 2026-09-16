@@ -278,4 +278,81 @@ describe('AccountSettingsOverview', () => {
     // Verify success banner
     expect(await screen.findByText(/personal information updated successfully/i)).toBeVisible()
   })
+
+  it('allows selecting avatar image from device with preview', async () => {
+    const requests: Array<{ url: string; method: string; data: any }> = []
+    apiClient.defaults.adapter = (async (config) => {
+      requests.push({
+        url: config.url || '',
+        method: config.method || 'get',
+        data: config.data ? JSON.parse(config.data) : undefined,
+      })
+
+      if (config.url === '/auth/refresh') {
+        return {
+          data: { data: hrSession },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        } as AxiosResponse<SuccessResponse<AuthSession>>
+      }
+
+      if (config.url === '/hr/me' && config.method === 'get') {
+        return {
+          data: { data: initialProfile },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        } as AxiosResponse<SuccessResponse<HrProfile>>
+      }
+
+      if (config.url === '/hr/invitations') {
+        return {
+          data: { data: [], meta: { page: { nextCursor: null, hasNextPage: false, limit: 20 } } },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        } as AxiosResponse<PaginatedResponse<HrInvitationItem>>
+      }
+
+      return {
+        data: { data: {} },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config,
+      } as AxiosResponse
+    }) satisfies AxiosAdapter
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <AccountSettingsOverview />
+        </AuthProvider>
+      </QueryClientProvider>,
+    )
+
+    // Button to select image from device exists
+    const uploadBtn = await screen.findByRole('button', { name: /chọn ảnh từ thiết bị/i })
+    expect(uploadBtn).toBeVisible()
+
+    // File input is present in DOM
+    const fileInput = document.getElementById('avatarFile') as HTMLInputElement
+    expect(fileInput).toBeInTheDocument()
+
+    // Simulate choosing a file with valid PNG header bytes
+    const pngHeader = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x00])
+    const file = new File([pngHeader], 'my-photo.png', { type: 'image/png' })
+    await userEvent.upload(fileInput, file)
+
+    // File name is displayed
+    expect(await screen.findByText(/my-photo\.png/i)).toBeVisible()
+  })
 })

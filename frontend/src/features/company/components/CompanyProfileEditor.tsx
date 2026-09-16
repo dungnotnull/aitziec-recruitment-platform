@@ -15,6 +15,8 @@ import {
   type CompanyPerk,
 } from "../company-meta"
 import type { Company } from "@/api/types"
+import { validateAndNormalizeImageFile } from "@/shared/lib/image-validator"
+import { useEffect } from "react"
 import {
   Building2,
   Sparkles,
@@ -68,6 +70,15 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
   const isEditing = !!company
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [previewLogo, setPreviewLogo] = useState<string | null>(company?.logoUrl || null)
+  const [previewError, setPreviewError] = useState(false)
+  const [fileValidationError, setFileValidationError] = useState<string | null>(null)
+  const [currentVersion, setCurrentVersion] = useState<number>(company?.version ?? 0)
+
+  useEffect(() => {
+    if (company?.version !== undefined) {
+      setCurrentVersion(company.version)
+    }
+  }, [company?.version])
 
   // Initialize extended metadata
   const initialExt = getCompanyExtendedInfo(company?.id)
@@ -136,15 +147,35 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
   const mutation = useMutation({
     mutationFn: async (data: CompanyValues) => {
       let savedCompany: Company
+      let versionToUse = currentVersion
+
       if (isEditing) {
+        let finalLogoUrl = company.logoUrl
+
+        // Upload logo FIRST if a new file is chosen.
+        // If logo upload fails (e.g. invalid signature), updateCompany will not run,
+        // preventing version bump and stale expectedVersion conflict.
+        if (logoFile) {
+          try {
+            const logoRes = await uploadCompanyLogo(company.id, logoFile, versionToUse)
+            finalLogoUrl = logoRes.logoUrl
+            versionToUse = logoRes.version
+            setCurrentVersion(logoRes.version)
+          } catch (err: any) {
+            console.error("Failed to upload company logo:", err)
+            throw new Error(err?.response?.data?.error?.message || "Không thể tải lên logo công ty. Vui lòng kiểm tra lại định dạng và dung lượng.")
+          }
+        }
+
         savedCompany = await updateCompany(company.id, {
-          expectedVersion: company.version,
+          expectedVersion: versionToUse,
           name: data.name,
           description: data.description || null,
           location: data.location || null,
           websiteUrl: data.websiteUrl || null,
-          logoUrl: company.logoUrl,
+          logoUrl: finalLogoUrl,
         })
+        setCurrentVersion(savedCompany.version)
       } else {
         savedCompany = await createCompany({
           name: data.name,
@@ -154,14 +185,16 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
           websiteUrl: data.websiteUrl || null,
           logoUrl: null,
         })
-      }
 
-      if (logoFile) {
-        try {
-          const logoRes = await uploadCompanyLogo(savedCompany.id, logoFile, savedCompany.version)
-          savedCompany = { ...savedCompany, logoUrl: logoRes.logoUrl, version: logoRes.version }
-        } catch (err) {
-          console.error("Failed to upload company logo:", err)
+        if (logoFile) {
+          try {
+            const logoRes = await uploadCompanyLogo(savedCompany.id, logoFile, savedCompany.version)
+            savedCompany = { ...savedCompany, logoUrl: logoRes.logoUrl, version: logoRes.version }
+            setCurrentVersion(savedCompany.version)
+          } catch (err: any) {
+            console.error("Failed to upload company logo:", err)
+            throw new Error(err?.response?.data?.error?.message || "Không thể tải lên logo công ty. Vui lòng kiểm tra lại định dạng và dung lượng.")
+          }
         }
       }
 
@@ -180,15 +213,31 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
       return savedCompany
     },
     onSuccess: (savedCompany) => {
+      queryClient.invalidateQueries({ queryKey: ['company'] })
+      queryClient.invalidateQueries({ queryKey: ['my-companies'] })
+      queryClient.invalidateQueries({ queryKey: ['public-company-detail'] })
       queryClient.setQueryData(['company', savedCompany.id], savedCompany)
       localStorage.setItem('hr_company_id', savedCompany.id)
       navigate({ to: '/company', search: { companyId: savedCompany.id } })
     },
     onError: (error: any) => {
-      setError("root", {
-        type: "server",
-        message: error.response?.data?.error?.message || "Không thể lưu thông tin công ty. Vui lòng kiểm tra lại.",
-      })
+      const isConflict =
+        error?.response?.status === 409 ||
+        error?.response?.data?.error?.code === 'VERSION_CONFLICT' ||
+        error?.message?.includes("expectedVersion")
+
+      if (isConflict && company?.id) {
+        queryClient.invalidateQueries({ queryKey: ['company', company.id] })
+        setError("root", {
+          type: "server",
+          message: "Dữ liệu công ty vừa được cập nhật ở một phiên khác (Xung đột phiên bản). Hệ thống đã làm mới dữ liệu mới nhất, vui lòng kiểm tra lại và bấm Lưu hồ sơ.",
+        })
+      } else {
+        setError("root", {
+          type: "server",
+          message: error?.message || error.response?.data?.error?.message || "Không thể lưu thông tin công ty. Vui lòng kiểm tra lại.",
+        })
+      }
     },
   })
 
@@ -296,8 +345,13 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
               </Label>
               <div className="flex items-center gap-5">
                 <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-2xl border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-slate-50 dark:bg-zinc-900 p-1.5 shrink-0">
-                  {previewLogo ? (
-                    <img src={previewLogo} alt="Logo preview" className="h-full w-full object-contain rounded-xl" />
+                  {previewLogo && !previewError ? (
+                    <img
+                      src={previewLogo}
+                      alt="Logo preview"
+                      className="h-full w-full object-contain rounded-xl"
+                      onError={() => setPreviewError(true)}
+                    />
                   ) : (
                     <Building2 className="h-8 w-8 text-slate-400" />
                   )}
@@ -308,18 +362,29 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
                     className="rounded-xl text-xs"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files?.[0]
                       if (file) {
-                        setLogoFile(file)
+                        setFileValidationError(null)
+                        const validation = await validateAndNormalizeImageFile(file)
+                        if (!validation.isValid) {
+                          setFileValidationError(validation.error || "Tệp ảnh không hợp lệ")
+                          setLogoFile(null)
+                          return
+                        }
+                        setLogoFile(validation.file)
+                        setPreviewError(false)
                         const reader = new FileReader()
                         reader.onloadend = () => {
                           setPreviewLogo(reader.result as string)
                         }
-                        reader.readAsDataURL(file)
+                        reader.readAsDataURL(validation.file)
                       }
                     }}
                   />
+                  {fileValidationError && (
+                    <p className="text-xs font-medium text-danger mt-1">{fileValidationError}</p>
+                  )}
                   <p className="text-[11px] text-muted-foreground mt-1">Định dạng hỗ trợ: PNG, JPG, WEBP (Khuyên dùng kích thước vuông, tối thiểu 200x200px)</p>
                 </div>
               </div>

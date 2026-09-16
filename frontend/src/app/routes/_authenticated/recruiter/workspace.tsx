@@ -12,7 +12,7 @@ import { StateBoundary } from '@/shared/ui/state-boundary';
 import { normalizeCompanyTarget } from '@/features/company/company-context';
 import { useAuth } from '@/features/auth/context';
 import { useRouter } from '@tanstack/react-router';
-import { ArrowLeft, CheckCircle, AlertCircle, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle, AlertCircle, X, User } from 'lucide-react';
 
 export const Route = createFileRoute('/_authenticated/recruiter/workspace')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -131,7 +131,7 @@ function RecruiterWorkspacePage() {
       <div className="mb-4">
         <Button variant="ghost" onClick={() => router.navigate({ to: '/company', search: { companyId } })} className="text-muted-foreground hover:text-foreground -ml-4">
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Dashboard
+          Back to Company
         </Button>
       </div>
 
@@ -189,16 +189,31 @@ function RecruiterWorkspacePage() {
                 <p className="text-muted-foreground">You haven't posted any jobs yet.</p>
               </div>
             ) : (
-              jobs.map(job => (
-                <Card key={job.id}>
-                  <CardContent className="p-6 flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div>
-                      <h3 className="font-semibold text-lg">{job.title}</h3>
-                      <div className="flex items-center gap-2 mt-2">
-                        <Badge variant={job.status === 'PUBLISHED' ? 'default' : 'secondary'}>{job.status}</Badge>
-                        <span className="text-sm text-muted-foreground">{job.location}</span>
+              jobs.map(job => {
+                const isCreatedByCurrentUser = Boolean(session?.user.id && job.creatorId === session.user.id);
+                const creatorDisplayName = job.creatorName || (isCreatedByCurrentUser ? 'Bạn' : null);
+                const creatorDisplayEmail = job.creatorEmail || (isCreatedByCurrentUser ? session?.user.email : null);
+
+                return (
+                  <Card key={job.id}>
+                    <CardContent className="p-6 flex flex-col md:flex-row justify-between items-center gap-4">
+                      <div className="space-y-1.5">
+                        <h3 className="font-semibold text-lg">{job.title}</h3>
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <Badge variant={job.status === 'PUBLISHED' ? 'default' : 'secondary'}>{job.status}</Badge>
+                          <span className="text-sm text-muted-foreground">{job.location}</span>
+                        </div>
+                        {(creatorDisplayName || creatorDisplayEmail) && (
+                          <div className="pt-0.5">
+                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-800/80 px-2.5 py-0.5 rounded-md border border-border/50">
+                              <User className="h-3 w-3 text-slate-400" />
+                              <span>
+                                Người tạo: {creatorDisplayName ? `${creatorDisplayName}${creatorDisplayEmail ? ` (${creatorDisplayEmail})` : ''}` : creatorDisplayEmail}
+                              </span>
+                            </span>
+                          </div>
+                        )}
                       </div>
-                    </div>
                     <div className="flex flex-wrap gap-2">
                       {job.status === 'DRAFT' || job.status === 'UNPUBLISHED' ? (
                         <>
@@ -253,12 +268,19 @@ function RecruiterWorkspacePage() {
                         )}
                       </Button>
                       <Button asChild>
-                        <Link to="/recruiter/jobs/$jobId/applicants" params={{ jobId: job.id }}>Manage Applicants</Link>
+                        <Link
+                          to="/recruiter/jobs/$jobId/applicants"
+                          params={{ jobId: job.id }}
+                          search={{ companyId }}
+                        >
+                          Manage Applicants
+                        </Link>
                       </Button>
                     </div>
                   </CardContent>
-                </Card>
-              ))
+                  </Card>
+                );
+              })
             )}
           </div>
         )}

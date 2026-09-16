@@ -4,13 +4,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getMyHrProfile, updateMyHrProfile, listMyHrInvitations } from "@/features/hr/api"
 import { acceptCompanyInvitation } from "@/features/company/api"
 import { getApiErrorDetails } from "@/shared/lib/api-error"
+import { validateAndNormalizeImageFile } from "@/shared/lib/image-validator"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/shared/ui/card"
 import { Button } from "@/shared/ui/button"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/shared/ui/dialog"
 import { useForm, useWatch } from "react-hook-form"
-import { Building, CheckCircle, Mail, AlertCircle, KeyRound, ExternalLink } from "lucide-react"
+import { Building, CheckCircle, Mail, AlertCircle, KeyRound, ExternalLink, Upload } from "lucide-react"
 import { Avatar } from "@/shared/ui/avatar"
 
 type ProfileFormValues = {
@@ -43,6 +44,11 @@ export function AccountSettingsOverview() {
   const watchedAvatarUrl = useWatch({ control, name: "avatarUrl" })
   const watchedFullName = useWatch({ control, name: "fullName" })
 
+  const [deviceAvatarPreview, setDeviceAvatarPreview] = React.useState<string | null>(null)
+  const [deviceAvatarFile, setDeviceAvatarFile] = React.useState<File | null>(null)
+  const [avatarValidationError, setAvatarValidationError] = React.useState<string | null>(null)
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+
   // 1. HR Profile Query
   const { data: hrProfile, isLoading: isProfileLoading } = useQuery({
     queryKey: ['hr-profile', session?.user.id],
@@ -58,8 +64,14 @@ export function AccountSettingsOverview() {
         phone: hrProfile.phone || "",
         avatarUrl: hrProfile.avatarUrl || ""
       })
+      if (session?.user.id) {
+        const localSaved = localStorage.getItem(`hr_avatar_${session.user.id}`)
+        if (localSaved) {
+          setDeviceAvatarPreview(localSaved)
+        }
+      }
     }
-  }, [hrProfile, reset])
+  }, [hrProfile, reset, session?.user.id])
 
   // 2. Pending Invitations Query
   const { data: invitationsData } = useQuery({
@@ -254,27 +266,127 @@ export function AccountSettingsOverview() {
               <p className="text-xs text-slate">Email cannot be changed as it is used for login.</p>
             </div>
 
-            {/* Avatar Preview & URL */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl border border-border bg-slate/5">
-              <Avatar
-                size="xl"
-                src={watchedAvatarUrl?.trim() || undefined}
-                fallback={watchedFullName || session.user.email}
-                alt="HR Avatar Preview"
-                className="shrink-0 ring-2 ring-border shadow-sm bg-surface"
-              />
-              <div className="space-y-1.5 flex-1 w-full">
-                <Label htmlFor="avatarUrl">Avatar URL</Label>
-                <Input
-                  id="avatarUrl"
-                  type="url"
-                  placeholder="https://example.com/avatar.jpg"
-                  disabled={isProfileLoading}
-                  {...register("avatarUrl")}
+            {/* Avatar Preview & Device Upload */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 p-5 rounded-2xl border border-border bg-slate-50/50 dark:bg-zinc-900/50">
+              <div className="relative group shrink-0">
+                <Avatar
+                  size="xl"
+                  src={deviceAvatarPreview || watchedAvatarUrl?.trim() || undefined}
+                  fallback={watchedFullName || session.user.email}
+                  alt="HR Avatar Preview"
+                  className="shrink-0 ring-2 ring-border shadow-sm bg-surface h-20 w-20 text-xl"
                 />
-                <p className="text-xs text-slate">
-                  Enter a direct image link (HTTP/HTTPS) for your profile picture.
-                </p>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity text-white cursor-pointer"
+                  title="Thay đổi ảnh từ thiết bị"
+                >
+                  <Upload className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="space-y-3 flex-1 w-full">
+                <div className="space-y-1.5">
+                  <Label htmlFor="avatarFile" className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300">
+                    Ảnh đại diện
+                  </Label>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      ref={fileInputRef}
+                      id="avatarFile"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0]
+                        if (file) {
+                          setAvatarValidationError(null)
+                          const validation = await validateAndNormalizeImageFile(file)
+                          if (!validation.isValid) {
+                            setAvatarValidationError(validation.error || "Tệp ảnh không hợp lệ")
+                            setDeviceAvatarFile(null)
+                            return
+                          }
+                          setDeviceAvatarFile(validation.file)
+                          const reader = new FileReader()
+                          reader.onloadend = () => {
+                            const result = reader.result as string
+                            setDeviceAvatarPreview(result)
+                            if (session?.user.id) {
+                              try {
+                                localStorage.setItem(`hr_avatar_${session.user.id}`, result)
+                              } catch {
+                                // Ignore storage quota error
+                              }
+                            }
+                          }
+                          reader.readAsDataURL(validation.file)
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="gap-2 rounded-xl text-xs font-semibold"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      <span>{deviceAvatarFile ? "Chọn ảnh khác từ máy" : "Chọn ảnh từ thiết bị"}</span>
+                    </Button>
+                    {deviceAvatarFile && (
+                      <span className="text-xs text-emerald-600 font-medium truncate max-w-[200px]">
+                        ✓ {deviceAvatarFile.name}
+                      </span>
+                    )}
+                    {(deviceAvatarPreview || watchedAvatarUrl) && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setDeviceAvatarFile(null)
+                          setDeviceAvatarPreview(null)
+                          if (session?.user.id) {
+                            try {
+                              localStorage.removeItem(`hr_avatar_${session.user.id}`)
+                            } catch {}
+                          }
+                        }}
+                        className="text-xs text-muted-foreground hover:text-danger h-8 px-2"
+                      >
+                        Gỡ ảnh
+                      </Button>
+                    )}
+                    {avatarValidationError && (
+                      <p className="text-xs font-medium text-danger mt-1">{avatarValidationError}</p>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Định dạng hỗ trợ: PNG, JPG, WebP. Tải ảnh trực tiếp từ máy tính hoặc điện thoại của bạn.
+                  </p>
+                </div>
+
+                {/* Optional direct URL input for external CDN / test compatibility */}
+                <details className="text-xs text-slate-500 pt-1 border-t border-border/60">
+                  <summary className="cursor-pointer hover:text-ink font-medium select-none">
+                    Hoặc nhập liên kết ảnh bên ngoài (Avatar URL)
+                  </summary>
+                  <div className="mt-2 space-y-1">
+                    <Label htmlFor="avatarUrl" className="text-[11px] text-muted-foreground">
+                      Avatar URL
+                    </Label>
+                    <Input
+                      id="avatarUrl"
+                      type="url"
+                      placeholder="https://example.com/avatar.jpg"
+                      disabled={isProfileLoading}
+                      {...register("avatarUrl")}
+                      className="rounded-xl text-xs h-9"
+                    />
+                  </div>
+                </details>
               </div>
             </div>
 

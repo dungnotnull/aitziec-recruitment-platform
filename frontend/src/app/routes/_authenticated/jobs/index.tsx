@@ -5,6 +5,7 @@ import { NaturalLanguageSearch } from '@/features/job/components/NaturalLanguage
 import type { JobSearchFilters } from '@/api/types';
 import { normalizeJobSearch } from '@/features/job/job-search-url';
 import { Sparkles } from 'lucide-react';
+import { useAuth } from '@/features/auth/context';
 
 export const Route = createFileRoute('/_authenticated/jobs/')({
   validateSearch: normalizeJobSearch,
@@ -12,6 +13,8 @@ export const Route = createFileRoute('/_authenticated/jobs/')({
 });
 
 function JobsPage() {
+  const { session } = useAuth();
+  const isHR = session?.user?.role === 'HR';
   const filters = Route.useSearch();
   const navigate = Route.useNavigate();
   const applyFilters = (next: JobSearchFilters) => {
@@ -37,9 +40,11 @@ function JobsPage() {
       </div>
 
       {/* AI Natural Language Search Drawer / Bar */}
-      <div className="bg-surface rounded-2xl border border-border p-4 shadow-sm">
-        <NaturalLanguageSearch onApply={applyFilters} />
-      </div>
+      {!isHR && (
+        <div className="bg-surface rounded-2xl border border-border p-4 shadow-sm">
+          <NaturalLanguageSearch onApply={applyFilters} />
+        </div>
+      )}
 
       {/* Main Content Grid with Framed Section Border */}
       <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-surface/60 p-6 sm:p-8 shadow-xs">

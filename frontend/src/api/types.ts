@@ -317,6 +317,8 @@ export type Job = {
   currency: string;
   applicationDeadline: string;
   creatorId?: string | null;
+  creatorName?: string | null;
+  creatorEmail?: string | null;
   status: JobStatus;
   publishedAt: string | null;
   closedAt: string | null;

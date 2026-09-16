@@ -41,6 +41,7 @@ function PublicCompanyDetailPage() {
   const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'perks'>('overview');
   const [isCopied, setIsCopied] = useState(false);
   const [isFollowed, setIsFollowed] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
 
   // Fetch company details via public endpoint GET /companies/:companyIdOrSlug
   const {
@@ -144,11 +145,12 @@ function PublicCompanyDetailPage() {
             <div className="flex flex-col sm:flex-row sm:items-end gap-5">
               {/* Logo Box - Duy nhất logo dùng margin âm để nổi trên banner */}
               <div className="-mt-16 sm:-mt-20 h-28 w-28 sm:h-32 sm:w-32 shrink-0 rounded-2xl border-4 border-surface bg-white shadow-xl flex items-center justify-center overflow-hidden p-2.5 relative z-20">
-                {company.logoUrl ? (
+                {company.logoUrl && !logoFailed ? (
                   <img
                     src={company.logoUrl}
                     alt={`${company.name} logo`}
                     className="h-full w-full object-contain rounded-xl"
+                    onError={() => setLogoFailed(true)}
                   />
                 ) : (
                   <Building2 className="h-14 w-14 text-blue-600" />
