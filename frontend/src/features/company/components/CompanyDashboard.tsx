@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAuth } from "@/features/auth/context"
 import { useQuery } from "@tanstack/react-query"
 import { getCompany, listMyCompanies } from "../api"
@@ -48,6 +48,11 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
     enabled: !!session && session.user.role === 'HR' && Boolean(activeCompanyId),
     retry: false
   })
+
+  const [logoError, setLogoError] = useState(false)
+  useEffect(() => {
+    setLogoError(false)
+  }, [company?.logoUrl])
 
   const jobsQuery = useCompanyJobs(
     company?.id,
@@ -155,8 +160,13 @@ export function CompanyDashboard({ companyId }: { companyId?: string }) {
               <CardContent className="pt-6">
                 <div className="flex items-start justify-between">
                   <div className="flex gap-4">
-                    {company.logoUrl ? (
-                      <img src={company.logoUrl} alt={`${company.name} logo`} className="w-16 h-16 rounded-md object-cover border border-border" />
+                    {company.logoUrl && !logoError ? (
+                      <img
+                        src={company.logoUrl}
+                        alt={`${company.name} logo`}
+                        className="w-16 h-16 rounded-md object-cover border border-border"
+                        onError={() => setLogoError(true)}
+                      />
                     ) : (
                       <div className="w-16 h-16 rounded-md bg-slate/10 flex items-center justify-center border border-border">
                         <Building className="h-8 w-8 text-slate" />
