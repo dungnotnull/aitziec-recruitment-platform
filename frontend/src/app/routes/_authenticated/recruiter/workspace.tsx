@@ -5,7 +5,7 @@ import { Button } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
 import { Badge } from '@/shared/ui/badge';
 import { JobEditor } from '@/features/job/components/JobEditor';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getCompany, listMyCompanies } from '@/features/company/api';
 import { StateBoundary } from '@/shared/ui/state-boundary';
@@ -55,15 +55,41 @@ function RecruiterWorkspacePage() {
   const isOwnerOrAdmin = currentUserRole === 'OWNER' || (currentUserRole as string) === 'ADMIN' || session?.user.role === 'ADMIN';
 
   const [flash, setFlash] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const showFlash = (type: 'success' | 'error', message: string) => {
+    if (flashTimerRef.current) {
+      clearTimeout(flashTimerRef.current);
+    }
     setFlash({ type, message });
+    flashTimerRef.current = setTimeout(() => {
+      setFlash(null);
+      flashTimerRef.current = null;
+    }, 5000);
   };
+
+  useEffect(() => {
+    return () => {
+      if (flashTimerRef.current) {
+        clearTimeout(flashTimerRef.current);
+      }
+    };
+  }, []);
 
   const handlePublish = (jobId: string, version: number) => {
     publishMutation.mutate(
       { jobId, expectedVersion: version },
       {
-        onSuccess: () => showFlash('success', 'Job published successfully'),
+        onSuccess: (res) => {
+          const isPendingApproval =
+            res?.data?.status === 'PENDING_APPROVAL' ||
+            (!isOwnerOrAdmin && res?.data?.status !== 'PUBLISHED');
+          if (isPendingApproval) {
+            showFlash('success', 'Job publication request submitted successfully');
+          } else {
+            showFlash('success', 'Job published successfully');
+          }
+        },
         onError: (err) => showFlash('error', `Failed to publish job: ${err.message}`),
       }
     );
@@ -154,7 +180,13 @@ function RecruiterWorkspacePage() {
           </div>
           <button
             type="button"
-            onClick={() => setFlash(null)}
+            onClick={() => {
+              if (flashTimerRef.current) {
+                clearTimeout(flashTimerRef.current);
+                flashTimerRef.current = null;
+              }
+              setFlash(null);
+            }}
             className="text-slate-500 hover:text-slate-800 ml-4"
             aria-label="Dismiss notification"
           >

@@ -37,7 +37,7 @@ function CandidateApplicationsPage() {
                 </h3>
                 <p className="text-sm text-muted-foreground">{app.job.company.name}</p>
               </div>
-              <Badge variant={app.status === 'REJECTED' ? 'destructive' : app.status === 'PASSED' ? 'default' : 'secondary'}>
+              <Badge variant={app.status === 'REJECTED' ? 'destructive' : app.status === 'PASSED' || app.status === 'OFFERED' || app.status === 'HIRED' ? 'default' : 'secondary'}>
                 {app.status}
               </Badge>
             </div>

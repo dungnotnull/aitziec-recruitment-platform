@@ -398,7 +398,14 @@ export type SignedDownload = {
 
 // --- Application Module Types ---
 
-export type ApplicationStatus = "APPLIED" | "REVIEWING" | "INTERVIEWING" | "PASSED" | "REJECTED";
+export type ApplicationStatus =
+  | "APPLIED"
+  | "REVIEWING"
+  | "INTERVIEWING"
+  | "PASSED"
+  | "REJECTED"
+  | "OFFERED"
+  | "HIRED";
 
 export type ApplicationStatusEvent = {
   id: string;

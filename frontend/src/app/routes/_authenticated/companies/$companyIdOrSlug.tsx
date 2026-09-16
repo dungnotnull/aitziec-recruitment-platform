@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { getCompany } from '@/features/company/api';
@@ -79,6 +79,42 @@ function PublicCompanyDetailPage() {
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
+
+  const isClickScrolling = useRef(false);
+
+  const scrollToSection = (sectionId: string, tab: 'overview' | 'jobs' | 'perks') => {
+    setActiveTab(tab);
+    const element = document.getElementById(sectionId);
+    if (element) {
+      isClickScrolling.current = true;
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setTimeout(() => {
+        isClickScrolling.current = false;
+      }, 800);
+    }
+  };
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (isClickScrolling.current) return;
+      const scrollPosition = window.scrollY + 200;
+
+      const jobsEl = document.getElementById('open-jobs');
+      const perksEl = document.getElementById('company-perks');
+      const overviewEl = document.getElementById('company-overview');
+
+      if (jobsEl && scrollPosition >= jobsEl.offsetTop) {
+        setActiveTab('jobs');
+      } else if (perksEl && scrollPosition >= perksEl.offsetTop) {
+        setActiveTab('perks');
+      } else if (overviewEl && scrollPosition >= overviewEl.offsetTop) {
+        setActiveTab('overview');
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   if (isLoadingCompany) {
     return (
@@ -242,7 +278,15 @@ function PublicCompanyDetailPage() {
                 asChild
                 className="bg-[#EA1E30] hover:bg-[#D01223] text-white font-bold text-xs h-10 px-5 rounded-xl shadow-md shadow-red-900/20"
               >
-                <a href="#open-jobs">Xem {jobs.length} việc làm</a>
+                <a
+                  href="#open-jobs"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    scrollToSection('open-jobs', 'jobs');
+                  }}
+                >
+                  Xem {jobs.length} việc làm
+                </a>
               </Button>
             </div>
           </div>
@@ -251,8 +295,8 @@ function PublicCompanyDetailPage() {
           <div className="flex items-center gap-8 border-t border-border pt-4">
             <button
               type="button"
-              onClick={() => setActiveTab('overview')}
-              className={`text-sm font-bold pb-2 border-b-2 transition-all ${
+              onClick={() => scrollToSection('company-overview', 'overview')}
+              className={`text-sm font-bold pb-2 border-b-2 transition-all cursor-pointer ${
                 activeTab === 'overview'
                   ? 'border-[#EA1E30] text-[#EA1E30]'
                   : 'border-transparent text-muted-foreground hover:text-ink'
@@ -262,8 +306,8 @@ function PublicCompanyDetailPage() {
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('jobs')}
-              className={`text-sm font-bold pb-2 border-b-2 transition-all flex items-center gap-1.5 ${
+              onClick={() => scrollToSection('open-jobs', 'jobs')}
+              className={`text-sm font-bold pb-2 border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'jobs'
                   ? 'border-[#EA1E30] text-[#EA1E30]'
                   : 'border-transparent text-muted-foreground hover:text-ink'
@@ -276,8 +320,8 @@ function PublicCompanyDetailPage() {
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('perks')}
-              className={`text-sm font-bold pb-2 border-b-2 transition-all ${
+              onClick={() => scrollToSection('company-perks', 'perks')}
+              className={`text-sm font-bold pb-2 border-b-2 transition-all cursor-pointer ${
                 activeTab === 'perks'
                   ? 'border-[#EA1E30] text-[#EA1E30]'
                   : 'border-transparent text-muted-foreground hover:text-ink'
@@ -295,7 +339,10 @@ function PublicCompanyDetailPage() {
         <div className="lg:col-span-8 space-y-8">
           
           {/* Card: Tại sao bạn sẽ thích làm việc tại đây (Signature ITviec Feature) */}
-          <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 border-l-4 border-l-blue-600 bg-surface p-6 sm:p-8 shadow-xs space-y-5">
+          <div
+            id="company-overview"
+            className="scroll-mt-24 rounded-2xl border border-slate-200 dark:border-zinc-800 border-l-4 border-l-blue-600 bg-surface p-6 sm:p-8 shadow-xs space-y-5"
+          >
             <div className="flex items-center gap-2.5 pb-3 border-b border-border">
               <Sparkles className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               <h2 className="font-display font-bold text-lg sm:text-xl text-ink">
@@ -363,7 +410,10 @@ function PublicCompanyDetailPage() {
           )}
 
           {/* Card: Phúc lợi & Quyền lợi (chuẩn ITviec) */}
-          <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-surface p-6 sm:p-8 shadow-xs space-y-5">
+          <div
+            id="company-perks"
+            className="scroll-mt-24 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-surface p-6 sm:p-8 shadow-xs space-y-5"
+          >
             <div className="flex items-center gap-2 pb-3 border-b border-border">
               <Award className="h-5 w-5 text-[#EA1E30]" />
               <h2 className="font-display font-bold text-lg sm:text-xl text-ink">
@@ -403,7 +453,7 @@ function PublicCompanyDetailPage() {
           {/* Section: Việc làm đang tuyển (Open Jobs Section) */}
           <div
             id="open-jobs"
-            className="rounded-2xl border border-slate-200 dark:border-zinc-800 border-l-4 border-l-[#EA1E30] bg-surface p-6 sm:p-8 shadow-xs space-y-6"
+            className="scroll-mt-24 rounded-2xl border border-slate-200 dark:border-zinc-800 border-l-4 border-l-[#EA1E30] bg-surface p-6 sm:p-8 shadow-xs space-y-6"
           >
             <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-border">
               <div className="flex items-center gap-2.5">

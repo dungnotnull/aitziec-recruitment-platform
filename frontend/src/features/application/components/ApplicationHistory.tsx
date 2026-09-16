@@ -21,6 +21,8 @@ export const ApplicationHistory: React.FC<ApplicationHistoryProps> = ({ history 
       case 'REVIEWING': return 'default';
       case 'INTERVIEWING': return 'default';
       case 'PASSED': return 'default';
+      case 'OFFERED': return 'default';
+      case 'HIRED': return 'default';
       case 'REJECTED': return 'destructive';
       default: return 'outline';
     }
