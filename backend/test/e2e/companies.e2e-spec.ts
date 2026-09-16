@@ -871,4 +871,212 @@ describe('Companies & Memberships E2E (BE-2-015 to BE-2-020)', () => {
       expect(res.body.error.code).toBe(ERROR_CODES.INVALID_CURSOR);
     });
   });
+
+  describe('Phase 17: Public Company Discovery, Follow & Dashboard KPIs', () => {
+    it('BE-17-001: PATCH /companies/:companyId updates extended recruitment metadata', async () => {
+      const cur = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}`)
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/companies/${companyId}`)
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .send({
+          expectedVersion: cur.body.data.version,
+          companyModel: 'Product',
+          companySize: '1000-5000',
+          country: 'Vietnam',
+          workingTime: 'Monday - Friday',
+          overtimePolicy: 'No OT',
+          techStack: ['Node.js', 'NestJS', 'PostgreSQL'],
+          reasonsToJoin: [
+            { title: 'Great Culture', content: 'Supportive team and learning opportunities' },
+          ],
+          perks: [{ title: 'Hybrid Work', description: '2 days remote per week' }],
+        })
+        .expect(200);
+
+      expect(res.body.data.companyModel).toBe('Product');
+      expect(res.body.data.companySize).toBe('1000-5000');
+      expect(res.body.data.country).toBe('Vietnam');
+      expect(res.body.data.workingTime).toBe('Monday - Friday');
+      expect(res.body.data.overtimePolicy).toBe('No OT');
+      expect(res.body.data.techStack).toEqual(['Node.js', 'NestJS', 'PostgreSQL']);
+      expect(res.body.data.reasonsToJoin).toHaveLength(1);
+      expect(res.body.data.perks).toHaveLength(1);
+    });
+
+    it('BE-17-001: activeJobsCount reflects published non-expired jobs of active company', async () => {
+      const futureDate = new Date(Date.now() + 30 * 86400000);
+      inMemoryPrisma.jobs.push({
+        id: 'job-p17-1',
+        companyId,
+        creatorId: 'user-hr-owner',
+        title: 'Senior Engineer',
+        slug: 'senior-engineer-p17',
+        description: 'desc',
+        requirements: 'reqs',
+        responsibilities: null,
+        technologyNames: ['NestJS'],
+        location: 'District 7, Ho Chi Minh City',
+        workplaceType: 'HYBRID',
+        experienceLevel: 'SENIOR',
+        employmentType: 'FULL_TIME',
+        salaryMin: 30000000,
+        salaryMax: 50000000,
+        currency: 'VND',
+        applicationDeadline: futureDate,
+        isHot: true,
+        benefits: ['Premium healthcare'],
+        status: 'PUBLISHED',
+        version: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      inMemoryPrisma.jobs.push({
+        id: 'job-p17-expired',
+        companyId,
+        creatorId: 'user-hr-owner',
+        title: 'Expired Engineer',
+        slug: 'expired-engineer-p17',
+        description: 'desc',
+        requirements: 'reqs',
+        responsibilities: null,
+        technologyNames: ['NestJS'],
+        location: 'District 7, Ho Chi Minh City',
+        workplaceType: 'HYBRID',
+        experienceLevel: 'SENIOR',
+        employmentType: 'FULL_TIME',
+        salaryMin: null,
+        salaryMax: null,
+        currency: 'VND',
+        applicationDeadline: new Date(Date.now() - 86400000),
+        status: 'PUBLISHED',
+        version: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}`)
+        .expect(200);
+
+      expect(res.body.data.activeJobsCount).toBe(1);
+    });
+
+    it('BE-17-002: Candidate can follow, check isFollowed, and unfollow company idempotently', async () => {
+      const guestRes = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}`)
+        .expect(200);
+      expect(guestRes.body.data.isFollowed).toBeUndefined();
+
+      const candBefore = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(200);
+      expect(candBefore.body.data.isFollowed).toBe(false);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/follow`)
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .expect(403);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/follow`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(204);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/follow`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(204);
+
+      const candAfter = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(200);
+      expect(candAfter.body.data.isFollowed).toBe(true);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/companies/${companyId}/follow`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(204);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/companies/${companyId}/follow`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(204);
+
+      const candFinal = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(200);
+      expect(candFinal.body.data.isFollowed).toBe(false);
+    });
+
+    it('BE-17-003: GET /companies returns public company directory with search & pagination', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/companies?page=1&limit=10')
+        .expect(200);
+
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+      const c = res.body.data.find((item: any) => item.id === companyId);
+      expect(c).toBeDefined();
+      expect(c.name).toContain('VNG Corporation');
+      expect(c.activeJobsCount).toBe(1);
+      expect(Array.isArray(c.techStack)).toBe(true);
+      expect(res.body.meta.page).toBeDefined();
+
+      const searchRes = await request(app.getHttpServer())
+        .get('/api/v1/companies?search=VNG')
+        .expect(200);
+      expect(searchRes.body.data.length).toBeGreaterThanOrEqual(1);
+
+      const locRes = await request(app.getHttpServer())
+        .get('/api/v1/companies?location=District%207')
+        .expect(200);
+      expect(locRes.body.data.length).toBeGreaterThanOrEqual(1);
+
+      const emptyRes = await request(app.getHttpServer())
+        .get('/api/v1/companies?search=NonExistentCompanyXYZ')
+        .expect(200);
+      expect(emptyRes.body.data).toHaveLength(0);
+    });
+
+    it('BE-17-005: GET /companies/:companyId/dashboard-stats returns authoritative KPIs', async () => {
+      await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/dashboard-stats`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(403);
+
+      const statsRes = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/dashboard-stats`)
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .expect(200);
+
+      expect(statsRes.body.data.activeJobsCount).toBe(1);
+      expect(statsRes.body.data.totalApplicationsCount).toBe(0);
+      expect(statsRes.body.data.teamMembersCount).toBeGreaterThanOrEqual(1);
+
+      inMemoryPrisma.applications.push({
+        id: 'app-p17-1',
+        candidateId: 'cand-p17-id',
+        jobId: 'job-p17-1',
+        status: 'APPLIED',
+        submittedCvId: 'cv-1',
+        submittedAt: new Date(),
+        version: 1,
+      });
+
+      const updatedStats = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyId}/dashboard-stats`)
+        .set('Authorization', `Bearer ${hrOwnerToken}`)
+        .expect(200);
+
+      expect(updatedStats.body.data.totalApplicationsCount).toBe(1);
+      expect(updatedStats.body.data.activeJobsCount).toBe(1);
+    });
+  });
 });

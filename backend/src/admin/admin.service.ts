@@ -27,7 +27,7 @@ import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { ERROR_CODES } from '../common/constants/error-codes';
 import { CollectionResponse } from '../common/dto/response.dto';
 import { UserSummaryDto } from '../auth/dto/auth.dto';
-import { CompanyDto } from '../companies/dto/company.dto';
+import { CompanyDto, CompanyReasonToJoinDto, CompanyPerkDto } from '../companies/dto/company.dto';
 import { JobDto } from '../jobs/dto/job.dto';
 import { ApplicationStatus } from '../applications/dto/application.dto';
 import { AdminUserQueryDto, UpdateUserStatusDto } from './dto/admin-user.dto';
@@ -558,6 +558,17 @@ export class AdminService {
       websiteUrl: company.websiteUrl ?? null,
       logoUrl: company.logoUrl ?? null,
       location: company.location ?? null,
+      companyModel: company.companyModel ?? null,
+      companySize: company.companySize ?? null,
+      country: company.country ?? null,
+      workingTime: company.workingTime ?? null,
+      overtimePolicy: company.overtimePolicy ?? null,
+      techStack: Array.isArray(company.techStack) ? company.techStack : [],
+      reasonsToJoin: Array.isArray(company.reasonsToJoin)
+        ? (company.reasonsToJoin as unknown as CompanyReasonToJoinDto[])
+        : [],
+      perks: Array.isArray(company.perks) ? (company.perks as unknown as CompanyPerkDto[]) : [],
+      activeJobsCount: 0,
       status: company.status,
       version: company.version ?? 1,
       createdAt:
@@ -567,7 +578,9 @@ export class AdminService {
     };
   }
 
-  private mapJobToDto(job: Job & { company?: Company | null }): JobDto {
+  private mapJobToDto(
+    job: Job & { company?: Company | null; _count?: { applications?: number } },
+  ): JobDto {
     return {
       id: job.id,
       company: {
@@ -605,6 +618,9 @@ export class AdminService {
           ? job.closedAt.toISOString()
           : job.closedAt
         : null,
+      isHot: job.isHot ?? false,
+      benefits: Array.isArray(job.benefits) ? job.benefits : [],
+      applicantCount: job._count?.applications ?? 0,
       version: job.version,
       createdAt: job.createdAt instanceof Date ? job.createdAt.toISOString() : job.createdAt,
       updatedAt: job.updatedAt instanceof Date ? job.updatedAt.toISOString() : job.updatedAt,

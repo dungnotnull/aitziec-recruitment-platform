@@ -28,6 +28,11 @@ import {
   UploadedLogoFile,
   UploadCompanyLogoDto,
   UploadCompanyLogoResponseDto,
+  CompanyReasonToJoinDto,
+  CompanyPerkDto,
+  CompanyDirectoryQueryDto,
+  CompanySummaryItemDto,
+  CompanyDashboardStatsDto,
 } from './dto/company.dto';
 import { CompanyInvitationDto, maskEmail } from './dto/company-invitation.dto';
 import { InvitationSecretAdapter } from './adapters/invitation-secret.adapter';
@@ -78,6 +83,17 @@ export class CompaniesService {
           websiteUrl: dto.websiteUrl ?? null,
           logoUrl: dto.logoUrl ?? null,
           location: dto.location ?? null,
+          companyModel: dto.companyModel ?? null,
+          companySize: dto.companySize ?? null,
+          country: dto.country ?? null,
+          workingTime: dto.workingTime ?? null,
+          overtimePolicy: dto.overtimePolicy ?? null,
+          techStack: dto.techStack ?? [],
+          reasonsToJoin:
+            dto.reasonsToJoin !== undefined
+              ? (dto.reasonsToJoin as unknown as Prisma.InputJsonValue)
+              : [],
+          perks: dto.perks !== undefined ? (dto.perks as unknown as Prisma.InputJsonValue) : [],
           status: 'ACTIVE',
           version: 1,
         },
@@ -108,7 +124,77 @@ export class CompaniesService {
     return this.mapToDto(company);
   }
 
-  async getCompanyByIdOrSlug(idOrSlug: string): Promise<CompanyDto> {
+  async listPublicCompanies(
+    query: CompanyDirectoryQueryDto,
+    requestId?: string,
+  ): Promise<CollectionResponse<CompanySummaryItemDto>> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.CompanyWhereInput = {
+      status: 'ACTIVE',
+    };
+
+    if (query.search && query.search.trim()) {
+      where.name = { contains: query.search.trim(), mode: 'insensitive' };
+    }
+
+    if (query.location && query.location.trim()) {
+      where.location = { contains: query.location.trim(), mode: 'insensitive' };
+    }
+
+    const now = new Date();
+    const [companies, total] = await Promise.all([
+      this.prisma.company.findMany({
+        where,
+        include: {
+          _count: {
+            select: {
+              jobs: {
+                where: {
+                  status: 'PUBLISHED',
+                  applicationDeadline: { gt: now },
+                },
+              },
+            },
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        skip,
+        take: limit,
+      }),
+      this.prisma.company.count({ where }),
+    ]);
+
+    const hasNextPage = skip + companies.length < total;
+
+    const data: CompanySummaryItemDto[] = companies.map((c) => ({
+      id: c.id,
+      slug: c.slug,
+      name: c.name,
+      logoUrl: c.logoUrl,
+      location: c.location,
+      description: c.description,
+      companySize: c.companySize,
+      activeJobsCount: (c as { _count?: { jobs?: number } })._count?.jobs ?? 0,
+      techStack: Array.isArray(c.techStack) ? c.techStack : [],
+    }));
+
+    return {
+      data,
+      meta: {
+        requestId: requestId ?? '',
+        page: {
+          nextCursor: hasNextPage ? String(page + 1) : null,
+          hasNextPage,
+          limit,
+        },
+      },
+    };
+  }
+
+  async getCompanyByIdOrSlug(idOrSlug: string, user?: AuthenticatedUser): Promise<CompanyDto> {
     const company = await this.prisma.company.findFirst({
       where: {
         OR: [{ id: idOrSlug }, { slug: idOrSlug }],
@@ -122,7 +208,37 @@ export class CompaniesService {
       });
     }
 
-    return this.mapToDto(company);
+    const now = new Date();
+    const activeJobsCount = await this.prisma.job.count({
+      where: {
+        companyId: company.id,
+        status: 'PUBLISHED',
+        applicationDeadline: { gt: now },
+        company: { status: 'ACTIVE' },
+      },
+    });
+
+    let isFollowed: boolean | undefined = undefined;
+    if (user && user.role === 'CANDIDATE') {
+      const candidateProfile = await this.prisma.candidateProfile.findUnique({
+        where: { userId: user.id },
+      });
+      if (candidateProfile) {
+        const follow = await this.prisma.companyFollow.findUnique({
+          where: {
+            candidateProfileId_companyId: {
+              candidateProfileId: candidateProfile.id,
+              companyId: company.id,
+            },
+          },
+        });
+        isFollowed = !!follow;
+      } else {
+        isFollowed = false;
+      }
+    }
+
+    return this.mapToDto(company, { activeJobsCount, isFollowed });
   }
 
   async updateCompany(
@@ -155,6 +271,21 @@ export class CompaniesService {
           websiteUrl: dto.websiteUrl !== undefined ? dto.websiteUrl : company.websiteUrl,
           logoUrl: dto.logoUrl !== undefined ? dto.logoUrl : company.logoUrl,
           location: dto.location !== undefined ? dto.location : company.location,
+          companyModel: dto.companyModel !== undefined ? dto.companyModel : company.companyModel,
+          companySize: dto.companySize !== undefined ? dto.companySize : company.companySize,
+          country: dto.country !== undefined ? dto.country : company.country,
+          workingTime: dto.workingTime !== undefined ? dto.workingTime : company.workingTime,
+          overtimePolicy:
+            dto.overtimePolicy !== undefined ? dto.overtimePolicy : company.overtimePolicy,
+          techStack: dto.techStack !== undefined ? dto.techStack : company.techStack,
+          reasonsToJoin:
+            dto.reasonsToJoin !== undefined
+              ? (dto.reasonsToJoin as unknown as Prisma.InputJsonValue)
+              : (company.reasonsToJoin as Prisma.InputJsonValue),
+          perks:
+            dto.perks !== undefined
+              ? (dto.perks as unknown as Prisma.InputJsonValue)
+              : (company.perks as Prisma.InputJsonValue),
           version: company.version + 1,
         },
       });
@@ -173,7 +304,122 @@ export class CompaniesService {
       return result;
     });
 
-    return this.mapToDto(updated);
+    const activeJobsCount = await this.prisma.job.count({
+      where: {
+        companyId: updated.id,
+        status: 'PUBLISHED',
+        applicationDeadline: { gt: new Date() },
+        company: { status: 'ACTIVE' },
+      },
+    });
+
+    return this.mapToDto(updated, { activeJobsCount });
+  }
+
+  async followCompany(companyId: string, user: AuthenticatedUser): Promise<void> {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException({
+        code: ERROR_CODES.RESOURCE_NOT_FOUND,
+        message: 'Company not found.',
+      });
+    }
+
+    const candidateProfile = await this.prisma.candidateProfile.findUnique({
+      where: { userId: user.id },
+    });
+
+    if (!candidateProfile) {
+      throw new ForbiddenException({
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'Candidate profile required to follow companies.',
+      });
+    }
+
+    const existing = await this.prisma.companyFollow.findUnique({
+      where: {
+        candidateProfileId_companyId: {
+          candidateProfileId: candidateProfile.id,
+          companyId,
+        },
+      },
+    });
+
+    if (!existing) {
+      await this.prisma.companyFollow.create({
+        data: {
+          candidateProfileId: candidateProfile.id,
+          companyId,
+        },
+      });
+    }
+  }
+
+  async unfollowCompany(companyId: string, user: AuthenticatedUser): Promise<void> {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException({
+        code: ERROR_CODES.RESOURCE_NOT_FOUND,
+        message: 'Company not found.',
+      });
+    }
+
+    const candidateProfile = await this.prisma.candidateProfile.findUnique({
+      where: { userId: user.id },
+    });
+
+    if (!candidateProfile) {
+      throw new ForbiddenException({
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'Candidate profile required.',
+      });
+    }
+
+    await this.prisma.companyFollow.deleteMany({
+      where: {
+        candidateProfileId: candidateProfile.id,
+        companyId,
+      },
+    });
+  }
+
+  async getCompanyDashboardStats(
+    companyId: string,
+    user: AuthenticatedUser,
+  ): Promise<CompanyDashboardStatsDto> {
+    await this.scopeService.assertMemberOrAdmin(companyId, user);
+
+    const now = new Date();
+    const [totalApplicationsCount, activeJobsCount, teamMembersCount] = await Promise.all([
+      this.prisma.application.count({
+        where: {
+          job: { companyId },
+        },
+      }),
+      this.prisma.job.count({
+        where: {
+          companyId,
+          status: 'PUBLISHED',
+          applicationDeadline: { gt: now },
+          company: { status: 'ACTIVE' },
+        },
+      }),
+      this.prisma.companyMembership.count({
+        where: { companyId },
+      }),
+    ]);
+
+    return {
+      totalApplicationsCount,
+      activeJobsCount,
+      teamMembersCount,
+    };
   }
 
   private isManagedAssetUrl(url: string, companyId: string): boolean {
@@ -618,7 +864,17 @@ export class CompaniesService {
     });
   }
 
-  public mapToDto(company: Company): CompanyDto {
+  public mapToDto(
+    company: Company & { _count?: { jobs?: number } },
+    context?: { activeJobsCount?: number; isFollowed?: boolean },
+  ): CompanyDto {
+    const rawReasons = Array.isArray(company.reasonsToJoin)
+      ? (company.reasonsToJoin as unknown as CompanyReasonToJoinDto[])
+      : [];
+    const rawPerks = Array.isArray(company.perks)
+      ? (company.perks as unknown as CompanyPerkDto[])
+      : [];
+
     return {
       id: company.id,
       slug: company.slug,
@@ -627,6 +883,16 @@ export class CompaniesService {
       websiteUrl: company.websiteUrl,
       logoUrl: company.logoUrl,
       location: company.location,
+      companyModel: company.companyModel ?? null,
+      companySize: company.companySize ?? null,
+      country: company.country ?? null,
+      workingTime: company.workingTime ?? null,
+      overtimePolicy: company.overtimePolicy ?? null,
+      techStack: Array.isArray(company.techStack) ? company.techStack : [],
+      reasonsToJoin: rawReasons,
+      perks: rawPerks,
+      activeJobsCount: context?.activeJobsCount ?? company._count?.jobs ?? 0,
+      ...(context?.isFollowed !== undefined ? { isFollowed: context.isFollowed } : {}),
       status: company.status,
       version: company.version,
       createdAt: company.createdAt.toISOString(),

@@ -189,6 +189,7 @@ model CandidateProfile {
   applications Application[]
   cvs         Cv[]
   aiAnalyses  AiAnalysis[]
+  companyFollows CompanyFollow[]
 
   @@map("candidate_profiles")
 }
@@ -268,21 +269,30 @@ model WorkExperience {
 }
 
 model Company {
-  id          String        @id @default(uuid())
-  slug        String        @unique
-  name        String
-  description String?
-  websiteUrl  String?
-  logoUrl     String?
-  location    String?
-  status      CompanyStatus @default(ACTIVE)
-  version     Int           @default(1)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id             String        @id @default(uuid())
+  slug           String        @unique
+  name           String
+  description    String?
+  websiteUrl     String?
+  logoUrl        String?
+  location       String?
+  companyModel   String?
+  companySize    String?
+  country        String?
+  workingTime    String?
+  overtimePolicy String?
+  techStack      String[]      @default([])
+  reasonsToJoin  Json          @default("[]")
+  perks          Json          @default("[]")
+  status         CompanyStatus @default(ACTIVE)
+  version        Int           @default(1)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
-  members     CompanyMembership[]
-  invitations CompanyInvitation[]
-  jobs        Job[]
+  members        CompanyMembership[]
+  invitations    CompanyInvitation[]
+  jobs           Job[]
+  followers      CompanyFollow[]
 
   @@map("companies")
 }
@@ -357,6 +367,8 @@ model Job {
   salaryMax           Int?
   currency            String          @default("VND")
   applicationDeadline DateTime
+  isHot               Boolean         @default(false)
+  benefits            String[]        @default([])
   status              JobStatus       @default(DRAFT)
   closeReason         String?
   publishedAt         DateTime?
@@ -378,7 +390,23 @@ model Job {
   @@index([status, applicationDeadline])
   @@index([publishedAt])
   @@index([applicationDeadline])
+  @@index([isHot])
   @@map("jobs")
+}
+
+model CompanyFollow {
+  id                 String   @id @default(uuid())
+  candidateProfileId String
+  companyId          String
+  createdAt          DateTime @default(now())
+
+  candidateProfile CandidateProfile @relation(fields: [candidateProfileId], references: [id], onDelete: Cascade)
+  company          Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateProfileId, companyId])
+  @@index([candidateProfileId])
+  @@index([companyId])
+  @@map("company_follows")
 }
 
 model SavedJob {

@@ -16,6 +16,7 @@ export class InMemoryPrismaService {
   companyMemberships: any[] = [];
   companyInvitations: any[] = [];
   companyInvitationDeliverySecrets: any[] = [];
+  companyFollows: any[] = [];
   jobs: any[] = [];
   savedJobs: any[] = [];
   applications: any[] = [];
@@ -43,6 +44,7 @@ export class InMemoryPrismaService {
     this.companyMemberships = [];
     this.companyInvitations = [];
     this.companyInvitationDeliverySecrets = [];
+    this.companyFollows = [];
     this.jobs = [];
     this.savedJobs = [];
     this.applications = [];
@@ -476,14 +478,38 @@ export class InMemoryPrismaService {
       return null;
     },
     findUnique: async (args: any) => {
-      return (
-        this.companies.find((c) => c.id === args.where.id || c.slug === args.where.slug) || null
-      );
+      const found =
+        this.companies.find((c) => c.id === args.where.id || c.slug === args.where.slug) || null;
+      if (found && args.include?._count?.select?.jobs) {
+        const now = new Date();
+        const activeJobs = this.jobs.filter(
+          (j) =>
+            j.companyId === found.id &&
+            j.status === 'PUBLISHED' &&
+            new Date(j.applicationDeadline) > now,
+        );
+        return {
+          ...found,
+          _count: {
+            ...found._count,
+            jobs: activeJobs.length,
+          },
+        };
+      }
+      return found;
     },
     create: async (args: any) => {
       const comp = {
         id: args.data.id || uuidv4(),
         ...args.data,
+        companyModel: args.data.companyModel ?? null,
+        companySize: args.data.companySize ?? null,
+        country: args.data.country ?? null,
+        workingTime: args.data.workingTime ?? null,
+        overtimePolicy: args.data.overtimePolicy ?? null,
+        techStack: args.data.techStack ?? [],
+        reasonsToJoin: args.data.reasonsToJoin ?? [],
+        perks: args.data.perks ?? [],
         status: args.data.status || 'ACTIVE',
         version: args.data.version || 1,
         createdAt: new Date(),
@@ -523,6 +549,14 @@ export class InMemoryPrismaService {
         if (args.where.status) {
           rows = rows.filter((c) => c.status === args.where.status);
         }
+        if (args.where.name?.contains) {
+          const query = args.where.name.contains.toLowerCase();
+          rows = rows.filter((c) => c.name.toLowerCase().includes(query));
+        }
+        if (args.where.location?.contains) {
+          const query = args.where.location.contains.toLowerCase();
+          rows = rows.filter((c) => (c.location || '').toLowerCase().includes(query));
+        }
         if (args.where.OR) {
           rows = rows.filter((c) =>
             args.where.OR.some((cond: any) => {
@@ -552,11 +586,124 @@ export class InMemoryPrismaService {
       if (args?.take) {
         rows = rows.slice(0, args.take);
       }
+      if (args?.include?._count?.select?.jobs) {
+        const now = new Date();
+        rows = rows.map((c) => {
+          const activeJobs = this.jobs.filter(
+            (j) =>
+              j.companyId === c.id &&
+              j.status === 'PUBLISHED' &&
+              new Date(j.applicationDeadline) > now,
+          );
+          return {
+            ...c,
+            _count: {
+              ...c._count,
+              jobs: activeJobs.length,
+            },
+          };
+        });
+      }
       return rows;
     },
     count: async (args?: any) => {
-      const items = await this.company.findMany(args);
-      return items.length;
+      let rows = [...this.companies];
+      if (args?.where) {
+        if (args.where.status) {
+          rows = rows.filter((c) => c.status === args.where.status);
+        }
+        if (args.where.name?.contains) {
+          const query = args.where.name.contains.toLowerCase();
+          rows = rows.filter((c) => c.name.toLowerCase().includes(query));
+        }
+        if (args.where.location?.contains) {
+          const query = args.where.location.contains.toLowerCase();
+          rows = rows.filter((c) => (c.location || '').toLowerCase().includes(query));
+        }
+      }
+      return rows.length;
+    },
+  };
+
+  companyFollow = {
+    findUnique: async (args: any) => {
+      if (args.where?.candidateProfileId_companyId) {
+        const { candidateProfileId, companyId } = args.where.candidateProfileId_companyId;
+        return (
+          this.companyFollows.find(
+            (f) => f.candidateProfileId === candidateProfileId && f.companyId === companyId,
+          ) || null
+        );
+      }
+      if (args.where?.id) {
+        return this.companyFollows.find((f) => f.id === args.where.id) || null;
+      }
+      return null;
+    },
+    findFirst: async (args: any) => {
+      return (
+        this.companyFollows.find((f) => {
+          if (
+            args.where?.candidateProfileId &&
+            f.candidateProfileId !== args.where.candidateProfileId
+          )
+            return false;
+          if (args.where?.companyId && f.companyId !== args.where.companyId) return false;
+          return true;
+        }) || null
+      );
+    },
+    findMany: async (args?: any) => {
+      return this.companyFollows.filter((f) => {
+        if (
+          args?.where?.candidateProfileId &&
+          f.candidateProfileId !== args.where.candidateProfileId
+        )
+          return false;
+        if (args?.where?.companyId && f.companyId !== args.where.companyId) return false;
+        return true;
+      });
+    },
+    create: async (args: any) => {
+      const follow = {
+        id: args.data.id || uuidv4(),
+        ...args.data,
+        createdAt: new Date(),
+      };
+      this.companyFollows.push(follow);
+      return follow;
+    },
+    delete: async (args: any) => {
+      let idx = -1;
+      if (args.where?.id) {
+        idx = this.companyFollows.findIndex((f) => f.id === args.where.id);
+      } else if (args.where?.candidateProfileId_companyId) {
+        const { candidateProfileId, companyId } = args.where.candidateProfileId_companyId;
+        idx = this.companyFollows.findIndex(
+          (f) => f.candidateProfileId === candidateProfileId && f.companyId === companyId,
+        );
+      }
+      if (idx !== -1) {
+        return this.companyFollows.splice(idx, 1)[0];
+      }
+      return null;
+    },
+    deleteMany: async (args: any) => {
+      const initialLen = this.companyFollows.length;
+      this.companyFollows = this.companyFollows.filter((f) => {
+        if (
+          args.where?.candidateProfileId &&
+          f.candidateProfileId === args.where.candidateProfileId
+        ) {
+          if (args.where?.companyId && f.companyId === args.where.companyId) return false;
+          if (!args.where?.companyId) return false;
+        }
+        if (args.where?.companyId && f.companyId === args.where.companyId) {
+          return false;
+        }
+        return true;
+      });
+      return { count: initialLen - this.companyFollows.length };
     },
   };
 
@@ -861,6 +1008,10 @@ export class InMemoryPrismaService {
         found = this.jobs.find((j) => j.slug === args.where.slug);
       }
       if (!found) return null;
+      if (args.include?._count?.select?.applications) {
+        const appCount = this.applications.filter((a) => a.jobId === found.id).length;
+        found = { ...found, _count: { ...found._count, applications: appCount } };
+      }
       if (args.include?.company) {
         const company = this.companies.find((c) => c.id === found.companyId);
         return { ...found, company };
@@ -883,7 +1034,11 @@ export class InMemoryPrismaService {
         }
         return true;
       });
-      const found = filtered[0] || null;
+      let found = filtered[0] || null;
+      if (found && args.include?._count?.select?.applications) {
+        const appCount = this.applications.filter((a) => a.jobId === found.id).length;
+        found = { ...found, _count: { ...found._count, applications: appCount } };
+      }
       if (found && args.include?.company) {
         const company = this.companies.find((c) => c.id === found.companyId);
         return { ...found, company };
@@ -1023,6 +1178,13 @@ export class InMemoryPrismaService {
         result = result.slice(0, args.take);
       }
 
+      if (args.include?._count?.select?.applications) {
+        result = result.map((j) => {
+          const appCount = this.applications.filter((a) => a.jobId === j.id).length;
+          return { ...j, _count: { ...j._count, applications: appCount } };
+        });
+      }
+
       if (args.include?.company) {
         result = result.map((j) => {
           const company = this.companies.find((c) => c.id === j.companyId);
@@ -1033,7 +1195,7 @@ export class InMemoryPrismaService {
       return result;
     },
     count: async (args: any) => {
-      const items = await this.job.findMany({ where: args.where });
+      const items = await this.job.findMany({ where: args?.where });
       return items.length;
     },
     create: async (args: any) => {
@@ -1041,6 +1203,8 @@ export class InMemoryPrismaService {
       const job = {
         id: args.data.id || uuidv4(),
         ...args.data,
+        isHot: args.data.isHot ?? false,
+        benefits: args.data.benefits ?? [],
         creatorId: args.data.creatorId || null,
         status: args.data.status || 'DRAFT',
         version: args.data.version || 1,
@@ -1130,6 +1294,10 @@ export class InMemoryPrismaService {
           s.candidateProfileId !== args.where.candidateProfileId
         )
           return false;
+        if (args.where?.jobId) {
+          if (typeof args.where.jobId === 'string' && s.jobId !== args.where.jobId) return false;
+          if (args.where.jobId.in && !args.where.jobId.in.includes(s.jobId)) return false;
+        }
         return true;
       });
 
@@ -1230,7 +1398,10 @@ export class InMemoryPrismaService {
     findMany: async (args: any) => {
       let result = this.applications.filter((a) => {
         if (args.where?.candidateId && a.candidateId !== args.where.candidateId) return false;
-        if (args.where?.jobId && a.jobId !== args.where.jobId) return false;
+        if (args.where?.jobId) {
+          if (typeof args.where.jobId === 'string' && a.jobId !== args.where.jobId) return false;
+          if (args.where.jobId.in && !args.where.jobId.in.includes(a.jobId)) return false;
+        }
         if (args.where?.status && a.status !== args.where.status) return false;
         if (args.where?.job?.companyId) {
           const job = this.jobs.find((j) => j.id === a.jobId);
@@ -1366,6 +1537,10 @@ export class InMemoryPrismaService {
         if (args.where?.candidateId && a.candidateId !== args.where.candidateId) return false;
         if (args.where?.jobId && a.jobId !== args.where.jobId) return false;
         if (args.where?.status && a.status !== args.where.status) return false;
+        if (args.where?.job?.companyId) {
+          const job = this.jobs.find((j) => j.id === a.jobId);
+          if (!job || job.companyId !== args.where.job.companyId) return false;
+        }
         return true;
       }).length;
       return count;

@@ -27,6 +27,9 @@ import {
   UploadedLogoFile,
   UploadCompanyLogoDto,
   UploadCompanyLogoResponseDto,
+  CompanyDirectoryQueryDto,
+  CompanySummaryItemDto,
+  CompanyDashboardStatsDto,
 } from './dto/company.dto';
 import { CompanyInvitationDto } from './dto/company-invitation.dto';
 import { PaginationQueryDto, CollectionResponse } from '../common/dto/response.dto';
@@ -74,13 +77,29 @@ export class CompaniesController {
   }
 
   @Public()
+  @Get()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'List public companies directory' })
+  @ApiResponse({ status: 200, description: 'Public company directory collection' })
+  async listPublicCompanies(
+    @Query() query: CompanyDirectoryQueryDto,
+    @Headers('x-request-id') requestId?: string,
+  ): Promise<CollectionResponse<CompanySummaryItemDto>> {
+    return this.companiesService.listPublicCompanies(query, requestId);
+  }
+
+  @Public()
+  @UseGuards(JwtAuthGuard)
   @Get(':companyIdOrSlug')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get public company profile by ID or slug' })
   @ApiResponse({ status: 200, type: CompanyDto, description: 'Company details' })
   @ApiResponse({ status: 404, description: 'Company not found' })
-  async getCompany(@Param('companyIdOrSlug') idOrSlug: string): Promise<CompanyDto> {
-    return this.companiesService.getCompanyByIdOrSlug(idOrSlug);
+  async getCompany(
+    @Param('companyIdOrSlug') idOrSlug: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ): Promise<CompanyDto> {
+    return this.companiesService.getCompanyByIdOrSlug(idOrSlug, user);
   }
 
   @ApiBearerAuth('bearer')
@@ -193,5 +212,56 @@ export class CompaniesController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<void> {
     return this.companiesService.revokeInvitation(companyId, user, invitationId);
+  }
+
+  @ApiBearerAuth('bearer')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('CANDIDATE')
+  @Post(':companyId/follow')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Follow a company (idempotent)' })
+  @ApiResponse({ status: 204, description: 'Company followed' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden: Candidates only' })
+  @ApiResponse({ status: 404, description: 'Company not found' })
+  async followCompany(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<void> {
+    return this.companiesService.followCompany(companyId, user);
+  }
+
+  @ApiBearerAuth('bearer')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('CANDIDATE')
+  @Delete(':companyId/follow')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Unfollow a company (idempotent)' })
+  @ApiResponse({ status: 204, description: 'Company unfollowed' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden: Candidates only' })
+  @ApiResponse({ status: 404, description: 'Company not found' })
+  async unfollowCompany(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<void> {
+    return this.companiesService.unfollowCompany(companyId, user);
+  }
+
+  @ApiBearerAuth('bearer')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('HR', 'ADMIN')
+  @Get(':companyId/dashboard-stats')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get authoritative dashboard statistics for a company' })
+  @ApiResponse({ status: 200, type: CompanyDashboardStatsDto, description: 'Dashboard stats' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden: Recruiter is not a member of this company' })
+  @ApiResponse({ status: 404, description: 'Company not found' })
+  async getDashboardStats(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<CompanyDashboardStatsDto> {
+    return this.companiesService.getCompanyDashboardStats(companyId, user);
   }
 }

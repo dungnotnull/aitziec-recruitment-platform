@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -94,6 +95,27 @@ export class JobDto {
   @ApiPropertyOptional({ example: null, nullable: true })
   closedAt: string | null;
 
+  @ApiProperty({ example: false })
+  isHot: boolean;
+
+  @ApiProperty({ example: ['13th month salary', 'Premium healthcare package'] })
+  benefits: string[];
+
+  @ApiProperty({ example: 12 })
+  applicantCount: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'True if authenticated candidate has applied',
+  })
+  hasApplied?: boolean;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'True if authenticated candidate has saved this job',
+  })
+  isSaved?: boolean;
+
   @ApiProperty({ example: 1 })
   version: number;
 
@@ -173,6 +195,17 @@ export class CreateJobDto {
   @ApiProperty({ example: '2026-10-01T00:00:00.000Z' })
   @IsISO8601()
   applicationDeadline: string;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  isHot?: boolean;
+
+  @ApiPropertyOptional({ example: ['13th month salary', 'Premium healthcare package'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  benefits?: string[];
 }
 
 export class UpdateJobDto {
@@ -259,6 +292,17 @@ export class UpdateJobDto {
   @IsOptional()
   @IsISO8601()
   applicationDeadline?: string;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  isHot?: boolean;
+
+  @ApiPropertyOptional({ example: ['13th month salary', 'Premium healthcare package'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  benefits?: string[];
 }
 
 export class PublishJobDto {

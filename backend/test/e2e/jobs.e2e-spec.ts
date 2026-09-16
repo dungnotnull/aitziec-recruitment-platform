@@ -786,4 +786,143 @@ describe('Jobs, Search & Saved Jobs E2E (BE-3-001 to BE-3-022)', () => {
       expect(secondRunCount).toBe(0);
     });
   });
+
+  describe('Phase 17: Job Hot/Benefits, Applicant Count & Candidate State Projection (BE-17-004)', () => {
+    let phase17JobId = '';
+    let phase17JobSlug = '';
+
+    it('creates draft job with isHot and benefits, then updates and publishes it', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${companyId}/jobs`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          title: 'Staff Fullstack Architect',
+          description: 'Leading technical initiatives',
+          requirements: 'TypeScript, Node.js, React',
+          technologyNames: ['Node.js', 'React'],
+          location: 'Ho Chi Minh City',
+          workplaceType: 'HYBRID',
+          experienceLevel: 'LEAD',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: new Date(Date.now() + 86400000 * 30).toISOString(),
+          isHot: true,
+          benefits: ['Performance bonus', 'Annual health check'],
+        })
+        .expect(201);
+
+      expect(createRes.body.data.isHot).toBe(true);
+      expect(createRes.body.data.benefits).toEqual(['Performance bonus', 'Annual health check']);
+      expect(createRes.body.data.applicantCount).toBe(0);
+      phase17JobId = createRes.body.data.id;
+      phase17JobSlug = createRes.body.data.slug;
+
+      const updateRes = await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${phase17JobId}`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          expectedVersion: createRes.body.data.version,
+          benefits: ['Performance bonus', 'Annual health check', '13th month salary'],
+        })
+        .expect(200);
+
+      expect(updateRes.body.data.benefits).toEqual([
+        'Performance bonus',
+        'Annual health check',
+        '13th month salary',
+      ]);
+      expect(updateRes.body.data.isHot).toBe(true);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${phase17JobId}/publish`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ expectedVersion: updateRes.body.data.version })
+        .expect(200);
+    });
+
+    it('GET /jobs/:jobIdOrSlug projects applicantCount and candidate hasApplied/isSaved state', async () => {
+      const guestRes = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${phase17JobSlug}`)
+        .expect(200);
+
+      expect(guestRes.body.data.id).toBe(phase17JobId);
+      expect(guestRes.body.data.applicantCount).toBe(0);
+      expect(guestRes.body.data.isHot).toBe(true);
+      expect(guestRes.body.data.hasApplied).toBeUndefined();
+      expect(guestRes.body.data.isSaved).toBeUndefined();
+
+      const candRes = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${phase17JobSlug}`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(200);
+
+      expect(candRes.body.data.hasApplied).toBe(false);
+      expect(candRes.body.data.isSaved).toBe(false);
+      expect(candRes.body.data.applicantCount).toBe(0);
+
+      await request(app.getHttpServer())
+        .put(`/api/v1/saved-jobs/${phase17JobId}`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(204);
+
+      const candSavedRes = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${phase17JobSlug}`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(200);
+
+      expect(candSavedRes.body.data.isSaved).toBe(true);
+      expect(candSavedRes.body.data.hasApplied).toBe(false);
+
+      const candidateProfile = inMemoryPrisma.candidateProfiles[0];
+      inMemoryPrisma.applications.push({
+        id: 'app-p17-test',
+        candidateId: candidateProfile.id,
+        jobId: phase17JobId,
+        status: 'APPLIED',
+        submittedCvId: '00000000-0000-0000-0000-000000000000',
+        submittedAt: new Date(),
+        version: 1,
+      });
+
+      const candAppliedRes = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${phase17JobSlug}`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(200);
+
+      expect(candAppliedRes.body.data.hasApplied).toBe(true);
+      expect(candAppliedRes.body.data.isSaved).toBe(true);
+      expect(candAppliedRes.body.data.applicantCount).toBe(1);
+
+      const guestFinal = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${phase17JobSlug}`)
+        .expect(200);
+
+      expect(guestFinal.body.data.applicantCount).toBe(1);
+      expect(guestFinal.body.data.hasApplied).toBeUndefined();
+      expect(guestFinal.body.data.isSaved).toBeUndefined();
+    });
+
+    it('GET /jobs (search) projects candidate state without cache pollution', async () => {
+      const candSearch = await request(app.getHttpServer())
+        .get('/api/v1/jobs')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(200);
+
+      const targetJob = candSearch.body.data.find((j: { id: string }) => j.id === phase17JobId);
+      expect(targetJob).toBeDefined();
+      expect(targetJob.hasApplied).toBe(true);
+      expect(targetJob.isSaved).toBe(true);
+      expect(targetJob.applicantCount).toBe(1);
+      expect(targetJob.isHot).toBe(true);
+
+      const guestSearch = await request(app.getHttpServer()).get('/api/v1/jobs').expect(200);
+
+      const guestJob = guestSearch.body.data.find((j: { id: string }) => j.id === phase17JobId);
+      expect(guestJob).toBeDefined();
+      expect(guestJob.hasApplied).toBeUndefined();
+      expect(guestJob.isSaved).toBeUndefined();
+      expect(guestJob.applicantCount).toBe(1);
+      expect(guestJob.isHot).toBe(true);
+    });
+  });
 });

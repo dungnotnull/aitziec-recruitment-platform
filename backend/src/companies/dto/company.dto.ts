@@ -1,5 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsArray,
+  IsEmail,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { UserSummaryDto } from '../../auth/dto/auth.dto';
 
@@ -32,6 +43,35 @@ export class UploadCompanyLogoResponseDto {
   version: number;
 }
 
+export class CompanyReasonToJoinDto {
+  @ApiProperty({ example: 'Môi trường công nghệ mở, phát triển chuyên sâu' })
+  @IsString()
+  @IsNotEmpty()
+  title: string;
+
+  @ApiProperty({ example: 'Làm việc trực tiếp với các kiến trúc hệ thống hiện đại...' })
+  @IsString()
+  @IsNotEmpty()
+  content: string;
+}
+
+export class CompanyPerkDto {
+  @ApiProperty({ example: 'Lương & Thưởng' })
+  @IsString()
+  @IsNotEmpty()
+  title: string;
+
+  @ApiProperty({ example: 'Lương tháng 13 đảm bảo, thưởng nóng hiệu suất dự án theo quý.' })
+  @IsString()
+  @IsNotEmpty()
+  description: string;
+
+  @ApiPropertyOptional({ example: 'gift', nullable: true })
+  @IsOptional()
+  @IsString()
+  icon?: string;
+}
+
 export class CompanyDto {
   @ApiProperty({ example: 'comp-1234' })
   id: string;
@@ -53,6 +93,36 @@ export class CompanyDto {
 
   @ApiProperty({ example: 'Ho Chi Minh City, Vietnam', nullable: true })
   location: string | null;
+
+  @ApiPropertyOptional({ example: 'Product & IT Solutions', nullable: true })
+  companyModel: string | null;
+
+  @ApiPropertyOptional({ example: '100 - 499 nhân viên', nullable: true })
+  companySize: string | null;
+
+  @ApiPropertyOptional({ example: 'Việt Nam / Global', nullable: true })
+  country: string | null;
+
+  @ApiPropertyOptional({ example: 'Thứ 2 - Thứ 6 (8:30 - 17:30)', nullable: true })
+  workingTime: string | null;
+
+  @ApiPropertyOptional({ example: 'Không áp lực OT', nullable: true })
+  overtimePolicy: string | null;
+
+  @ApiProperty({ example: ['Java', 'Spring Boot', 'ReactJS', 'TypeScript'] })
+  techStack: string[];
+
+  @ApiProperty({ type: [CompanyReasonToJoinDto] })
+  reasonsToJoin: CompanyReasonToJoinDto[];
+
+  @ApiProperty({ type: [CompanyPerkDto] })
+  perks: CompanyPerkDto[];
+
+  @ApiProperty({ example: 5, description: 'Number of active published jobs' })
+  activeJobsCount: number;
+
+  @ApiPropertyOptional({ example: false, description: 'Whether candidate follows company' })
+  isFollowed?: boolean;
 
   @ApiProperty({ enum: ['ACTIVE', 'SUSPENDED'], example: 'ACTIVE' })
   status: string;
@@ -97,6 +167,51 @@ export class CreateCompanyDto {
   @IsOptional()
   @IsString()
   location?: string | null;
+
+  @ApiPropertyOptional({ example: 'Product & IT Solutions', nullable: true })
+  @IsOptional()
+  @IsString()
+  companyModel?: string | null;
+
+  @ApiPropertyOptional({ example: '100 - 499 nhân viên', nullable: true })
+  @IsOptional()
+  @IsString()
+  companySize?: string | null;
+
+  @ApiPropertyOptional({ example: 'Việt Nam / Global', nullable: true })
+  @IsOptional()
+  @IsString()
+  country?: string | null;
+
+  @ApiPropertyOptional({ example: 'Thứ 2 - Thứ 6 (8:30 - 17:30)', nullable: true })
+  @IsOptional()
+  @IsString()
+  workingTime?: string | null;
+
+  @ApiPropertyOptional({ example: 'Không áp lực OT', nullable: true })
+  @IsOptional()
+  @IsString()
+  overtimePolicy?: string | null;
+
+  @ApiPropertyOptional({ example: ['Java', 'ReactJS'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  techStack?: string[];
+
+  @ApiPropertyOptional({ type: [CompanyReasonToJoinDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CompanyReasonToJoinDto)
+  reasonsToJoin?: CompanyReasonToJoinDto[];
+
+  @ApiPropertyOptional({ type: [CompanyPerkDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CompanyPerkDto)
+  perks?: CompanyPerkDto[];
 }
 
 export class UpdateCompanyDto {
@@ -137,6 +252,118 @@ export class UpdateCompanyDto {
   @IsOptional()
   @IsString()
   location?: string | null;
+
+  @ApiPropertyOptional({ example: 'Product & IT Solutions', nullable: true })
+  @IsOptional()
+  @IsString()
+  companyModel?: string | null;
+
+  @ApiPropertyOptional({ example: '100 - 499 nhân viên', nullable: true })
+  @IsOptional()
+  @IsString()
+  companySize?: string | null;
+
+  @ApiPropertyOptional({ example: 'Việt Nam / Global', nullable: true })
+  @IsOptional()
+  @IsString()
+  country?: string | null;
+
+  @ApiPropertyOptional({ example: 'Thứ 2 - Thứ 6 (8:30 - 17:30)', nullable: true })
+  @IsOptional()
+  @IsString()
+  workingTime?: string | null;
+
+  @ApiPropertyOptional({ example: 'Không áp lực OT', nullable: true })
+  @IsOptional()
+  @IsString()
+  overtimePolicy?: string | null;
+
+  @ApiPropertyOptional({ example: ['Java', 'ReactJS', 'TypeScript'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  techStack?: string[];
+
+  @ApiPropertyOptional({ type: [CompanyReasonToJoinDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CompanyReasonToJoinDto)
+  reasonsToJoin?: CompanyReasonToJoinDto[];
+
+  @ApiPropertyOptional({ type: [CompanyPerkDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CompanyPerkDto)
+  perks?: CompanyPerkDto[];
+}
+
+export class CompanyDirectoryQueryDto {
+  @ApiPropertyOptional({ default: 1, minimum: 1, description: 'Page number' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100, description: 'Limit per page' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 20;
+
+  @ApiPropertyOptional({ description: 'Search term for company name' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ description: 'Location filter' })
+  @IsOptional()
+  @IsString()
+  location?: string;
+}
+
+export class CompanySummaryItemDto {
+  @ApiProperty({ example: 'comp-uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'techcorp-vietnam' })
+  slug: string;
+
+  @ApiProperty({ example: 'TechCorp Vietnam' })
+  name: string;
+
+  @ApiProperty({ example: 'https://cdn.techcorp.vn/logo.png', nullable: true })
+  logoUrl: string | null;
+
+  @ApiProperty({ example: 'Ho Chi Minh City, Vietnam', nullable: true })
+  location: string | null;
+
+  @ApiProperty({ example: 'Leading software firm', nullable: true })
+  description: string | null;
+
+  @ApiProperty({ example: '100 - 499 nhân viên', nullable: true })
+  companySize: string | null;
+
+  @ApiProperty({ example: 5, description: 'Number of active open published jobs' })
+  activeJobsCount: number;
+
+  @ApiProperty({ example: ['Java', 'ReactJS', 'TypeScript'] })
+  techStack: string[];
+}
+
+export class CompanyDashboardStatsDto {
+  @ApiProperty({ example: 42, description: 'Total applications across all jobs in this company' })
+  totalApplicationsCount: number;
+
+  @ApiProperty({ example: 5, description: 'Active published non-expired jobs count' })
+  activeJobsCount: number;
+
+  @ApiProperty({ example: 3, description: 'Total team members in company' })
+  teamMembersCount: number;
 }
 
 export class AddCompanyMemberDto {
