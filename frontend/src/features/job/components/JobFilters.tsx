@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Button } from '@/shared/ui/button';
 import { Input } from '@/shared/ui/input';
 import { Label } from '@/shared/ui/label';
-import type { JobSearchFilters } from '@/api/types';
+import type { JobSearchFilters, WorkplaceType, EmploymentType, ExperienceLevel } from '@/api/types';
+import { Filter, RotateCcw } from 'lucide-react';
 
 interface JobFiltersProps {
   initialFilters?: JobSearchFilters;
@@ -22,55 +23,149 @@ export const JobFilters: React.FC<JobFiltersProps> = ({ initialFilters, onFilter
     onFilterChange({});
   };
 
+  const hasActiveFilters = Object.values(filters).some(
+    (v) => v !== undefined && v !== '' && (!Array.isArray(v) || v.length > 0)
+  );
+
   return (
-    <form onSubmit={handleApply} className="space-y-6 bg-card p-4 rounded-lg border">
-      <div>
-        <h3 className="text-lg font-medium mb-4">Filters</h3>
+    <form onSubmit={handleApply} className="space-y-6 bg-surface p-5 rounded-2xl border border-border shadow-sm">
+      <div className="flex items-center justify-between pb-3 border-b border-border">
+        <div className="flex items-center gap-2">
+          <Filter className="h-4 w-4 text-[#EA1E30]" />
+          <h3 className="font-display font-bold text-base text-ink">Bộ Lọc / Filters</h3>
+        </div>
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={handleReset}
+            className="text-xs font-semibold text-[#EA1E30] hover:underline flex items-center gap-1"
+          >
+            <RotateCcw className="h-3 w-3" />
+            <span>Đặt lại</span>
+          </button>
+        )}
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="search">Keywords</Label>
+      {/* Keywords */}
+      <div className="space-y-1.5">
+        <Label htmlFor="search" className="text-xs font-bold text-ink">Từ khóa tìm kiếm</Label>
         <Input
           id="search"
-          placeholder="Job title, skills, or company"
+          placeholder="Chức danh, kỹ năng, công ty..."
           value={filters.q || ''}
           onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+          className="h-10 text-xs rounded-xl"
         />
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="experience-level">Experience level</Label>
+      {/* Location */}
+      <div className="space-y-1.5">
+        <Label htmlFor="location-select" className="text-xs font-bold text-ink">Địa điểm làm việc</Label>
+        <select
+          id="location-select"
+          className="min-h-10 w-full rounded-xl border border-border bg-surface px-3 text-xs text-ink focus:outline-none focus:border-[#EA1E30]"
+          value={filters.location?.[0] || ''}
+          onChange={(e) =>
+            setFilters({
+              ...filters,
+              location: e.target.value ? [e.target.value] : undefined,
+            })
+          }
+        >
+          <option value="">Tất cả địa điểm</option>
+          <option value="Ho Chi Minh">TP. Hồ Chí Minh</option>
+          <option value="Ha Noi">Hà Nội</option>
+          <option value="Da Nang">Đà Nẵng</option>
+          <option value="Remote">Remote</option>
+        </select>
+      </div>
+
+      {/* Workplace Type */}
+      <div className="space-y-1.5">
+        <Label htmlFor="workplace-type" className="text-xs font-bold text-ink">Hình thức làm việc</Label>
+        <select
+          id="workplace-type"
+          className="min-h-10 w-full rounded-xl border border-border bg-surface px-3 text-xs text-ink focus:outline-none focus:border-[#EA1E30]"
+          value={filters.workplaceType?.[0] || ''}
+          onChange={(e) =>
+            setFilters({
+              ...filters,
+              workplaceType: e.target.value ? [e.target.value as WorkplaceType] : undefined,
+            })
+          }
+        >
+          <option value="">Tất cả hình thức</option>
+          <option value="ONSITE">Làm tại văn phòng (At office)</option>
+          <option value="HYBRID">Linh hoạt (Hybrid)</option>
+          <option value="REMOTE">Làm từ xa (Remote)</option>
+        </select>
+      </div>
+
+      {/* Experience Level */}
+      <div className="space-y-1.5">
+        <Label htmlFor="experience-level" className="text-xs font-bold text-ink">Cấp bậc / Level</Label>
         <select
           id="experience-level"
-          className="min-h-11 w-full rounded-md border border-border bg-surface px-3"
+          className="min-h-10 w-full rounded-xl border border-border bg-surface px-3 text-xs text-ink focus:outline-none focus:border-[#EA1E30]"
           value={filters.experienceLevel?.[0] || ''}
-          onChange={(event) => setFilters({ ...filters, experienceLevel: event.target.value ? [event.target.value as NonNullable<JobSearchFilters['experienceLevel']>[number]] : undefined })}
+          onChange={(e) =>
+            setFilters({
+              ...filters,
+              experienceLevel: e.target.value ? [e.target.value as ExperienceLevel] : undefined,
+            })
+          }
         >
-          <option value="">All levels</option>
+          <option value="">Tất cả cấp bậc</option>
           <option value="INTERN">Intern</option>
           <option value="FRESHER">Fresher</option>
           <option value="JUNIOR">Junior</option>
           <option value="MID">Mid-level</option>
           <option value="SENIOR">Senior</option>
-          <option value="LEAD">Lead</option>
+          <option value="LEAD">Lead / Principal</option>
           <option value="MANAGER">Manager</option>
         </select>
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="location">Location</Label>
-        <Input
-          id="location"
-          placeholder="e.g. Ho Chi Minh, Ha Noi"
-          value={filters.location?.[0] || ''}
-          onChange={(e) => setFilters({ ...filters, location: e.target.value ? [e.target.value] : undefined })}
-        />
+      {/* Employment Type */}
+      <div className="space-y-1.5">
+        <Label htmlFor="employment-type" className="text-xs font-bold text-ink">Loại hợp đồng</Label>
+        <select
+          id="employment-type"
+          className="min-h-10 w-full rounded-xl border border-border bg-surface px-3 text-xs text-ink focus:outline-none focus:border-[#EA1E30]"
+          value={filters.employmentType?.[0] || ''}
+          onChange={(e) =>
+            setFilters({
+              ...filters,
+              employmentType: e.target.value ? [e.target.value as EmploymentType] : undefined,
+            })
+          }
+        >
+          <option value="">Tất cả loại hình</option>
+          <option value="FULL_TIME">Toàn thời gian (Full-time)</option>
+          <option value="PART_TIME">Bán thời gian (Part-time)</option>
+          <option value="CONTRACT">Hợp đồng (Contract)</option>
+          <option value="INTERNSHIP">Thực tập (Internship)</option>
+        </select>
       </div>
 
-      <div className="pt-4 flex gap-2">
-        <Button type="submit" className="flex-1">Apply Filters</Button>
-        <Button type="button" variant="outline" onClick={handleReset}>Reset</Button>
+      {/* Action Buttons */}
+      <div className="pt-2 flex flex-col gap-2">
+        <Button
+          type="submit"
+          className="w-full h-11 rounded-xl bg-[#EA1E30] hover:bg-[#D01223] text-white font-bold text-xs shadow-md shadow-red-900/20"
+        >
+          Áp dụng bộ lọc
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleReset}
+          className="w-full h-10 rounded-xl text-xs"
+        >
+          Xóa tất cả
+        </Button>
       </div>
     </form>
   );
 };
+

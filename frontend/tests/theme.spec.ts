@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('uses the owner-approved green palette in light and dark themes', async ({ page }) => {
+test('uses the ITviec crimson palette in light and dark themes', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' })
   await page.goto('/auth/login')
 
@@ -12,7 +12,7 @@ test('uses the owner-approved green palette in light and dark themes', async ({ 
     }
   })
 
-  expect(lightTokens).toEqual({ action: '#16A34A', canvas: '#F0FDF4' })
+  expect(lightTokens).toEqual({ action: '#EA1E30', canvas: '#F8FAFC' })
 
   await page.emulateMedia({ colorScheme: 'dark' })
 
@@ -24,5 +24,5 @@ test('uses the owner-approved green palette in light and dark themes', async ({ 
     }
   })
 
-  expect(darkTokens).toEqual({ action: '#4ADE80', canvas: '#022C22' })
+  expect(darkTokens).toEqual({ action: '#FF385C', canvas: '#0F172A' })
 })

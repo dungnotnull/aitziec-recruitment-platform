@@ -4,14 +4,17 @@ import { useQuery } from "@tanstack/react-query"
 import { getMyProfile } from "../api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { StateBoundary } from "@/shared/ui/state-boundary"
+import { Button } from "@/shared/ui/button"
 import { ProfileEditor } from "./ProfileEditor"
 import { CvUploader } from "@/features/cv/components/CvUploader"
+import { CvList } from "@/features/cv/components/CvList"
 import { WorkExperienceEditor } from "./WorkExperienceEditor"
 import { ProfileVisibilityControl } from "./ProfileVisibilityControl"
 import { SkillCombobox } from "./SkillCombobox"
 import { Avatar } from "@/shared/ui/avatar"
 import { Progress } from "@/shared/ui/progress"
-import { Mail, Phone, MapPin, Camera } from "lucide-react"
+import { Mail, Phone, MapPin, Camera, ExternalLink } from "lucide-react"
+import { Link } from "@tanstack/react-router"
 
 export function ProfileOverview() {
   const { session } = useAuth()
@@ -166,11 +169,23 @@ export function ProfileOverview() {
             {profile && <ProfileVisibilityControl key={profile.version} profile={profile} />}
             
             <Card className="border-border shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-xl">CV Management</CardTitle>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+                <div>
+                  <CardTitle className="text-xl">CV Management</CardTitle>
+                </div>
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/candidate/cvs" className="flex items-center gap-1.5 text-xs font-medium">
+                    <span>Manage All CVs</span>
+                    <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                  </Link>
+                </Button>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-6">
                 <CvUploader />
+                <div className="pt-4 border-t border-border">
+                  <h4 className="text-sm font-semibold text-ink mb-3">Your CVs</h4>
+                  <CvList />
+                </div>
               </CardContent>
             </Card>
           </div>

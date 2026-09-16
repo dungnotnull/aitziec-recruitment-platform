@@ -33,7 +33,13 @@ export function LoginForm() {
     mutationFn: loginFn,
     onSuccess: (data) => {
       setSession(data)
-      navigate({ to: '/' })
+      const params = new URLSearchParams(window.location.search)
+      const redirectTarget = params.get('redirect')
+      if (redirectTarget && redirectTarget.startsWith('/') && !redirectTarget.startsWith('//')) {
+        window.location.href = redirectTarget
+      } else {
+        navigate({ to: '/' })
+      }
     },
     onError: (error: any) => {
       setError("root", { type: "server", message: error.response?.data?.error?.message || "Login failed" })

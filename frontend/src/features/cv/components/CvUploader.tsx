@@ -3,6 +3,7 @@ import { useUploadCv } from '../hooks/useCv';
 import { Button } from '@/shared/ui/button';
 import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { getApiErrorDetails } from '@/shared/lib/api-error';
+import { CheckCircle2 } from 'lucide-react';
 
 type CvUploaderProps = {
   onOperationCreated?: (operationId: string) => void;
@@ -11,6 +12,7 @@ type CvUploaderProps = {
 export const CvUploader: React.FC<CvUploaderProps> = ({ onOperationCreated }) => {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadCv = useUploadCv();
 
@@ -18,7 +20,10 @@ export const CvUploader: React.FC<CvUploaderProps> = ({ onOperationCreated }) =>
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    if (selectedFile.type !== 'application/pdf') {
+    setSuccessMessage(null);
+
+    const isPdf = selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
       setError('Only PDF files are allowed.');
       setFile(null);
       return;
@@ -38,8 +43,12 @@ export const CvUploader: React.FC<CvUploaderProps> = ({ onOperationCreated }) =>
   const handleUpload = () => {
     if (!file) return;
 
+    setSuccessMessage(null);
+    setError(null);
+
     uploadCv.mutate(file, {
       onSuccess: (response) => {
+        setSuccessMessage(`CV "${file.name}" uploaded successfully!`);
         onOperationCreated?.(response.data.operation.id);
         setFile(null);
         if (fileInputRef.current) {
@@ -47,6 +56,7 @@ export const CvUploader: React.FC<CvUploaderProps> = ({ onOperationCreated }) =>
         }
       },
       onError: (uploadError) => {
+        setSuccessMessage(null);
         setError(getApiErrorDetails(uploadError).message);
       }
     });
@@ -80,6 +90,13 @@ export const CvUploader: React.FC<CvUploaderProps> = ({ onOperationCreated }) =>
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {successMessage && (
+          <Alert className="border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <AlertDescription>{successMessage}</AlertDescription>
           </Alert>
         )}
 
