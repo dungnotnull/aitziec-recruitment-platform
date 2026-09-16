@@ -1016,6 +1016,30 @@ export class InMemoryPrismaService {
         const company = this.companies.find((c) => c.id === found.companyId);
         return { ...found, company };
       }
+      if (found && args.include?.creator) {
+        if (!found.creatorId) {
+          found = { ...found, creator: null };
+        } else {
+          const user = this.users.find((u) => u.id === found.creatorId);
+          if (!user) {
+            found = { ...found, creator: null };
+          } else {
+            const hrProfile = this.hrProfiles.find((p) => p.userId === user.id);
+            found = {
+              ...found,
+              creator: {
+                email: user.email,
+                hrProfile: hrProfile
+                  ? {
+                      firstName: hrProfile.firstName,
+                      lastName: hrProfile.lastName,
+                    }
+                  : null,
+              },
+            };
+          }
+        }
+      }
       return found;
     },
     findFirst: async (args: any) => {
@@ -1041,7 +1065,31 @@ export class InMemoryPrismaService {
       }
       if (found && args.include?.company) {
         const company = this.companies.find((c) => c.id === found.companyId);
-        return { ...found, company };
+        found = { ...found, company };
+      }
+      if (found && args.include?.creator) {
+        if (!found.creatorId) {
+          found = { ...found, creator: null };
+        } else {
+          const user = this.users.find((u) => u.id === found.creatorId);
+          if (!user) {
+            found = { ...found, creator: null };
+          } else {
+            const hrProfile = this.hrProfiles.find((p) => p.userId === user.id);
+            found = {
+              ...found,
+              creator: {
+                email: user.email,
+                hrProfile: hrProfile
+                  ? {
+                      firstName: hrProfile.firstName,
+                      lastName: hrProfile.lastName,
+                    }
+                  : null,
+              },
+            };
+          }
+        }
       }
       return found;
     },
@@ -1189,6 +1237,27 @@ export class InMemoryPrismaService {
         result = result.map((j) => {
           const company = this.companies.find((c) => c.id === j.companyId);
           return { ...j, company };
+        });
+      }
+
+      if (args.include?.creator) {
+        result = result.map((j) => {
+          if (!j.creatorId) return { ...j, creator: null };
+          const user = this.users.find((u) => u.id === j.creatorId);
+          if (!user) return { ...j, creator: null };
+          const hrProfile = this.hrProfiles.find((p) => p.userId === user.id);
+          return {
+            ...j,
+            creator: {
+              email: user.email,
+              hrProfile: hrProfile
+                ? {
+                    firstName: hrProfile.firstName,
+                    lastName: hrProfile.lastName,
+                  }
+                : null,
+            },
+          };
         });
       }
 

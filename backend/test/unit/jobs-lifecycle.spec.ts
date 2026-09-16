@@ -611,4 +611,186 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  describe('Company Job Creator Identity Projection (BE-18-001)', () => {
+    const baseJob: any = {
+      id: 'job-18-1',
+      companyId: 'comp-1',
+      creatorId: 'user-hr-1',
+      title: 'Senior Backend Engineer',
+      slug: 'senior-backend-engineer',
+      description: 'Desc',
+      requirements: 'Reqs',
+      responsibilities: null,
+      technologyNames: ['NestJS', 'PostgreSQL'],
+      location: 'HCM',
+      workplaceType: 'HYBRID',
+      experienceLevel: 'SENIOR',
+      employmentType: 'FULL_TIME',
+      salaryMin: 25000000,
+      salaryMax: 40000000,
+      currency: 'VND',
+      applicationDeadline: new Date(Date.now() + 86400000 * 10),
+      status: 'PUBLISHED',
+      publishedAt: new Date(),
+      closedAt: null,
+      isHot: false,
+      benefits: [],
+      version: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      company: activeCompany,
+    };
+
+    it('projects creatorName "firstName lastName" and creatorEmail when full profile exists', () => {
+      const jobWithCreator = {
+        ...baseJob,
+        creator: {
+          email: 'recruiter@techcorp.vn',
+          hrProfile: {
+            firstName: '  Nguyen  ',
+            lastName: '  Van A  ',
+          },
+        },
+      };
+
+      const dto = service.mapToDto(jobWithCreator, { includeCreator: true });
+      expect(dto.creatorName).toBe('Nguyen Van A');
+      expect(dto.creatorEmail).toBe('recruiter@techcorp.vn');
+      expect(dto.creatorId).toBe('user-hr-1');
+    });
+
+    it('trims and handles single name parts correctly', () => {
+      // Only firstName
+      const jobFirstNameOnly = {
+        ...baseJob,
+        creator: {
+          email: 'first@techcorp.vn',
+          hrProfile: {
+            firstName: '  Nguyen  ',
+            lastName: '   ',
+          },
+        },
+      };
+      const dtoFirst = service.mapToDto(jobFirstNameOnly, { includeCreator: true });
+      expect(dtoFirst.creatorName).toBe('Nguyen');
+      expect(dtoFirst.creatorEmail).toBe('first@techcorp.vn');
+
+      // Only lastName
+      const jobLastNameOnly = {
+        ...baseJob,
+        creator: {
+          email: 'last@techcorp.vn',
+          hrProfile: {
+            firstName: null,
+            lastName: '  Tran  ',
+          },
+        },
+      };
+      const dtoLast = service.mapToDto(jobLastNameOnly, { includeCreator: true });
+      expect(dtoLast.creatorName).toBe('Tran');
+      expect(dtoLast.creatorEmail).toBe('last@techcorp.vn');
+    });
+
+    it('returns creatorName: null but preserves creatorEmail when HR profile has empty names or creator has no profile', () => {
+      // Empty names in profile
+      const jobEmptyProfile = {
+        ...baseJob,
+        creator: {
+          email: 'noname@techcorp.vn',
+          hrProfile: {
+            firstName: '   ',
+            lastName: '',
+          },
+        },
+      };
+      const dtoEmpty = service.mapToDto(jobEmptyProfile, { includeCreator: true });
+      expect(dtoEmpty.creatorName).toBeNull();
+      expect(dtoEmpty.creatorEmail).toBe('noname@techcorp.vn');
+
+      // No hrProfile (e.g. Admin creator)
+      const jobNoProfile = {
+        ...baseJob,
+        creator: {
+          email: 'admin@itziec.com',
+          hrProfile: null,
+        },
+      };
+      const dtoNoProfile = service.mapToDto(jobNoProfile, { includeCreator: true });
+      expect(dtoNoProfile.creatorName).toBeNull();
+      expect(dtoNoProfile.creatorEmail).toBe('admin@itziec.com');
+    });
+
+    it('returns null for both creatorName and creatorEmail on legacy job or deleted creator', () => {
+      const legacyJob = {
+        ...baseJob,
+        creatorId: null,
+        creator: null,
+      };
+      const dto = service.mapToDto(legacyJob, { includeCreator: true });
+      expect(dto.creatorId).toBeNull();
+      expect(dto.creatorName).toBeNull();
+      expect(dto.creatorEmail).toBeNull();
+    });
+
+    it('isolates PII: returns null for creatorName and creatorEmail when includeCreator is false/omitted', () => {
+      const jobWithCreator = {
+        ...baseJob,
+        creator: {
+          email: 'recruiter@techcorp.vn',
+          hrProfile: {
+            firstName: 'Nguyen',
+            lastName: 'Van A',
+          },
+        },
+      };
+
+      const dto = service.mapToDto(jobWithCreator);
+      expect(dto.creatorName).toBeNull();
+      expect(dto.creatorEmail).toBeNull();
+    });
+
+    it('listCompanyJobs passes relation select without passwordHash/phone and projects identity', async () => {
+      mockScopeService.assertMemberOrAdminWithRole.mockResolvedValue({
+        company: activeCompany,
+        role: 'OWNER',
+      });
+      const dbJob = {
+        ...baseJob,
+        creator: {
+          email: 'owner@techcorp.vn',
+          hrProfile: {
+            firstName: 'Le',
+            lastName: 'Owner',
+          },
+        },
+      };
+      mockPrisma.job.findMany = jest.fn().mockResolvedValue([dbJob]);
+
+      const result = await service.listCompanyJobs('comp-1', hrUser, {});
+
+      expect(mockPrisma.job.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            company: true,
+            creator: {
+              select: {
+                email: true,
+                hrProfile: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                  },
+                },
+              },
+            },
+          }),
+        }),
+      );
+
+      expect(result.data.length).toBe(1);
+      expect(result.data[0].creatorName).toBe('Le Owner');
+      expect(result.data[0].creatorEmail).toBe('owner@techcorp.vn');
+    });
+  });
 });

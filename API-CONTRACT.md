@@ -485,6 +485,8 @@ type Job = {
   currency: string;
   applicationDeadline: string;
   creatorId: string | null;
+  creatorName: string | null;
+  creatorEmail: string | null;
   status: JobStatus;
   isHot: boolean;
   benefits: string[];
@@ -934,6 +936,8 @@ pending approval jobs, or inaccessible records to avoid leaking existence. HR us
 with company scope may retrieve their non-public jobs.
 
 All job DTO responses project authoritative `applicantCount`. When invoked by an authenticated Candidate, `GET /jobs` and `GET /jobs/:jobIdOrSlug` compute personal contextual states `hasApplied` and `isSaved`. Public cache remains isolated in Redis and is never tainted by user-specific candidate state.
+
+`GET /companies/:companyId/jobs` projects authoritative `creatorName` (`firstName lastName` trimmed, or `null`) and `creatorEmail` (`string | null`) for each job in authorized company collections. Public job endpoints (`GET /jobs`, `GET /jobs/:jobIdOrSlug`, recommendations, saved jobs) preserve privacy by returning `null` for `creatorName` and `creatorEmail`.
 
 `POST /jobs/:jobId/publish`: transitions job to `PUBLISHED` if caller is company
 owner or global admin; transitions job to `PENDING_APPROVAL` if caller is recruiter.

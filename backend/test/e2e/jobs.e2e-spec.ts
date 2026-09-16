@@ -925,4 +925,278 @@ describe('Jobs, Search & Saved Jobs E2E (BE-3-001 to BE-3-022)', () => {
       expect(guestJob.isHot).toBe(true);
     });
   });
+
+  describe('Phase 18: Company Job Creator Identity Projection (BE-18-001)', () => {
+    let p18CompanyId: string;
+    let ownerToken: string;
+    let ownerUserId: string;
+    let recToken: string;
+    let recUserId: string;
+    let noNameRecToken: string;
+    let noNameRecUserId: string;
+
+    beforeAll(async () => {
+      // 1. Owner with full profile
+      const ownerRes = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+        email: 'owner-p18@itziec.com',
+        password: 'Password123!@#',
+        role: 'HR',
+      });
+      ownerToken = ownerRes.body.data.accessToken;
+      ownerUserId = ownerRes.body.data.user.id;
+
+      await request(app.getHttpServer())
+        .patch('/api/v1/hr/me')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({
+          expectedVersion: 1,
+          firstName: '  Pham  ',
+          lastName: '  Van Owner  ',
+        });
+
+      // Create company
+      const compRes = await request(app.getHttpServer())
+        .post('/api/v1/companies')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({
+          name: 'Phase 18 Tech Company',
+          description: 'Testing creator projections',
+        });
+      p18CompanyId = compRes.body.data.id;
+
+      // 2. Recruiter with single name part (firstName only)
+      const recRes = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+        email: 'rec-single-p18@itziec.com',
+        password: 'Password123!@#',
+        role: 'HR',
+      });
+      recToken = recRes.body.data.accessToken;
+      recUserId = recRes.body.data.user.id;
+
+      await request(app.getHttpServer())
+        .patch('/api/v1/hr/me')
+        .set('Authorization', `Bearer ${recToken}`)
+        .send({
+          expectedVersion: 1,
+          firstName: '  Minh  ',
+        });
+
+      // Add recruiter to company membership directly in mock DB
+      await inMemoryPrisma.companyMembership.create({
+        data: {
+          companyId: p18CompanyId,
+          userId: recUserId,
+          role: 'RECRUITER',
+        },
+      });
+
+      // 3. Recruiter with no profile names
+      const noNameRes = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+        email: 'rec-noname-p18@itziec.com',
+        password: 'Password123!@#',
+        role: 'HR',
+      });
+      noNameRecToken = noNameRes.body.data.accessToken;
+      noNameRecUserId = noNameRes.body.data.user.id;
+
+      await inMemoryPrisma.companyMembership.create({
+        data: {
+          companyId: p18CompanyId,
+          userId: noNameRecUserId,
+          role: 'RECRUITER',
+        },
+      });
+    });
+
+    it('projects creatorName and creatorEmail correctly across full profile, single name, no name, and legacy job', async () => {
+      // 1. Owner creates Job 1
+      const job1Res = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${p18CompanyId}/jobs`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({
+          title: 'Job by Owner with Full Profile',
+          description: 'Desc 1',
+          requirements: 'Req 1',
+          technologyNames: ['TypeScript'],
+          location: 'HCM',
+          workplaceType: 'HYBRID',
+          experienceLevel: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: futureDeadline,
+        })
+        .expect(201);
+
+      // 2. Recruiter creates Job 2
+      const job2Res = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${p18CompanyId}/jobs`)
+        .set('Authorization', `Bearer ${recToken}`)
+        .send({
+          title: 'Job by Recruiter with Single Name',
+          description: 'Desc 2',
+          requirements: 'Req 2',
+          technologyNames: ['Node.js'],
+          location: 'HN',
+          workplaceType: 'REMOTE',
+          experienceLevel: 'MID',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: futureDeadline,
+        })
+        .expect(201);
+
+      // 3. No-name Recruiter creates Job 3
+      const job3Res = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${p18CompanyId}/jobs`)
+        .set('Authorization', `Bearer ${noNameRecToken}`)
+        .send({
+          title: 'Job by Recruiter without Names',
+          description: 'Desc 3',
+          requirements: 'Req 3',
+          technologyNames: ['React'],
+          location: 'DN',
+          workplaceType: 'ONSITE',
+          experienceLevel: 'JUNIOR',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: futureDeadline,
+        })
+        .expect(201);
+
+      // 4. Legacy job with creatorId: null
+      const legacyJob = await inMemoryPrisma.job.create({
+        data: {
+          companyId: p18CompanyId,
+          creatorId: null,
+          title: 'Legacy Orphan Job',
+          slug: 'legacy-orphan-job-' + Date.now(),
+          description: 'Legacy job without creator',
+          requirements: 'Legacy reqs',
+          technologyNames: ['Java'],
+          location: 'Hue',
+          workplaceType: 'ONSITE',
+          experienceLevel: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: new Date(futureDeadline),
+          status: 'DRAFT',
+          version: 1,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // 5. Owner lists all company jobs
+      const ownerListRes = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${p18CompanyId}/jobs`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .expect(200);
+
+      const items = ownerListRes.body.data;
+      expect(items.length).toBeGreaterThanOrEqual(4);
+
+      // Check all items have both keys present as string | null
+      for (const item of items) {
+        expect(item).toHaveProperty('creatorName');
+        expect(item).toHaveProperty('creatorEmail');
+        expect(typeof item.creatorName === 'string' || item.creatorName === null).toBe(true);
+        expect(typeof item.creatorEmail === 'string' || item.creatorEmail === null).toBe(true);
+      }
+
+      // Check Job 1 (full profile)
+      const foundJob1 = items.find((j: { id: string }) => j.id === job1Res.body.data.id);
+      expect(foundJob1).toBeDefined();
+      expect(foundJob1.creatorId).toBe(ownerUserId);
+      expect(foundJob1.creatorName).toBe('Pham Van Owner');
+      expect(foundJob1.creatorEmail).toBe('owner-p18@itziec.com');
+
+      // Check Job 2 (single name part)
+      const foundJob2 = items.find((j: { id: string }) => j.id === job2Res.body.data.id);
+      expect(foundJob2).toBeDefined();
+      expect(foundJob2.creatorId).toBe(recUserId);
+      expect(foundJob2.creatorName).toBe('Minh');
+      expect(foundJob2.creatorEmail).toBe('rec-single-p18@itziec.com');
+
+      // Check Job 3 (no name in profile)
+      const foundJob3 = items.find((j: { id: string }) => j.id === job3Res.body.data.id);
+      expect(foundJob3).toBeDefined();
+      expect(foundJob3.creatorId).toBe(noNameRecUserId);
+      expect(foundJob3.creatorName).toBeNull();
+      expect(foundJob3.creatorEmail).toBe('rec-noname-p18@itziec.com');
+
+      // Check Job 4 (legacy job with null creatorId)
+      const foundLegacy = items.find((j: { id: string }) => j.id === legacyJob.id);
+      expect(foundLegacy).toBeDefined();
+      expect(foundLegacy.creatorId).toBeNull();
+      expect(foundLegacy.creatorName).toBeNull();
+      expect(foundLegacy.creatorEmail).toBeNull();
+
+      // 6. Recruiter isolation (BE-11-002 regression)
+      const recListRes = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${p18CompanyId}/jobs`)
+        .set('Authorization', `Bearer ${recToken}`)
+        .expect(200);
+
+      expect(recListRes.body.data.length).toBe(1);
+      expect(recListRes.body.data[0].id).toBe(job2Res.body.data.id);
+      expect(recListRes.body.data[0].creatorName).toBe('Minh');
+      expect(recListRes.body.data[0].creatorEmail).toBe('rec-single-p18@itziec.com');
+
+      // 7. Global Admin sees all with accurate identities
+      const adminListRes = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${p18CompanyId}/jobs`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const adminItems = adminListRes.body.data;
+      const adminJob1 = adminItems.find((j: { id: string }) => j.id === job1Res.body.data.id);
+      expect(adminJob1.creatorName).toBe('Pham Van Owner');
+      expect(adminJob1.creatorEmail).toBe('owner-p18@itziec.com');
+    });
+
+    it('isolates PII: public job list and detail return creatorName: null and creatorEmail: null', async () => {
+      // Create and publish a job by Owner
+      const pubDraftRes = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${p18CompanyId}/jobs`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({
+          title: 'Publicly Accessible Published Job',
+          description: 'Public job description',
+          requirements: 'Public requirements',
+          technologyNames: ['NestJS'],
+          location: 'HCM',
+          workplaceType: 'REMOTE',
+          experienceLevel: 'LEAD',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: futureDeadline,
+        })
+        .expect(201);
+
+      const pubJobId = pubDraftRes.body.data.id;
+      const pubSlug = pubDraftRes.body.data.slug;
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${pubJobId}/publish`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({ expectedVersion: 1 })
+        .expect(200);
+
+      // 1. Guest reads public detail
+      const detailRes = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${pubSlug}`)
+        .expect(200);
+
+      expect(detailRes.body.data.creatorName).toBeNull();
+      expect(detailRes.body.data.creatorEmail).toBeNull();
+
+      // 2. Candidate searches public jobs
+      const searchRes = await request(app.getHttpServer()).get('/api/v1/jobs').expect(200);
+
+      const foundInSearch = searchRes.body.data.find((j: { id: string }) => j.id === pubJobId);
+      expect(foundInSearch).toBeDefined();
+      expect(foundInSearch.creatorName).toBeNull();
+      expect(foundInSearch.creatorEmail).toBeNull();
+    });
+  });
 });

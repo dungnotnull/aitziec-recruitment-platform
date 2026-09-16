@@ -83,6 +83,12 @@ export class JobDto {
   @ApiPropertyOptional({ example: 'user-uuid', nullable: true })
   creatorId?: string | null;
 
+  @ApiPropertyOptional({ example: 'Nguyen Van A', nullable: true })
+  creatorName?: string | null;
+
+  @ApiPropertyOptional({ example: 'recruiter@techcorp.vn', nullable: true })
+  creatorEmail?: string | null;
+
   @ApiProperty({
     enum: ['DRAFT', 'PENDING_APPROVAL', 'PUBLISHED', 'UNPUBLISHED', 'CLOSED', 'EXPIRED'],
     example: 'DRAFT',

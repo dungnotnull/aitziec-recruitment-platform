@@ -50,18 +50,44 @@ export class JobsService {
     return isNaN(d.getTime()) ? null : d.toISOString();
   }
 
+  private formatCreatorName(
+    hrProfile?: { firstName?: string | null; lastName?: string | null } | null,
+  ): string | null {
+    if (!hrProfile) return null;
+    const firstName = hrProfile.firstName?.trim() ?? '';
+    const lastName = hrProfile.lastName?.trim() ?? '';
+    const parts = [firstName, lastName].filter((p) => p.length > 0);
+    return parts.length > 0 ? parts.join(' ') : null;
+  }
+
   public mapToDto(
     job: Job & {
       company?: Partial<Company> | null;
       _count?: { applications?: number } | null;
+      creator?: {
+        email?: string | null;
+        hrProfile?: {
+          firstName?: string | null;
+          lastName?: string | null;
+        } | null;
+      } | null;
     },
     options?: {
       applicantCount?: number;
       hasApplied?: boolean;
       isSaved?: boolean;
+      includeCreator?: boolean;
     },
   ): JobDto {
     const applicantCount = options?.applicantCount ?? job._count?.applications ?? 0;
+
+    let creatorName: string | null = null;
+    let creatorEmail: string | null = null;
+
+    if (options?.includeCreator && job.creator) {
+      creatorEmail = job.creator.email ?? null;
+      creatorName = this.formatCreatorName(job.creator.hrProfile);
+    }
 
     return {
       id: job.id,
@@ -86,6 +112,8 @@ export class JobsService {
       currency: job.currency,
       applicationDeadline: this.toIso(job.applicationDeadline) ?? new Date().toISOString(),
       creatorId: job.creatorId ?? null,
+      creatorName,
+      creatorEmail,
       status: job.status,
       publishedAt: this.toIso(job.publishedAt),
       closedAt: this.toIso(job.closedAt),
@@ -158,7 +186,20 @@ export class JobsService {
 
     const findArgs: Prisma.JobFindManyArgs = {
       where,
-      include: { company: true },
+      include: {
+        company: true,
+        creator: {
+          select: {
+            email: true,
+            hrProfile: {
+              select: {
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        },
+      },
       orderBy,
       take: limit + 1,
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
@@ -174,7 +215,7 @@ export class JobsService {
     }
 
     return {
-      data: items.map((j) => this.mapToDto(j)),
+      data: items.map((j) => this.mapToDto(j, { includeCreator: true })),
       meta: {
         requestId: requestId || '',
         page: {
