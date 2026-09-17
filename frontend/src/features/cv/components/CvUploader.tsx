@@ -75,12 +75,17 @@ export const CvUploader: React.FC<CvUploaderProps> = ({ onOperationCreated }) =>
             accept="application/pdf"
             onChange={handleFileChange}
             ref={fileInputRef}
-            className="block w-full text-sm text-slate-500
-              file:mr-4 file:py-2 file:px-4
-              file:rounded-md file:border-0
+            className="block w-full text-sm text-slate-600 dark:text-slate-300
+              rounded-xl border border-border bg-surface px-3.5 py-2.5 cursor-pointer
+              transition-all duration-200 shadow-xs
+              hover:border-slate-400 dark:hover:border-slate-600
+              focus:outline-none focus:ring-2 focus:ring-action/20 focus:border-action
+              file:mr-4 file:py-1.5 file:px-4
+              file:rounded-lg file:border file:border-border
               file:text-sm file:font-semibold
-              file:bg-primary file:text-primary-foreground
-              hover:file:bg-primary/90"
+              file:bg-surface-raised file:text-ink
+              hover:file:bg-surface hover:file:border-action-border hover:file:text-action
+              active:file:scale-95 file:cursor-pointer file:transition-all file:shadow-xs"
           />
           <p className="text-xs text-muted-foreground mt-2">
             Max size: 10MB. Format: PDF only.

@@ -11,6 +11,7 @@ import { useOperation } from '@/features/operations/hooks'
 import { useAiAnalysis, useCreateCvJobAnalysis } from './hooks'
 import { AiAnalysisResult } from './AiAnalysisResult'
 import { aiFailureMessage } from './ai-error'
+import { decodeFileName } from '@/shared/lib/file-name'
 
 export function AiAnalysisWorkspace() {
   const [cvId, setCvId] = React.useState('')
@@ -50,7 +51,7 @@ export function AiAnalysisWorkspace() {
         <label className="grid gap-2 text-sm font-semibold text-ink">Ready CV
           <select className="min-h-11 rounded-md border border-border bg-canvas px-3" value={cvId} onChange={(event) => setCvId(event.target.value)} required>
             <option value="">Choose a CV</option>
-            {readyCvs.map((cv) => <option key={cv.id} value={cv.id}>{cv.originalFileName}</option>)}
+            {readyCvs.map((cv) => <option key={cv.id} value={cv.id}>{decodeFileName(cv.originalFileName)}</option>)}
           </select>
         </label>
         <label className="grid gap-2 text-sm font-semibold text-ink">Job

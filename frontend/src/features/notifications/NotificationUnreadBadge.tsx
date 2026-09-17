@@ -5,7 +5,12 @@ import { notificationKeys } from './hooks'
 import { AuthContext } from '@/features/auth/context'
 import { listMyHrInvitations } from '@/features/hr/api'
 
-export function NotificationUnreadBadge() {
+interface NotificationUnreadBadgeProps {
+  className?: string
+  variant?: 'floating' | 'inline'
+}
+
+export function NotificationUnreadBadge({ className, variant = 'floating' }: NotificationUnreadBadgeProps = {}) {
   const auth = React.useContext(AuthContext)
   const isHr = auth?.session?.user.role === 'HR'
 
@@ -30,8 +35,24 @@ export function NotificationUnreadBadge() {
   if (!count) return null
 
   const label = `${count} unread notification${count === 1 ? '' : 's'}`
+
+  if (variant === 'inline') {
+    return (
+      <span
+        aria-label={label}
+        className={`rounded-full bg-[#EA1E30] px-2 py-0.5 text-[11px] font-bold text-white ${className || ''}`}
+      >
+        {count > 99 ? '99+' : count}
+        <span className="sr-only" aria-live="polite">{label}</span>
+      </span>
+    )
+  }
+
   return (
-    <span aria-label={label} className="rounded-full bg-danger px-1.5 py-0.5 text-[10px] font-bold text-white">
+    <span
+      aria-label={label}
+      className={`absolute top-0.5 right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[#EA1E30] text-white text-[10px] font-extrabold leading-none shadow-sm ring-2 ring-[#121212] pointer-events-none transition-transform ${className || ''}`}
+    >
       {count > 99 ? '99+' : count}
       <span className="sr-only" aria-live="polite">{label}</span>
     </span>

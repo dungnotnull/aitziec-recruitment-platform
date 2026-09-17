@@ -37,6 +37,7 @@ export const useUploadCv = () => {
     mutationFn: (file: File) => cvApi.uploadCv(file),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: cvKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['candidate-profile'] });
     },
   });
 };
@@ -48,6 +49,7 @@ export const useSetDefaultCv = () => {
       cvApi.setDefaultCv(cvId, expectedVersion),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: cvKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['candidate-profile'] });
     },
   });
 };
@@ -58,6 +60,7 @@ export const useDeleteCv = () => {
     mutationFn: (cvId: string) => cvApi.deleteCv(cvId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: cvKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['candidate-profile'] });
     },
   });
 };

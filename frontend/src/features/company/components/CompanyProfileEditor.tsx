@@ -361,7 +361,7 @@ export function CompanyProfileEditor({ company }: CompanyProfileEditorProps) {
                     id="logoUrl"
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
-                    className="rounded-xl text-xs"
+                    className="rounded-xl text-xs hover:border-slate-400 dark:hover:border-slate-600 transition-colors shadow-xs"
                     onChange={async (e) => {
                       const file = e.target.files?.[0]
                       if (file) {
