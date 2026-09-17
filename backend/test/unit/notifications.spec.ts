@@ -812,5 +812,235 @@ describe('NotificationsService (Unit)', () => {
         }),
       ).rejects.toThrow('Database connection lost');
     });
+
+    describe('Recruiter Application Notifications Fan-Out (BE-21-001)', () => {
+      const companyId = 'comp-fanout-1';
+      const jobId = 'job-fanout-1';
+      const applicationId = 'app-fanout-1';
+      const creatorId = 'creator-recruiter-1';
+      const ownerId = 'owner-user-1';
+      const disabledOwnerId = 'owner-disabled-1';
+      const candidateId = candidateUser.id;
+
+      beforeEach(() => {
+        inMemoryPrisma.companies.push({
+          id: companyId,
+          name: 'Tech Corp',
+          slug: 'tech-corp',
+          status: 'ACTIVE',
+        });
+
+        inMemoryPrisma.jobs.push({
+          id: jobId,
+          companyId,
+          creatorId,
+          title: 'Senior Backend Engineer',
+          status: 'PUBLISHED',
+          applicationDeadline: new Date(Date.now() + 86400000),
+        });
+
+        inMemoryPrisma.users.push(
+          {
+            id: creatorId,
+            email: 'creator@test.com',
+            role: 'HR',
+            status: 'ACTIVE',
+          },
+          {
+            id: ownerId,
+            email: 'owner@test.com',
+            role: 'HR',
+            status: 'ACTIVE',
+          },
+          {
+            id: disabledOwnerId,
+            email: 'disabled@test.com',
+            role: 'HR',
+            status: 'DISABLED',
+          },
+        );
+
+        inMemoryPrisma.companyMemberships.push(
+          {
+            id: 'mem-1',
+            companyId,
+            userId: creatorId,
+            role: 'RECRUITER',
+            createdAt: new Date(),
+          },
+          {
+            id: 'mem-2',
+            companyId,
+            userId: ownerId,
+            role: 'OWNER',
+            createdAt: new Date(),
+          },
+          {
+            id: 'mem-3',
+            companyId,
+            userId: disabledOwnerId,
+            role: 'OWNER',
+            createdAt: new Date(),
+          },
+        );
+      });
+
+      it('routes ApplicationSubmitted: creates candidate notification + email AND fans out recruiter in-app notifications', async () => {
+        const eventId = 'evt-sub-fanout-1';
+        await service.routeEvent(
+          'ApplicationSubmitted',
+          {
+            applicationId,
+            candidateId: 'cand-profile-1',
+            candidateUserId: candidateId,
+            jobId,
+            jobTitle: 'Senior Backend Engineer',
+            companyId,
+            companyName: 'Tech Corp',
+            submittedAt: new Date().toISOString(),
+            managerUserIds: [creatorId, ownerId, disabledOwnerId, candidateId],
+          },
+          1,
+          eventId,
+        );
+
+        // 1. Candidate notification
+        const candidateNotifs = await inMemoryPrisma.notification.findMany({
+          where: { userId: candidateId },
+        });
+        expect(candidateNotifs).toHaveLength(1);
+        expect(candidateNotifs[0].title).toBe('Application Submitted');
+        expect(candidateNotifs[0].type).toBe(NotificationType.APPLICATION_SUBMITTED);
+        expect(mockEmailService.sendEmail).toHaveBeenCalledTimes(1);
+
+        // 2. Creator recruiter notification
+        const creatorNotifs = await inMemoryPrisma.notification.findMany({
+          where: { userId: creatorId },
+        });
+        expect(creatorNotifs).toHaveLength(1);
+        expect(creatorNotifs[0].title).toBe('New Application Received');
+        expect(creatorNotifs[0].type).toBe(NotificationType.APPLICATION_SUBMITTED);
+        expect(creatorNotifs[0].body).toContain('Senior Backend Engineer');
+        expect(creatorNotifs[0].deliveryKey).toBe(`notif-${eventId}-${creatorId}`);
+
+        // 3. Active owner notification
+        const ownerNotifs = await inMemoryPrisma.notification.findMany({
+          where: { userId: ownerId },
+        });
+        expect(ownerNotifs).toHaveLength(1);
+        expect(ownerNotifs[0].title).toBe('New Application Received');
+        expect(ownerNotifs[0].deliveryKey).toBe(`notif-${eventId}-${ownerId}`);
+
+        // 4. Disabled owner must NOT receive notification
+        const disabledNotifs = await inMemoryPrisma.notification.findMany({
+          where: { userId: disabledOwnerId },
+        });
+        expect(disabledNotifs).toHaveLength(0);
+      });
+
+      it('routes ApplicationHired: creates candidate outcome + email AND fans out recruiter outcome notifications', async () => {
+        const eventId = 'evt-hired-fanout-1';
+        await service.routeEvent(
+          'ApplicationHired',
+          {
+            applicationId,
+            candidateId: 'cand-profile-1',
+            candidateUserId: candidateId,
+            jobId,
+            jobTitle: 'Senior Backend Engineer',
+            companyId,
+            companyName: 'Tech Corp',
+            fromStatus: 'OFFERED',
+            toStatus: 'HIRED',
+            changedAt: new Date().toISOString(),
+            managerUserIds: [creatorId, ownerId],
+          },
+          1,
+          eventId,
+        );
+
+        // 1. Candidate notification
+        const candidateNotifs = await inMemoryPrisma.notification.findMany({
+          where: { userId: candidateId },
+        });
+        expect(candidateNotifs).toHaveLength(1);
+        expect(candidateNotifs[0].title).toBe('Application Outcome: HIRED');
+        expect(candidateNotifs[0].type).toBe(NotificationType.APPLICATION_OUTCOME);
+
+        // 2. Creator recruiter notification
+        const creatorNotifs = await inMemoryPrisma.notification.findMany({
+          where: { userId: creatorId },
+        });
+        expect(creatorNotifs).toHaveLength(1);
+        expect(creatorNotifs[0].title).toBe('Candidate Hired');
+        expect(creatorNotifs[0].type).toBe(NotificationType.APPLICATION_OUTCOME);
+        expect(creatorNotifs[0].body).toContain('officially hired');
+        expect(creatorNotifs[0].deliveryKey).toBe(`notif-${eventId}-${creatorId}`);
+
+        // 3. Owner notification
+        const ownerNotifs = await inMemoryPrisma.notification.findMany({
+          where: { userId: ownerId },
+        });
+        expect(ownerNotifs).toHaveLength(1);
+        expect(ownerNotifs[0].title).toBe('Candidate Hired');
+      });
+
+      it('replay of same event is idempotent and does not create duplicate manager notifications', async () => {
+        const eventId = 'evt-idempotent-fanout-1';
+        const payload = {
+          applicationId,
+          candidateId: 'cand-profile-1',
+          candidateUserId: candidateId,
+          jobId,
+          jobTitle: 'Senior Backend Engineer',
+          companyId,
+          companyName: 'Tech Corp',
+          submittedAt: new Date().toISOString(),
+          managerUserIds: [creatorId, ownerId],
+        };
+
+        // First call
+        await service.routeEvent('ApplicationSubmitted', payload, 1, eventId);
+        // Replay call
+        await service.routeEvent('ApplicationSubmitted', payload, 1, eventId);
+
+        const creatorNotifs = await inMemoryPrisma.notification.findMany({
+          where: { userId: creatorId },
+        });
+        expect(creatorNotifs).toHaveLength(1);
+
+        const ownerNotifs = await inMemoryPrisma.notification.findMany({
+          where: { userId: ownerId },
+        });
+        expect(ownerNotifs).toHaveLength(1);
+      });
+
+      it('safely handles empty manager list without throwing and candidate still gets notified', async () => {
+        const eventId = 'evt-empty-managers-1';
+        await expect(
+          service.routeEvent(
+            'ApplicationSubmitted',
+            {
+              applicationId,
+              candidateId: 'cand-profile-1',
+              candidateUserId: candidateId,
+              jobId,
+              jobTitle: 'Senior Backend Engineer',
+              companyId,
+              companyName: 'Tech Corp',
+              submittedAt: new Date().toISOString(),
+              managerUserIds: [],
+            },
+            1,
+            eventId,
+          ),
+        ).resolves.not.toThrow();
+
+        const candidateNotifs = await inMemoryPrisma.notification.findMany({
+          where: { userId: candidateId },
+        });
+        expect(candidateNotifs).toHaveLength(1);
+      });
+    });
   });
 });

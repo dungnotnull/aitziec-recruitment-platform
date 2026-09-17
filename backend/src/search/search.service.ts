@@ -75,7 +75,7 @@ export class SearchService {
       const rawJobs = await this.prisma.job.findMany({
         where: {
           status: 'PUBLISHED',
-          applicationDeadline: { gt: now },
+          applicationDeadline: { gte: now },
           company: { status: 'ACTIVE' },
           ...(query.companyId && { companyId: query.companyId }),
           ...(query.experienceLevel &&

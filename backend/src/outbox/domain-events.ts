@@ -11,6 +11,7 @@ export interface ApplicationSubmittedPayload {
   companyId: string;
   companyName: string;
   submittedAt: string;
+  managerUserIds?: string[];
 }
 
 export interface ApplicationStatusChangedPayload {
@@ -50,6 +51,7 @@ export interface ApplicationHiredPayload {
   fromStatus: string;
   toStatus: string;
   changedAt: string;
+  managerUserIds?: string[];
 }
 
 export interface ApplicationReconsideredPayload {

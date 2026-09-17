@@ -55,6 +55,8 @@ changing a shared interface.
 
 - Timestamps are ISO 8601 UTC strings, for example `2026-09-08T09:30:00.000Z`.
 - Date-only values use `YYYY-MM-DD`.
+- `applicationDeadline` accepts both date-only `YYYY-MM-DD` and full ISO-8601 UTC datetimes. Date-only values are validated against the Gregorian calendar and normalized to end-of-day UTC (`YYYY-MM-DDT23:59:59.999Z`).
+- The stored deadline is inclusive: a job is open and accepting applications while `now <= applicationDeadline`, and expires once `now > applicationDeadline`. Public search, company active-job count, and recommendations filter with `applicationDeadline >= now`.
 - The API stores and returns UTC. Clients localize for display.
 - Expiration and deadline comparisons use backend time, not client time.
 
@@ -1239,6 +1241,10 @@ type InterviewEventPayload = {
 - Consumers deduplicate by `eventId`.
 - Adding an optional payload field is additive; removing or changing a field
   requires a new `eventVersion` and migration plan.
+- `ApplicationSubmitted` and `ApplicationHired` include additive `managerUserIds?: string[]`
+  snapshotting active job managers (`Job.creatorId` if active recruiter/owner, plus all
+  active company `OWNER`s). Notifications fan out in-app notifications (`APPLICATION_SUBMITTED`
+  and `APPLICATION_OUTCOME`) to these managers using deterministic `deliveryKey = notif-${eventId}-${recipientUserId}`.
 - Event payloads contain identifiers and minimum notification data, not raw CV
   text, access tokens, signed URLs, or recruiter-private notes.
 

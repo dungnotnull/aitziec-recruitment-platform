@@ -21,6 +21,7 @@ import { OutboxService } from '../outbox/outbox.service';
 import { DomainEventName } from '../outbox/domain-events';
 import { CompanyScopeService } from '../companies/company-scope.service';
 import { IdempotencyService } from '../idempotency/idempotency.service';
+import { resolveJobManagerRecipients } from './job-managers.util';
 import { ClaimResult } from '../idempotency/idempotency.types';
 import { ERROR_CODES } from '../common/constants/error-codes';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
@@ -138,7 +139,7 @@ export class ApplicationsService {
       }
 
       const now = new Date();
-      if (new Date(job.applicationDeadline) < now) {
+      if (new Date(job.applicationDeadline).getTime() < now.getTime()) {
         throw new ConflictException({
           code: ERROR_CODES.JOB_DEADLINE_PASSED,
           message: 'Application deadline for this job has passed.',
@@ -229,6 +230,13 @@ export class ApplicationsService {
           tx,
         );
 
+        const managerUserIds = await resolveJobManagerRecipients(
+          tx,
+          job.companyId,
+          job.creatorId,
+          user.id,
+        );
+
         await this.outboxService.recordEvent(tx, {
           eventName: 'ApplicationSubmitted',
           aggregateType: 'Application',
@@ -242,6 +250,7 @@ export class ApplicationsService {
             companyId: job.companyId,
             companyName: job.company.name,
             submittedAt: this.toIso(application.submittedAt) || new Date().toISOString(),
+            managerUserIds,
           },
           requestId,
           actorId: user.id,
@@ -338,12 +347,19 @@ export class ApplicationsService {
         let auditAction = 'APPLICATION_STATUS_TRANSITIONED';
         let eventName: DomainEventName = 'ApplicationStatusChanged';
 
+        let managerUserIds: string[] | undefined = undefined;
         if (dto.targetStatus === ApplicationStatus.OFFERED) {
           auditAction = 'APPLICATION_OFFERED';
           eventName = 'ApplicationOffered';
         } else if (dto.targetStatus === ApplicationStatus.HIRED) {
           auditAction = 'APPLICATION_HIRED';
           eventName = 'ApplicationHired';
+          managerUserIds = await resolveJobManagerRecipients(
+            tx,
+            application.job.companyId,
+            application.job.creatorId,
+            application.candidate?.userId,
+          );
         } else if (
           application.status === ApplicationStatus.REJECTED &&
           dto.targetStatus === ApplicationStatus.REVIEWING
@@ -370,22 +386,25 @@ export class ApplicationsService {
           tx,
         );
 
+        const outboxPayload = {
+          applicationId,
+          candidateId: application.candidateId,
+          candidateUserId: application.candidate?.userId || '',
+          jobId: application.jobId,
+          jobTitle: application.job.title,
+          companyId: application.job.companyId,
+          companyName: application.job.company.name,
+          fromStatus: application.status,
+          toStatus: dto.targetStatus,
+          changedAt: new Date().toISOString(),
+          ...(managerUserIds ? { managerUserIds } : {}),
+        };
+
         await this.outboxService.recordEvent(tx, {
           eventName,
           aggregateType: 'Application',
           aggregateId: application.id,
-          payload: {
-            applicationId,
-            candidateId: application.candidateId,
-            candidateUserId: application.candidate?.userId || '',
-            jobId: application.jobId,
-            jobTitle: application.job.title,
-            companyId: application.job.companyId,
-            companyName: application.job.company.name,
-            fromStatus: application.status,
-            toStatus: dto.targetStatus,
-            changedAt: new Date().toISOString(),
-          },
+          payload: outboxPayload,
           requestId,
           actorId: user.id,
         });

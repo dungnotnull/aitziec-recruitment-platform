@@ -22,6 +22,7 @@ import { AuditService } from '../audit/audit.service';
 import { CompaniesService } from '../companies/companies.service';
 import { JobsService } from '../jobs/jobs.service';
 import { ApplicationsService } from '../applications/applications.service';
+import { resolveJobManagerRecipients } from '../applications/job-managers.util';
 import { OutboxService } from '../outbox/outbox.service';
 import { DomainEventName } from '../outbox/domain-events';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
@@ -857,12 +858,19 @@ export class AdminService {
       let auditAction = 'APPLICATION_MODERATED';
       let eventName: DomainEventName = 'ApplicationStatusChanged';
 
+      let managerUserIds: string[] | undefined = undefined;
       if (dto.targetStatus === ApplicationStatus.OFFERED) {
         auditAction = 'APPLICATION_OFFERED';
         eventName = 'ApplicationOffered';
       } else if (dto.targetStatus === ApplicationStatus.HIRED) {
         auditAction = 'APPLICATION_HIRED';
         eventName = 'ApplicationHired';
+        managerUserIds = await resolveJobManagerRecipients(
+          tx,
+          application.job.companyId,
+          application.job.creatorId,
+          application.candidate?.userId,
+        );
       } else if (
         application.status === ApplicationStatus.REJECTED &&
         dto.targetStatus === ApplicationStatus.REVIEWING
@@ -891,23 +899,26 @@ export class AdminService {
         tx,
       );
 
+      const outboxPayload = {
+        applicationId,
+        candidateId: application.candidateId,
+        candidateUserId: application.candidate?.userId || '',
+        jobId: application.jobId,
+        jobTitle: application.job.title,
+        companyId: application.job.companyId,
+        companyName: application.job.company.name,
+        fromStatus: application.status,
+        toStatus: dto.targetStatus,
+        changedAt: new Date().toISOString(),
+        ...(managerUserIds ? { managerUserIds } : {}),
+      };
+
       // 4. Emit outbox event
       await this.outboxService.recordEvent(tx, {
         eventName,
         aggregateType: 'Application',
         aggregateId: application.id,
-        payload: {
-          applicationId,
-          candidateId: application.candidateId,
-          candidateUserId: application.candidate?.userId || '',
-          jobId: application.jobId,
-          jobTitle: application.job.title,
-          companyId: application.job.companyId,
-          companyName: application.job.company.name,
-          fromStatus: application.status,
-          toStatus: dto.targetStatus,
-          changedAt: new Date().toISOString(),
-        },
+        payload: outboxPayload,
         requestId,
         actorId: adminUser.id,
       });

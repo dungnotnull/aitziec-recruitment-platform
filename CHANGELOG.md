@@ -13,6 +13,11 @@ available.
 ## [Unreleased]
 
 ### Added
+- **Phase 21 (Recruiter Application Notifications & Date-Only Job Deadlines)**:
+  - Implemented `resolveJobManagerRecipients` helper and transactional outbox manager snapshotting (`managerUserIds`) for `ApplicationSubmitted` and `ApplicationHired` events across recruiter and admin lifecycle transitions (`BE-21-001`).
+  - Added in-app recruiter notification fan-out with active membership re-verification, role scoping (job creator recruiter + company owners), candidate exclusion, deduplication, structured non-PII logging, and replay-safe delivery keys (`BE-21-001`).
+  - Implemented `parseApplicationDeadline` with strict Gregorian calendar validation, normalizing date-only `YYYY-MM-DD` inputs to UTC end-of-day (`23:59:59.999Z`) while preserving full ISO-8601 datetime instants (`BE-21-002`).
+  - Unified inclusive deadline boundary semantics (`now <= applicationDeadline` active, `now > applicationDeadline` expired) across public visibility, search, active job counts, and recommendations (`BE-21-002`).
 - **Phase 20 (Multipart UTF-8 Filename Normalization)**:
   - Implemented `normalizeUploadedFilename` utility for UTF-8 recovery from Latin-1 multipart mojibake with round-trip verification (`BE-20-001`).
   - Added Unicode NFC normalization, path traversal sanitization, control/Bidi override character removal, and 255-character length ceiling with `.pdf` preservation (`BE-20-001`).

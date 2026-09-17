@@ -319,6 +319,14 @@ describe('Applications (E2E)', () => {
       expect(res.body.data.candidateNote).toBe('Excited about this opportunity!');
 
       applicationId = res.body.data.id;
+
+      // BE-21-001: Assert ApplicationSubmitted event has managerUserIds snapshot
+      const outboxEvt = inMemoryPrisma.outboxEvents.find(
+        (e: any) => e.eventName === 'ApplicationSubmitted' && e.aggregateId === applicationId,
+      );
+      expect(outboxEvt).toBeDefined();
+      expect(Array.isArray(outboxEvt.payload.managerUserIds)).toBe(true);
+      expect(outboxEvt.payload.managerUserIds.length).toBeGreaterThan(0);
     });
 
     it('BE-10-005 replays identical submission with same Idempotency-Key returning 201 without duplicate application', async () => {
@@ -619,6 +627,14 @@ describe('Applications (E2E)', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe(ApplicationStatus.HIRED);
       expect(res.body.data.version).toBe(6);
+
+      // BE-21-001: Assert ApplicationHired event has managerUserIds snapshot
+      const hiredEvt = inMemoryPrisma.outboxEvents.find(
+        (e: any) => e.eventName === 'ApplicationHired' && e.aggregateId === applicationId,
+      );
+      expect(hiredEvt).toBeDefined();
+      expect(Array.isArray(hiredEvt.payload.managerUserIds)).toBe(true);
+      expect(hiredEvt.payload.managerUserIds.length).toBeGreaterThan(0);
     });
 
     it('BE-19-001 filters HR and candidate applications by status=HIRED', async () => {

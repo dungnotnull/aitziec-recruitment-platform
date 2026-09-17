@@ -155,6 +155,43 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
         BadRequestException,
       );
     });
+
+    it('BE-21-002 normalizes date-only applicationDeadline to end-of-day UTC (T23:59:59.999Z)', async () => {
+      const now = new Date();
+      const todayDateOnly = now.toISOString().slice(0, 10);
+
+      const dto = {
+        title: 'Backend Engineer',
+        description: 'Desc',
+        requirements: 'Reqs',
+        technologyNames: ['Node.js'],
+        location: 'HCM',
+        workplaceType: 'ONSITE' as const,
+        experienceLevel: 'MID' as const,
+        employmentType: 'FULL_TIME' as const,
+        currency: 'VND',
+        applicationDeadline: todayDateOnly,
+      };
+
+      mockPrisma.job.create.mockImplementation((args: any) => ({
+        id: 'job-deadline-1',
+        ...args.data,
+        company: activeCompany,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+
+      const result = await service.createDraftJob('comp-1', hrUser, dto);
+
+      expect(mockPrisma.job.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            applicationDeadline: new Date(`${todayDateOnly}T23:59:59.999Z`),
+          }),
+        }),
+      );
+      expect(result.applicationDeadline).toBe(`${todayDateOnly}T23:59:59.999Z`);
+    });
   });
 
   describe('getJobDetail projections (BE-3-003)', () => {
@@ -169,6 +206,31 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
         technologyNames: ['Node'],
         status: 'PUBLISHED',
         applicationDeadline: new Date(Date.now() + 86400000),
+        company: activeCompany,
+        version: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      mockPrisma.job.findFirst.mockResolvedValue(publishedJob);
+
+      const result = await service.getJobDetail('senior-dev');
+      expect(result).toBeDefined();
+      expect(result.id).toBe('job-1');
+      expect(result.title).toBe('Senior Dev');
+    });
+
+    it('BE-21-002 considers job publicly visible at exact deadline boundary (now <= deadline)', async () => {
+      const now = new Date();
+      const publishedJob = {
+        id: 'job-1',
+        slug: 'senior-dev',
+        title: 'Senior Dev',
+        description: 'Desc',
+        requirements: 'Reqs',
+        location: 'HCM',
+        technologyNames: ['Node'],
+        status: 'PUBLISHED',
+        applicationDeadline: now,
         company: activeCompany,
         version: 1,
         createdAt: new Date(),
@@ -274,6 +336,70 @@ describe('JobsService Lifecycle (BE-3-001 to BE-3-008, BE-3-021)', () => {
           expectedVersion: 1,
         }),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('BE-21-002 updates job with date-only deadline normalized to end-of-day UTC', async () => {
+      const now = new Date();
+      const futureDateOnly = new Date(now.getTime() + 86400000).toISOString().slice(0, 10);
+      const existingJob = {
+        id: 'job-1',
+        companyId: 'comp-1',
+        status: 'DRAFT',
+        version: 1,
+        applicationDeadline: new Date(now.getTime() + 3600000),
+        company: activeCompany,
+      };
+      mockPrisma.job.findUnique.mockResolvedValue(existingJob);
+      mockPrisma.job.update.mockImplementation((args: any) => ({
+        ...existingJob,
+        ...args.data,
+        version: existingJob.version + 1,
+      }));
+
+      const result = await service.updateJob('job-1', hrUser, {
+        applicationDeadline: futureDateOnly,
+        expectedVersion: 1,
+      });
+
+      expect(mockPrisma.job.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            applicationDeadline: new Date(`${futureDateOnly}T23:59:59.999Z`),
+          }),
+        }),
+      );
+      expect(result.applicationDeadline).toBe(`${futureDateOnly}T23:59:59.999Z`);
+    });
+
+    it('BE-21-002 preserves existing applicationDeadline when updateJob omits it', async () => {
+      const originalDeadline = new Date(Date.now() + 86400000);
+      const existingJob = {
+        id: 'job-1',
+        companyId: 'comp-1',
+        status: 'DRAFT',
+        version: 1,
+        applicationDeadline: originalDeadline,
+        company: activeCompany,
+      };
+      mockPrisma.job.findUnique.mockResolvedValue(existingJob);
+      mockPrisma.job.update.mockImplementation((args: any) => ({
+        ...existingJob,
+        ...args.data,
+        version: existingJob.version + 1,
+      }));
+
+      await service.updateJob('job-1', hrUser, {
+        title: 'Updated Title',
+        expectedVersion: 1,
+      });
+
+      expect(mockPrisma.job.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            applicationDeadline: originalDeadline,
+          }),
+        }),
+      );
     });
   });
 

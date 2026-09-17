@@ -345,7 +345,7 @@ export class AiService {
     const publishedJobs = await this.prisma.job.findMany({
       where: {
         status: 'PUBLISHED',
-        applicationDeadline: { gt: new Date() },
+        applicationDeadline: { gte: new Date() },
         company: { status: 'ACTIVE' },
       },
       include: { company: true },

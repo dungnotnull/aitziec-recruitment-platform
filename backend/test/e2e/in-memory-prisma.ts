@@ -486,7 +486,7 @@ export class InMemoryPrismaService {
           (j) =>
             j.companyId === found.id &&
             j.status === 'PUBLISHED' &&
-            new Date(j.applicationDeadline) > now,
+            new Date(j.applicationDeadline) >= now,
         );
         return {
           ...found,
@@ -593,7 +593,7 @@ export class InMemoryPrismaService {
             (j) =>
               j.companyId === c.id &&
               j.status === 'PUBLISHED' &&
-              new Date(j.applicationDeadline) > now,
+              new Date(j.applicationDeadline) >= now,
           );
           return {
             ...c,
@@ -709,14 +709,23 @@ export class InMemoryPrismaService {
 
   companyMembership = {
     findFirst: async (args: any) => {
-      return (
+      const match =
         this.companyMemberships.find((m) => {
           if (args.where?.companyId && m.companyId !== args.where.companyId) return false;
           if (args.where?.userId && m.userId !== args.where.userId) return false;
           if (args.where?.role && m.role !== args.where.role) return false;
+          if (args.where?.user?.status) {
+            const u = this.users.find((user) => user.id === m.userId);
+            if (!u || u.status !== args.where.user.status) return false;
+          }
           return true;
-        }) || null
-      );
+        }) || null;
+      if (!match) return null;
+      if (args.include?.user) {
+        const u = this.users.find((user) => user.id === match.userId);
+        return { ...match, user: u || null };
+      }
+      return match;
     },
     findUnique: async (args: any) => {
       if (args.where?.id) {
@@ -1146,6 +1155,11 @@ export class InMemoryPrismaService {
         if (
           args.where?.publishedAt?.gte &&
           new Date(j.publishedAt) < new Date(args.where.publishedAt.gte)
+        )
+          return false;
+        if (
+          args.where?.applicationDeadline?.gte &&
+          new Date(j.applicationDeadline) < new Date(args.where.applicationDeadline.gte)
         )
           return false;
         if (

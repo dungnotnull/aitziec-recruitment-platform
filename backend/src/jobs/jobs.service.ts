@@ -14,6 +14,7 @@ import { ERROR_CODES } from '../common/constants/error-codes';
 import { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { CollectionResponse } from '../common/dto/response.dto';
 import { CompanyJobQueryDto } from './dto/company-job-query.dto';
+import { parseApplicationDeadline } from './job-deadline.util';
 import {
   ApproveJobDto,
   CloseJobDto,
@@ -249,14 +250,8 @@ export class JobsService {
       });
     }
 
-    // Validate deadline constraint
-    const deadline = new Date(dto.applicationDeadline);
-    if (isNaN(deadline.getTime()) || deadline.getTime() <= Date.now()) {
-      throw new BadRequestException({
-        code: ERROR_CODES.VALIDATION_ERROR,
-        message: 'applicationDeadline must be a valid future ISO UTC date.',
-      });
-    }
+    // Validate and normalize deadline constraint (BE-21-002)
+    const deadline = parseApplicationDeadline(dto.applicationDeadline);
 
     // Generate unique slug
     const baseSlug = this.slugify(dto.title);
@@ -324,7 +319,7 @@ export class JobsService {
     const isPubliclyVisible =
       job.status === 'PUBLISHED' &&
       job.company?.status === 'ACTIVE' &&
-      new Date(job.applicationDeadline) > now;
+      new Date(job.applicationDeadline).getTime() >= now.getTime();
 
     if (!isPubliclyVisible) {
       // Non-public job: check authorization
@@ -444,14 +439,7 @@ export class JobsService {
 
     let newDeadline = job.applicationDeadline;
     if (dto.applicationDeadline) {
-      const parsedDeadline = new Date(dto.applicationDeadline);
-      if (isNaN(parsedDeadline.getTime()) || parsedDeadline.getTime() <= Date.now()) {
-        throw new BadRequestException({
-          code: ERROR_CODES.VALIDATION_ERROR,
-          message: 'applicationDeadline must be a valid future ISO UTC date.',
-        });
-      }
-      newDeadline = parsedDeadline;
+      newDeadline = parseApplicationDeadline(dto.applicationDeadline);
     }
 
     const updatedJob = await this.prisma.job.update({

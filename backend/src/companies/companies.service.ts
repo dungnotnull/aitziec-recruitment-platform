@@ -154,7 +154,7 @@ export class CompaniesService {
               jobs: {
                 where: {
                   status: 'PUBLISHED',
-                  applicationDeadline: { gt: now },
+                  applicationDeadline: { gte: now },
                 },
               },
             },
@@ -213,7 +213,7 @@ export class CompaniesService {
       where: {
         companyId: company.id,
         status: 'PUBLISHED',
-        applicationDeadline: { gt: now },
+        applicationDeadline: { gte: now },
         company: { status: 'ACTIVE' },
       },
     });
@@ -308,7 +308,7 @@ export class CompaniesService {
       where: {
         companyId: updated.id,
         status: 'PUBLISHED',
-        applicationDeadline: { gt: new Date() },
+        applicationDeadline: { gte: new Date() },
         company: { status: 'ACTIVE' },
       },
     });
@@ -406,7 +406,7 @@ export class CompaniesService {
         where: {
           companyId,
           status: 'PUBLISHED',
-          applicationDeadline: { gt: now },
+          applicationDeadline: { gte: now },
           company: { status: 'ACTIVE' },
         },
       }),

@@ -1199,4 +1199,107 @@ describe('Jobs, Search & Saved Jobs E2E (BE-3-001 to BE-3-022)', () => {
       expect(foundInSearch.creatorEmail).toBeNull();
     });
   });
+
+  describe('Phase 21: Date-only Job Deadline Normalization (BE-21-002)', () => {
+    let p21CompanyId: string;
+    let hrToken: string;
+
+    beforeAll(async () => {
+      const hrRes = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+        email: 'p21-hr@techcorp.vn',
+        password: 'Password123!@#',
+        role: 'HR',
+      });
+      hrToken = hrRes.body.data.accessToken;
+
+      const compRes = await request(app.getHttpServer())
+        .post('/api/v1/companies')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          name: 'P21 Deadline Test Corp',
+          slug: 'p21-deadline-corp',
+          description: 'Deadline test company',
+        });
+      p21CompanyId = compRes.body.data.id;
+    });
+
+    it('creates a job with date-only today and normalizes applicationDeadline to T23:59:59.999Z', async () => {
+      const todayDateOnly = new Date().toISOString().slice(0, 10);
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${p21CompanyId}/jobs`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          title: 'Date-only Deadline Job',
+          description: 'Testing end of day deadline',
+          requirements: 'TypeScript and NestJS',
+          technologyNames: ['TypeScript'],
+          location: 'Ho Chi Minh',
+          workplaceType: 'HYBRID',
+          experienceLevel: 'MID',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: todayDateOnly,
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.applicationDeadline).toBe(`${todayDateOnly}T23:59:59.999Z`);
+
+      const jobId = res.body.data.id;
+
+      // Update with future date-only
+      const futureDateOnly = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      const updateRes = await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          expectedVersion: 1,
+          applicationDeadline: futureDateOnly,
+        });
+
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.data.applicationDeadline).toBe(`${futureDateOnly}T23:59:59.999Z`);
+    });
+
+    it('rejects invalid date-only format or non-existent date with 400 VALIDATION_ERROR', async () => {
+      const res1 = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${p21CompanyId}/jobs`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          title: 'Invalid Date Job',
+          description: 'Testing invalid date',
+          requirements: 'None',
+          technologyNames: ['TypeScript'],
+          location: 'Ho Chi Minh',
+          workplaceType: 'HYBRID',
+          experienceLevel: 'MID',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: '2026-02-30',
+        });
+
+      expect(res1.status).toBe(400);
+      expect(res1.body.error.code).toBe('VALIDATION_ERROR');
+
+      const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      const res2 = await request(app.getHttpServer())
+        .post(`/api/v1/companies/${p21CompanyId}/jobs`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({
+          title: 'Past Date Job',
+          description: 'Testing past date',
+          requirements: 'None',
+          technologyNames: ['TypeScript'],
+          location: 'Ho Chi Minh',
+          workplaceType: 'HYBRID',
+          experienceLevel: 'MID',
+          employmentType: 'FULL_TIME',
+          currency: 'VND',
+          applicationDeadline: yesterday,
+        });
+
+      expect(res2.status).toBe(400);
+      expect(res2.body.error.code).toBe('VALIDATION_ERROR');
+    });
+  });
 });

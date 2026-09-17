@@ -198,7 +198,11 @@ export class CreateJobDto {
   @IsNotEmpty()
   currency: string;
 
-  @ApiProperty({ example: '2026-10-01T00:00:00.000Z' })
+  @ApiProperty({
+    example: '2026-10-01',
+    description:
+      'Application deadline in ISO-8601 format. Accepts date-only (YYYY-MM-DD, normalized to 23:59:59.999Z UTC) or full ISO-8601 UTC timestamp. Must be in the future.',
+  })
   @IsISO8601()
   applicationDeadline: string;
 
@@ -294,7 +298,11 @@ export class UpdateJobDto {
   @IsNotEmpty()
   currency?: string;
 
-  @ApiPropertyOptional({ example: '2026-11-01T00:00:00.000Z' })
+  @ApiPropertyOptional({
+    example: '2026-11-01',
+    description:
+      'Application deadline in ISO-8601 format. Accepts date-only (YYYY-MM-DD, normalized to 23:59:59.999Z UTC) or full ISO-8601 UTC timestamp. Must be in the future.',
+  })
   @IsOptional()
   @IsISO8601()
   applicationDeadline?: string;

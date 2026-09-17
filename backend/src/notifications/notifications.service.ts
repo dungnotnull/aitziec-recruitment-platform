@@ -45,6 +45,7 @@ export interface EventRoutingPayload {
   ownerUserIds?: string[];
   jobVersion?: number;
   submittedAt?: string;
+  managerUserIds?: string[];
   [key: string]: unknown;
 }
 
@@ -279,6 +280,16 @@ export class NotificationsService {
               });
             }
           }
+
+          // Fan-out in-app notification to job managers (BE-21-001)
+          await this.fanOutRecruiterApplicationNotification(
+            'ApplicationSubmitted',
+            NotificationType.APPLICATION_SUBMITTED,
+            'New Application Received',
+            `A new application has been submitted for ${payload.jobTitle || 'the position'}.`,
+            payload,
+            eventId,
+          );
           break;
         }
 
@@ -384,6 +395,16 @@ export class NotificationsService {
               });
             }
           }
+
+          // Fan-out in-app notification to job managers (BE-21-001)
+          await this.fanOutRecruiterApplicationNotification(
+            'ApplicationHired',
+            NotificationType.APPLICATION_OUTCOME,
+            'Candidate Hired',
+            `A candidate has been officially hired for ${payload.jobTitle || 'the position'}.`,
+            payload,
+            eventId,
+          );
           break;
         }
 
@@ -690,5 +711,87 @@ export class NotificationsService {
     }
 
     return { createdAt, id };
+  }
+
+  /**
+   * Fans out in-app notifications to active job managers (BE-21-001).
+   */
+  private async fanOutRecruiterApplicationNotification(
+    eventName: string,
+    notifType: NotificationType,
+    title: string,
+    body: string,
+    payload: EventRoutingPayload,
+    eventId?: string,
+  ): Promise<void> {
+    const rawManagerIds = Array.isArray(payload.managerUserIds) ? payload.managerUserIds : [];
+
+    const uniqueManagerIds = Array.from(new Set(rawManagerIds)).filter(
+      (id) => !payload.candidateUserId || id !== payload.candidateUserId,
+    );
+
+    if (uniqueManagerIds.length === 0) {
+      this.logger.warn(
+        `No active managers found for application event ${eventName} (jobId: ${payload.jobId}, companyId: ${payload.companyId}, eventId: ${eventId})`,
+      );
+      return;
+    }
+
+    if (!payload.jobId || !payload.companyId || !payload.applicationId) {
+      this.logger.warn(
+        `Missing required fields for recruiter notification fan-out on ${eventName} (jobId: ${payload.jobId}, companyId: ${payload.companyId})`,
+      );
+      return;
+    }
+
+    const job = await this.prisma.job.findUnique({
+      where: { id: payload.jobId },
+      select: { creatorId: true, companyId: true },
+    });
+
+    if (!job || job.companyId !== payload.companyId) {
+      this.logger.warn(
+        `Job not found or company mismatch for recruiter notification fan-out on ${eventName} (jobId: ${payload.jobId})`,
+      );
+      return;
+    }
+
+    for (const managerUserId of uniqueManagerIds) {
+      try {
+        const membership = await this.prisma.companyMembership.findFirst({
+          where: {
+            companyId: payload.companyId,
+            userId: managerUserId,
+          },
+          include: {
+            user: true,
+          },
+        });
+
+        if (
+          !membership ||
+          membership.user?.status !== 'ACTIVE' ||
+          (membership.role !== CompanyMemberRole.OWNER &&
+            !(membership.role === CompanyMemberRole.RECRUITER && job.creatorId === managerUserId))
+        ) {
+          continue;
+        }
+
+        await this.createNotification({
+          userId: managerUserId,
+          type: notifType,
+          title,
+          body,
+          resourceType: 'APPLICATION',
+          resourceId: payload.applicationId,
+          sourceEventId: eventId,
+          deliveryKey: eventId ? `notif-${eventId}-${managerUserId}` : undefined,
+        });
+      } catch (err: unknown) {
+        this.logger.warn(
+          `Failed to create recruiter notification for manager ${managerUserId} on event ${eventName}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
   }
 }
