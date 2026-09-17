@@ -16,6 +16,21 @@ export const JobEditor: React.FC<JobEditorProps> = ({ companyId, initialJob, onS
   const createJob = useCreateJob();
   const updateJob = useUpdateJob();
 
+  const getDefaultDeadline = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split('T')[0];
+  };
+
+  const getMinDeadline = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+  };
+
+  const [techInput, setTechInput] = useState(initialJob?.technologyNames?.join(', ') || '');
+  const [techError, setTechError] = useState<string | null>(null);
+
   const [formData, setFormData] = useState<CreateJobRequest>({
     title: initialJob?.title || '',
     description: initialJob?.description || '',
@@ -26,10 +41,10 @@ export const JobEditor: React.FC<JobEditorProps> = ({ companyId, initialJob, onS
     workplaceType: initialJob?.workplaceType || 'ONSITE',
     experienceLevel: initialJob?.experienceLevel || 'MID',
     employmentType: initialJob?.employmentType || 'FULL_TIME',
-    salaryMin: initialJob?.salaryMin || null,
-    salaryMax: initialJob?.salaryMax || null,
+    salaryMin: initialJob?.salaryMin ?? null,
+    salaryMax: initialJob?.salaryMax ?? null,
     currency: initialJob?.currency || 'VND',
-    applicationDeadline: initialJob?.applicationDeadline || new Date().toISOString().split('T')[0],
+    applicationDeadline: initialJob?.applicationDeadline ? initialJob.applicationDeadline.split('T')[0] : getDefaultDeadline(),
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -40,36 +55,43 @@ export const JobEditor: React.FC<JobEditorProps> = ({ companyId, initialJob, onS
     }));
   };
 
-  const handleTechChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const techs = e.target.value.split(',').map((t) => t.trim()).filter(Boolean);
-    setFormData((prev) => ({
-      ...prev,
-      technologyNames: techs,
-    }));
+  const handleTechInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setTechInput(e.target.value);
+    if (techError) {
+      setTechError(null);
+    }
   };
 
   const handleNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: value ? parseInt(value, 10) : null,
+      [name]: value !== '' && !isNaN(Number(value)) ? parseInt(value, 10) : null,
     }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (formData.technologyNames.length === 0) {
-      alert('Please enter at least one technology.');
+    const techs = techInput.split(',').map((t) => t.trim()).filter(Boolean);
+    if (techs.length === 0) {
+      setTechError('Please enter at least one technology (e.g. React, Node.js).');
       return;
     }
+    setTechError(null);
+
+    const submissionData = {
+      ...formData,
+      technologyNames: techs,
+    };
+
     if (isEditing && initialJob) {
       updateJob.mutate(
-        { jobId: initialJob.id, data: { ...formData, expectedVersion: initialJob.version } },
+        { jobId: initialJob.id, data: { ...submissionData, expectedVersion: initialJob.version } },
         { onSuccess }
       );
     } else {
       createJob.mutate(
-        { companyId, data: formData },
+        { companyId, data: submissionData },
         { onSuccess }
       );
     }
@@ -100,6 +122,7 @@ export const JobEditor: React.FC<JobEditorProps> = ({ companyId, initialJob, onS
               id="applicationDeadline"
               name="applicationDeadline"
               type="date"
+              min={getMinDeadline()}
               value={formData.applicationDeadline.split('T')[0]}
               onChange={handleChange}
               required
@@ -162,10 +185,13 @@ export const JobEditor: React.FC<JobEditorProps> = ({ companyId, initialJob, onS
           <Input
             id="technologyNames"
             name="technologyNames"
-            value={formData.technologyNames.join(', ')}
-            onChange={handleTechChange}
-            placeholder="e.g. React, Node.js, PostgreSQL"
+            value={techInput}
+            onChange={handleTechInputChange}
+            placeholder="e.g. React, React Native, Spring Boot"
           />
+          {techError && (
+            <p className="text-xs font-semibold text-danger">{techError}</p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -175,11 +201,11 @@ export const JobEditor: React.FC<JobEditorProps> = ({ companyId, initialJob, onS
           </div>
           <div className="space-y-2">
             <Label htmlFor="salaryMin">Min Salary (optional)</Label>
-            <Input id="salaryMin" name="salaryMin" type="number" min={0} max={2147483647} value={formData.salaryMin || ''} onChange={handleNumberChange} />
+            <Input id="salaryMin" name="salaryMin" type="number" min={0} max={2147483647} value={formData.salaryMin ?? ''} onChange={handleNumberChange} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="salaryMax">Max Salary (optional)</Label>
-            <Input id="salaryMax" name="salaryMax" type="number" min={0} max={2147483647} value={formData.salaryMax || ''} onChange={handleNumberChange} />
+            <Input id="salaryMax" name="salaryMax" type="number" min={0} max={2147483647} value={formData.salaryMax ?? ''} onChange={handleNumberChange} />
           </div>
         </div>
 

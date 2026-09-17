@@ -323,6 +323,7 @@ export type Job = {
   publishedAt: string | null;
   closedAt: string | null;
   version: number;
+  hasApplied?: boolean;
   createdAt: string;
   updatedAt: string;
 };

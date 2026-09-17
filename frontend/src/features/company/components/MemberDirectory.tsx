@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { listMembers, addMember, removeMember } from "../api"
-import type { CompanyInvitation } from "@/api/types"
+import type { CompanyInvitation, CompanyMembership } from "@/api/types"
 import { getApiErrorDetails } from "@/shared/lib/api-error"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card"
 import { Button } from "@/shared/ui/button"
@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/shared/ui/badge"
 import { StateBoundary } from "@/shared/ui/state-boundary"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/shared/ui/dialog"
+import { ConfirmDialog } from "@/shared/ui/confirm-dialog"
 import { Plus, UserMinus, MailCheck, AlertCircle } from "lucide-react"
 import { useAuth } from "@/features/auth/context"
 
@@ -19,6 +20,7 @@ export function MemberDirectory({ companyId }: { companyId: string }) {
   const [newEmail, setNewEmail] = React.useState("")
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
   const [successNotice, setSuccessNotice] = React.useState<string | null>(null)
+  const [removingMember, setRemovingMember] = React.useState<CompanyMembership | null>(null)
   
   // Pending invitations created during this session
   const [pendingInvites, setPendingInvites] = React.useState<CompanyInvitation[]>([])
@@ -154,11 +156,7 @@ export function MemberDirectory({ companyId }: { companyId: string }) {
                           variant="ghost" 
                           size="sm"
                           className="text-danger hover:text-danger hover:bg-danger/10"
-                          onClick={() => {
-                            if (confirm('Are you sure you want to remove this member?')) {
-                              removeMutation.mutate(member.id)
-                            }
-                          }}
+                          onClick={() => setRemovingMember(member)}
                           disabled={removeMutation.isPending}
                         >
                           <UserMinus className="h-4 w-4" />
@@ -220,6 +218,27 @@ export function MemberDirectory({ companyId }: { companyId: string }) {
           </CardContent>
         </Card>
       )}
+
+      <ConfirmDialog
+        open={!!removingMember}
+        onOpenChange={(open) => !open && setRemovingMember(null)}
+        title="Remove Member"
+        description={
+          removingMember
+            ? `Are you sure you want to remove ${removingMember.user.email} from this company?`
+            : 'Are you sure you want to remove this member?'
+        }
+        confirmText="Remove Member"
+        variant="destructive"
+        isLoading={removeMutation.isPending}
+        onConfirm={() => {
+          if (removingMember) {
+            removeMutation.mutate(removingMember.id, {
+              onSuccess: () => setRemovingMember(null),
+            });
+          }
+        }}
+      />
     </div>
   )
 }

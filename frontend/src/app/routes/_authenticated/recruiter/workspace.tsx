@@ -4,6 +4,7 @@ import type { Job } from '@/api/types';
 import { Button } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
 import { Badge } from '@/shared/ui/badge';
+import { ConfirmDialog } from '@/shared/ui/confirm-dialog';
 import { JobEditor } from '@/features/job/components/JobEditor';
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -105,16 +106,10 @@ function RecruiterWorkspacePage() {
     );
   };
 
+  const [closingJob, setClosingJob] = useState<{ id: string; version: number } | null>(null);
+
   const handleClose = (jobId: string, version: number) => {
-    if (confirm('Are you sure you want to close this job?')) {
-      closeMutation.mutate(
-        { jobId, expectedVersion: version, reason: 'Closed by recruiter' },
-        {
-          onSuccess: () => showFlash('success', 'Job closed successfully'),
-          onError: (err) => showFlash('error', `Failed to close job: ${err.message}`),
-        }
-      );
-    }
+    setClosingJob({ id: jobId, version });
   };
 
   const handleApprove = (jobId: string, version: number) => {
@@ -317,6 +312,33 @@ function RecruiterWorkspacePage() {
           </div>
         )}
       </StateBoundary>
+
+      <ConfirmDialog
+        open={!!closingJob}
+        onOpenChange={(open) => !open && setClosingJob(null)}
+        title="Close Job"
+        description="Are you sure you want to close this job? Candidates will no longer be able to submit applications."
+        confirmText="Close Job"
+        variant="destructive"
+        isLoading={closeMutation.isPending}
+        onConfirm={() => {
+          if (closingJob) {
+            closeMutation.mutate(
+              { jobId: closingJob.id, expectedVersion: closingJob.version, reason: 'Closed by recruiter' },
+              {
+                onSuccess: () => {
+                  showFlash('success', 'Job closed successfully');
+                  setClosingJob(null);
+                },
+                onError: (err) => {
+                  showFlash('error', `Failed to close job: ${err.message}`);
+                  setClosingJob(null);
+                },
+              }
+            );
+          }
+        }}
+      />
     </div>
   );
 }

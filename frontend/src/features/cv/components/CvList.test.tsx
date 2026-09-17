@@ -77,8 +77,6 @@ describe('CvList', () => {
       throw new Error(`Unhandled request: ${config.method} ${config.url}`)
     }) satisfies AxiosAdapter
 
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     })
@@ -96,6 +94,9 @@ describe('CvList', () => {
     expect(deleteBtn).toBeEnabled()
 
     await userEvent.click(deleteBtn)
+
+    const confirmDeleteBtn = await screen.findByRole('button', { name: 'Delete CV' })
+    await userEvent.click(confirmDeleteBtn)
 
     await waitFor(() => {
       expect(deleteRequestedId).toContain('cv-default')

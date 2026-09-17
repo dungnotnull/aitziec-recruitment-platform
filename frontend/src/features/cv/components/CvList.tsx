@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useCvs, useSetDefaultCv, useDeleteCv, useDownloadCv } from '../hooks/useCv';
 import { Card, CardContent } from '@/shared/ui/card';
 import { Button } from '@/shared/ui/button';
 import { Badge } from '@/shared/ui/badge';
+import { ConfirmDialog } from '@/shared/ui/confirm-dialog';
 import type { Cv, CvProcessingStatus } from '@/api/types';
 import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { getApiErrorDetails } from '@/shared/lib/api-error';
@@ -22,6 +23,7 @@ export const CvList: React.FC = () => {
   const setDefaultCv = useSetDefaultCv();
   const deleteCv = useDeleteCv();
   const downloadCv = useDownloadCv();
+  const [deletingCv, setDeletingCv] = useState<Cv | null>(null);
 
   if (isLoading) {
     return (
@@ -56,9 +58,7 @@ export const CvList: React.FC = () => {
   };
 
   const handleDelete = (cv: Cv) => {
-    if (confirm('Are you sure you want to delete this CV?')) {
-      deleteCv.mutate(cv.id);
-    }
+    setDeletingCv(cv);
   };
 
   const handleDownload = (cv: Cv) => {
@@ -152,6 +152,27 @@ export const CvList: React.FC = () => {
           </CardContent>
         </Card>
       ))}
+
+      <ConfirmDialog
+        open={!!deletingCv}
+        onOpenChange={(open) => !open && setDeletingCv(null)}
+        title="Delete CV"
+        description={
+          deletingCv
+            ? `Are you sure you want to delete "${decodeFileName(deletingCv.originalFileName)}"? This action cannot be undone.`
+            : 'Are you sure you want to delete this CV?'
+        }
+        confirmText="Delete CV"
+        variant="destructive"
+        isLoading={deleteCv.isPending}
+        onConfirm={() => {
+          if (deletingCv) {
+            deleteCv.mutate(deletingCv.id, {
+              onSuccess: () => setDeletingCv(null),
+            });
+          }
+        }}
+      />
     </div>
   );
 };
