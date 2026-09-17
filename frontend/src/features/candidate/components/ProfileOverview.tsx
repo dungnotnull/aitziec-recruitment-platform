@@ -13,11 +13,13 @@ import { ProfileVisibilityControl } from "./ProfileVisibilityControl"
 import { SkillCombobox } from "./SkillCombobox"
 import { Avatar } from "@/shared/ui/avatar"
 import { Progress } from "@/shared/ui/progress"
+import { useToast } from "@/shared/ui/toast"
 import { Mail, Phone, MapPin, Camera, ExternalLink } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 
 export function ProfileOverview() {
   const { session } = useAuth()
+  const { toast } = useToast()
   const [localAvatar, setLocalAvatar] = useState<string | null>(null)
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -26,7 +28,11 @@ export function ProfileOverview() {
       const reader = new FileReader()
       reader.onload = (e) => setLocalAvatar(e.target?.result as string)
       reader.readAsDataURL(file)
-      alert("Tính năng Upload Avatar hiện chưa có API hỗ trợ từ Backend. Vui lòng gửi yêu cầu cho team Backend bổ sung API này nhé!")
+      toast({
+        title: "Thông báo cập nhật ảnh",
+        description: "Tính năng Upload Avatar hiện chưa có API hỗ trợ từ Backend. Vui lòng gửi yêu cầu cho team Backend bổ sung API này nhé!",
+        variant: "default",
+      })
     }
   }
 

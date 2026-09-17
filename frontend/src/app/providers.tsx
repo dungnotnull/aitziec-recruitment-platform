@@ -4,6 +4,7 @@ import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { routeTree } from './routeTree.gen'
 
 import { AuthProvider, useAuth } from '@/features/auth/context'
+import { ToastProvider } from '@/shared/ui/toast'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,7 +39,9 @@ export function Providers() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <InnerProviders />
+        <ToastProvider>
+          <InnerProviders />
+        </ToastProvider>
       </AuthProvider>
     </QueryClientProvider>
   )

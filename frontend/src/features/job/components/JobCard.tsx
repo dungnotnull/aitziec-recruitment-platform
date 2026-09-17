@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from '@tanstack/react-router';
 import { Card, CardContent } from '@/shared/ui/card';
 import type { Job } from '@/api/types';
-import { Building2, MapPin, Lock, Flame, ArrowRight, Briefcase } from 'lucide-react';
+import { Building2, MapPin, Lock, Flame, ArrowRight, Briefcase, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '@/features/auth/context';
 
 interface JobCardProps {
@@ -40,6 +40,13 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
               <Flame className="h-3 w-3 fill-amber-500 text-amber-500" />
               HOT
             </span>
+
+            {job.hasApplied && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wide px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
+                <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                Đã ứng tuyển
+              </span>
+            )}
           </div>
 
           <span className="text-xs text-muted-foreground">

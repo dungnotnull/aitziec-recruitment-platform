@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from '@tanstack/react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useJobDetail } from '../hooks/useJobs';
 import { useAuth } from '@/features/auth/context';
 import { Button } from '@/shared/ui/button';
@@ -7,6 +8,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/shared/ui/alert';
 import { SavedJobButton } from '@/features/saved-jobs/components/SavedJobButton';
 import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogHeader, DialogDescription } from '@/shared/ui/dialog';
 import { ApplyForm } from '@/features/application/components/ApplyForm';
+import { useToast } from '@/shared/ui/toast';
 import {
   Building2,
   MapPin,
@@ -17,6 +19,7 @@ import {
   ExternalLink,
   LogIn,
   UserPlus,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface JobDetailProps {
@@ -25,6 +28,8 @@ interface JobDetailProps {
 
 export const JobDetail: React.FC<JobDetailProps> = ({ jobIdOrSlug }) => {
   const { session } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const isLoggedIn = !!session;
   const isCandidate = session?.user?.role === 'CANDIDATE';
   const isHR = session?.user?.role === 'HR';
@@ -230,6 +235,16 @@ export const JobDetail: React.FC<JobDetailProps> = ({ jobIdOrSlug }) => {
                   </div>
                 </DialogContent>
               </Dialog>
+            ) : isCandidate && job.hasApplied ? (
+              // Candidate has already applied
+              <Button
+                size="lg"
+                disabled
+                className="w-full h-12 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 font-bold text-sm cursor-not-allowed opacity-90 shadow-sm flex items-center justify-center gap-2"
+              >
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                <span>Đã ứng tuyển</span>
+              </Button>
             ) : isCandidate ? (
               // Candidate logged in: Opens ApplyForm Dialog
               <Dialog open={isApplyOpen} onOpenChange={setIsApplyOpen}>
@@ -253,7 +268,12 @@ export const JobDetail: React.FC<JobDetailProps> = ({ jobIdOrSlug }) => {
                   <ApplyForm
                     jobId={job.id}
                     onSuccess={() => {
-                      alert('Hồ sơ của bạn đã được gửi thành công!');
+                      toast({
+                        title: 'Ứng tuyển thành công!',
+                        description: 'Hồ sơ của bạn đã được gửi đến nhà tuyển dụng.',
+                        variant: 'success',
+                      });
+                      queryClient.invalidateQueries({ queryKey: ['jobs'] });
                       setIsApplyOpen(false);
                     }}
                     onCancel={() => setIsApplyOpen(false)}

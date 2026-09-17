@@ -49,6 +49,7 @@ export const useSubmitApplication = () => {
     }) => applicationApi.submitApplication(jobId, data, idempotencyKey),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: appKeys.candidateLists() });
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
     },
   });
 };

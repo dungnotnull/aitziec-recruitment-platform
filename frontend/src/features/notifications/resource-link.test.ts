@@ -13,6 +13,8 @@ describe('notificationResourceHref', () => {
     expect(notificationResourceHref({ type: 'INTERVIEW', id: 'int-1' })).toBe('/interviews/int-1')
     expect(notificationResourceHref({ type: 'COMPANY', id: 'comp-1' })).toBe('/company')
     expect(notificationResourceHref({ type: 'JOB', id: 'job-1' }, 'JOB_PENDING_APPROVAL')).toBe('/recruiter/workspace')
+    expect(notificationResourceHref({ type: 'APPLICATION', id: 'app-1' }, undefined, 'HR')).toBe('/recruiter/workspace')
+    expect(notificationResourceHref({ type: 'JOB', id: 'job-1' }, undefined, 'HR')).toBe('/recruiter/workspace')
     expect(notificationResourceHref({ type: 'UNKNOWN', id: 'private' })).toBeNull()
     expect(notificationResourceHref({ type: 'JOB', id: '../admin' })).toBeNull()
   })

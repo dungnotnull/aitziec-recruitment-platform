@@ -130,7 +130,7 @@ export function NotificationCenter() {
           <h2 id={`notifications-${date.replaceAll(' ', '-')}`} className="font-mono text-xs font-semibold uppercase tracking-wider text-ink-muted">{date}</h2>
           <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
             {items.map((notification) => {
-              const href = notificationResourceHref(notification.resource, notification.type)
+              const href = notificationResourceHref(notification.resource, notification.type, auth?.session?.user.role)
               const isRead = notification.readAt !== null
               return (
                 <article key={notification.id} data-read={String(isRead)} className="grid gap-3 p-4 sm:grid-cols-[auto_1fr_auto] sm:items-start">
